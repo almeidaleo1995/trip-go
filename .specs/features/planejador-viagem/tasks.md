@@ -9,7 +9,7 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 ---
 
 **Design**: `.specs/features/planejador-viagem/design.md`
-**Status**: Draft - revisao 3 (referencias visuais, CRUD completo, cruzeiro, mapa)
+**Status**: Done — 37 tarefas executadas, gates completos
 
 ---
 

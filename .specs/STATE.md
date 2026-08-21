@@ -57,8 +57,19 @@
 
 ## Handoff
 
-**Fase atual:** Specify, Design e Tasks concluídas na revisão 3, todas com 0 erros nos gates — 89 requisitos, 14 histórias, 37 tarefas em 6 fases.
-**Próximo passo:** Executar a Fase 1 (T1–T6): schema, db:push, cálculos puros, sessão, schemas zod, cliente do banco.
-**Estado do ambiente:** Next.js 15 + Tailwind v4 scaffoldado, conexão com o Neon testada (PostgreSQL 18.6, base `neondb`), `.env.local` fora do git.
-**Bloqueio:** Nenhum.
-**Pendência de segurança:** rotacionar a senha do Neon no console depois do deploy (AD-005).
+**Fase atual:** Todas as 6 fases executadas. 33 commits atômicos na branch `feat/planejador-viagem`.
+**Gates:** 88 testes unitários + 26 de integração contra o Neon real + `next build` limpo.
+**Estado do banco:** viagem Europa 2027 carregada (139 registros em 12 seções).
+**Próximo passo:** deploy na Vercel e rotação da senha do Neon (AD-005).
+
+**Bugs reais encontrados pelos testes durante a execução, não por revisão:**
+1. `projetarRota` plotava cidade sem coordenada em (0,0) — `Number(null)` é 0.
+2. `parseData` aceitava rollover: `2026-13-45` virava `2027-02-14`.
+3. Refine do zod v4 roda após o regex falhar: data inválida dava 500 em vez de 400.
+4. O catch do lote em `/api/mutate` engolia o 409 do último admin e devolvia 200.
+5. Driver do Neon devolve `date` como `Date`: `String(d).slice(0,10)` virava "Mon Dec 3" e o backup não restaurava.
+6. Um teste passava por acidente (procurava substring "pin" num corpo que era erro 500).
+
+**Não construído, e por quê:**
+- CRUD de escalas de voo e de portos do cruzeiro pela interface: as entidades existem no schema, na API e no `EditorSheet`, mas não há botão nas abas. Entram pela importação de JSON. Custo baixo de adicionar depois.
+- Troca entre múltiplas viagens (ADM-07): o schema suporta, a UI não. Importar arquiva a anterior.
