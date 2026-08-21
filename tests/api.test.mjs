@@ -307,6 +307,107 @@ test('dry_run mostra o resumo sem gravar', async () => {
   assert.equal(depois.corpo.viagem.id, antes.corpo.viagem.id, 'dry_run não pode trocar a viagem')
 })
 
+// ---------------------------------------------------------------- CRUD do admin
+
+test('admin cria, edita e remove um evento do roteiro', async () => {
+  const antes = (await admin('/api/snapshot')).corpo.roteiro.length
+  const id = crypto.randomUUID()
+
+  const criado = await admin('/api/mutate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ops: [
+        {
+          op: 'criar',
+          entidade: 'roteiro',
+          id,
+          campos: { titulo: 'Voo remarcado', ocorre_em: '2027-01-01T14:20', tipo: 'voo', ancora: true },
+          client_ts: new Date().toISOString(),
+        },
+      ],
+    }),
+  })
+  assert.equal(criado.status, 200)
+  assert.equal(criado.corpo.snapshot.roteiro.length, antes + 1)
+
+  const editado = await admin('/api/mutate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ops: [
+        {
+          op: 'editar',
+          entidade: 'roteiro',
+          id,
+          campos: { titulo: 'Voo remarcado de novo' },
+          client_ts: new Date().toISOString(),
+        },
+      ],
+    }),
+  })
+  assert.equal(
+    editado.corpo.snapshot.roteiro.find((e) => e.id === id).titulo,
+    'Voo remarcado de novo'
+  )
+
+  const removido = await admin('/api/mutate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ops: [{ op: 'remover', entidade: 'roteiro', id, campos: {}, client_ts: new Date().toISOString() }],
+    }),
+  })
+  assert.equal(removido.corpo.snapshot.roteiro.length, antes)
+})
+
+test('admin define PIN de um viajante e ele passa a conseguir entrar', async () => {
+  const snap = await admin('/api/snapshot')
+  const alvo = snap.corpo.viajantes.find((v) => v.nome === 'Marcia Martins')
+
+  const r = await admin('/api/mutate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ops: [
+        {
+          op: 'editar',
+          entidade: 'viajante',
+          id: alvo.id,
+          campos: { pin: '7777' },
+          client_ts: new Date().toISOString(),
+        },
+      ],
+    }),
+  })
+  assert.equal(r.status, 200)
+  // O hash nunca volta na resposta.
+  assert.ok(!JSON.stringify(r.corpo).includes('pin_hash'))
+
+  const nova = cliente()
+  const entrou = await nova('/api/sessao', {
+    method: 'POST',
+    body: JSON.stringify({ travelerId: alvo.id, pin: '7777' }),
+  })
+  assert.equal(entrou.status, 200)
+  assert.equal(entrou.corpo.papel, 'viajante')
+})
+
+test('admin edita a viagem e a cor de destaque muda', async () => {
+  const snap = await admin('/api/snapshot')
+  const r = await admin('/api/mutate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ops: [
+        {
+          op: 'editar',
+          entidade: 'viagem',
+          id: snap.corpo.viagem.id,
+          campos: { cor_destaque: '#7C3AED' },
+          client_ts: new Date().toISOString(),
+        },
+      ],
+    }),
+  })
+  assert.equal(r.corpo.snapshot.viagem.cor_destaque, '#7C3AED')
+})
+
 // ---------------------------------------------------------------- exportação
 
 test('exportação do admin valida contra o schema de importação', async () => {
