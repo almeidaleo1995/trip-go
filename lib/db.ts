@@ -54,7 +54,15 @@ export async function listarViajantesPublico(tripId: string) {
 /** Uso interno do login: precisa do hash e do papel. Nunca vai para a resposta. */
 export async function viajantePorId(id: string) {
   const r = await sql`select id, trip_id, nome, papel, pin_hash from travelers where id = ${id}`
-  return (r[0] as { id: string; trip_id: string; nome: string; papel: Papel; pin_hash: string | null }) ?? null
+  return (
+    (r[0] as {
+      id: string
+      trip_id: string
+      nome: string
+      papel: Papel
+      pin_hash: string | null
+    }) ?? null
+  )
 }
 
 /**
@@ -152,7 +160,7 @@ export async function registrarAlteracao(
   entidadeId: string | null,
   campo: string,
   de: unknown,
-  para: unknown
+  para: unknown,
 ) {
   const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))
   await sql`

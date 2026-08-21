@@ -84,12 +84,18 @@ test('lista no maximo 5 erros e diz quantos sobraram', () => {
 // ---------------------------------------------------------------- datas
 
 test('recusa data com rollover silencioso de mes', () => {
-  const r = validarImportacao({ ...MINIMA, viagem: { ...MINIMA.viagem, data_partida: '2026-13-05' } })
+  const r = validarImportacao({
+    ...MINIMA,
+    viagem: { ...MINIMA.viagem, data_partida: '2026-13-05' },
+  })
   assert.equal(r.sucesso, false)
 })
 
 test('recusa 30 de fevereiro', () => {
-  const r = validarImportacao({ ...MINIMA, viagem: { ...MINIMA.viagem, data_partida: '2027-02-30' } })
+  const r = validarImportacao({
+    ...MINIMA,
+    viagem: { ...MINIMA.viagem, data_partida: '2027-02-30' },
+  })
   assert.equal(r.sucesso, false)
 })
 

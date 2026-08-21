@@ -264,7 +264,7 @@ test('projetarRota inverte o eixo y: latitude maior fica mais em cima', () => {
 test('projetarRota mantem a ordem de entrada, que e a ordem da rota', () => {
   assert.deepEqual(
     projetarRota(ROTA).map((p) => p.cidade),
-    ['Hamburgo', 'Zeebrugge', 'Roterdã', 'Southampton']
+    ['Hamburgo', 'Zeebrugge', 'Roterdã', 'Southampton'],
   )
 })
 
@@ -297,7 +297,7 @@ test('projetarRota reenquadra sozinha para outro continente', () => {
     ],
     100,
     100,
-    10
+    10,
   )
   for (const { x, y } of p) {
     assert.ok(x >= 9.999 && x <= 90.001)
@@ -316,7 +316,10 @@ test('mesclarLWW mantem a versao com updated_at mais recente', () => {
 
 test('mesclarLWW em empate fica com o remoto, que e a fonte da verdade', () => {
   const t = '2026-08-21T10:00:00.000Z'
-  assert.equal(mesclarLWW({ updated_at: t, v: 'local' }, { updated_at: t, v: 'remoto' }).v, 'remoto')
+  assert.equal(
+    mesclarLWW({ updated_at: t, v: 'local' }, { updated_at: t, v: 'remoto' }).v,
+    'remoto',
+  )
 })
 
 test('mesclarLWW cai para o lado que tem timestamp valido', () => {

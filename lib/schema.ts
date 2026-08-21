@@ -67,7 +67,10 @@ export const ViajanteSchema = z.object({
   nome: Texto,
   papel: z.enum(['admin', 'viajante']).default('viajante'),
   /** PIN em texto puro so na importacao. Vira hash antes de tocar no banco. */
-  pin: z.string().regex(/^\d{4}$/, 'o PIN precisa ter exatamente 4 digitos').optional(),
+  pin: z
+    .string()
+    .regex(/^\d{4}$/, 'o PIN precisa ter exatamente 4 digitos')
+    .optional(),
   telefone: TextoOpc,
   passaporte: TextoOpc,
   ordem: z.number().int().default(0),

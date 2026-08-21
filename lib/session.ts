@@ -6,18 +6,13 @@
 // Este modulo NAO importa `next/headers` no topo de proposito - assim ele roda no
 // runner de teste do Node sem contexto de request. As funcoes que mexem em cookie
 // fazem import dinamico.
-import {
-  scrypt as scryptCb,
-  randomBytes,
-  timingSafeEqual,
-  createHmac,
-} from 'node:crypto'
+import { scrypt as scryptCb, randomBytes, timingSafeEqual, createHmac } from 'node:crypto'
 import { promisify } from 'node:util'
 
 const scrypt = promisify(scryptCb) as (
   senha: string | Buffer,
   sal: string | Buffer,
-  tamanho: number
+  tamanho: number,
 ) => Promise<Buffer>
 
 export type Papel = 'admin' | 'viajante'
@@ -44,7 +39,10 @@ export async function hashPin(pin: string): Promise<string> {
  * Compara em tempo constante. Devolve false para qualquer entrada malformada em vez
  * de lancar - um hash corrompido no banco nao deve virar 500 na tela de login.
  */
-export async function verifyPin(pin: string, guardado: string | null | undefined): Promise<boolean> {
+export async function verifyPin(
+  pin: string,
+  guardado: string | null | undefined,
+): Promise<boolean> {
   if (!guardado || typeof guardado !== 'string') return false
   const partes = guardado.split('$')
   if (partes.length !== 4 || partes[0] !== 'scrypt') return false
@@ -121,7 +119,10 @@ export const BLOQUEIO_MS = 15 * 60 * 1000
  * mitigacao parcial, assumida e documentada nos Risks do design. Se virar
  * preocupacao real, mover o contador para uma tabela no Neon e uma troca local.
  */
-export function registrarFalha(chave: string, agora = Date.now()): { bloqueado: boolean; restamMs: number } {
+export function registrarFalha(
+  chave: string,
+  agora = Date.now(),
+): { bloqueado: boolean; restamMs: number } {
   const j = janelas.get(chave) ?? { tentativas: [], bloqueadoAte: 0 }
 
   if (j.bloqueadoAte > agora) {

@@ -46,9 +46,7 @@ export type Ponto = { cidade?: string; lat: number | string | null; lon: number 
  */
 export function parseData(valor: string | null | undefined): Date | null {
   if (!valor || typeof valor !== 'string') return null
-  const m = valor
-    .trim()
-    .match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/)
+  const m = valor.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/)
   if (!m) return null
   const [ano, mes, dia, hora, min, seg] = m.slice(1).map((v) => Number(v ?? 0))
 
@@ -96,7 +94,7 @@ export function noitesABordo(embarque: string | null, desembarque: string | null
 export function faseDaViagem(
   agora: Date | string,
   partida: string | null,
-  retorno: string | null
+  retorno: string | null,
 ): FaseDaViagem {
   const hoje = agora instanceof Date ? agora : (parseData(agora) ?? new Date())
   const p = parseData(partida)
@@ -186,7 +184,7 @@ export function contarLugares(lugares: { cidade?: string; pais?: string | null }
  */
 export function progressoChecklist(
   itens: ItemChecklist[],
-  estado: EstadoChecklist
+  estado: EstadoChecklist,
 ): { feitos: number; total: number; pct: number } {
   const lista = itens ?? []
   const total = lista.length
@@ -233,11 +231,12 @@ export function projetarRota(
   pontos: Ponto[],
   largura = 100,
   altura = 100,
-  margem = 10
+  margem = 10,
 ): { cidade?: string; x: number; y: number }[] {
   // Number(null) e Number('') sao 0, o que plotaria uma cidade sem coordenada na
   // ilha nula (0, 0) e desenharia uma linha ate o golfo da Guine. Descarta antes.
-  const temCoord = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
+  const temCoord = (v: unknown) =>
+    v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
 
   const validos = (pontos ?? [])
     .filter((p) => temCoord(p?.lat) && temCoord(p?.lon))
@@ -260,7 +259,7 @@ export function projetarRota(
   // Mantem a proporcao: usa a mesma escala nos dois eixos e centraliza a sobra.
   const escala = Math.min(
     spanLon > 0 ? utilW / spanLon : Infinity,
-    spanLat > 0 ? utilH / spanLat : Infinity
+    spanLat > 0 ? utilH / spanLat : Infinity,
   )
   const k = Number.isFinite(escala) ? escala : 1
 
@@ -302,8 +301,12 @@ const TZ = { timeZone: undefined } as const
 export function formatarData(valor: string | null, opcoes?: Intl.DateTimeFormatOptions): string {
   const d = parseData(valor)
   if (!d) return ''
-  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', ...TZ, ...opcoes })
-    .format(d)
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    ...TZ,
+    ...opcoes,
+  }).format(d)
 }
 
 export function formatarHora(valor: string | null): string {
@@ -315,7 +318,7 @@ export function formatarHora(valor: string | null): string {
 /** Centavos -> texto na moeda da viagem. A conversao acontece so aqui. */
 export function formatarDinheiro(centavos: number, moeda = 'EUR'): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: moeda }).format(
-    (Number(centavos) || 0) / 100
+    (Number(centavos) || 0) / 100,
   )
 }
 
