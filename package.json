@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:push": "node --env-file=.env.local scripts/db-push.mjs",
+    "test": "node --test lib/*.test.ts",
+    "test:api": "node --env-file=.env.local --test tests/*.test.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
