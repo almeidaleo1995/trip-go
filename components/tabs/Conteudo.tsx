@@ -8,6 +8,7 @@
 import { ExternalLink, Phone, Anchor, Waves, MapPin, Moon } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import { Cartao, Vazio, Rotulo, Badge, Copiar, Titulo, Linha } from '../ui.tsx'
+import { AdminAcoes } from '../EditorSheet.tsx'
 import {
   ordenarEventos,
   formatarData,
@@ -27,7 +28,7 @@ export function Roteiro() {
   if (eventos.length === 0) {
     return (
       <>
-        <Titulo>Roteiro</Titulo>
+        <Titulo acao={<AdminAcoes entidade="roteiro">+ Evento</AdminAcoes>}>Roteiro</Titulo>
         <Vazio
           titulo="Roteiro ainda vazio"
           texto="Quando os dias da viagem forem cadastrados, eles aparecem aqui em ordem, dia a dia."
@@ -47,7 +48,7 @@ export function Roteiro() {
 
   return (
     <>
-      <Titulo>Roteiro</Titulo>
+      <Titulo acao={<AdminAcoes entidade="roteiro">+ Evento</AdminAcoes>}>Roteiro</Titulo>
       <div className="space-y-5">
         {[...porDia.entries()].map(([dia, doDia]) => (
           <div key={dia}>
@@ -88,7 +89,10 @@ export function Roteiro() {
                         </p>
                       )}
                     </div>
-                    <Badge tipo={String(e.tipo)} />
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <Badge tipo={String(e.tipo)} />
+                      <AdminAcoes entidade="roteiro" registro={e} />
+                    </div>
                   </div>
                 </Cartao>
               ))}
@@ -109,7 +113,7 @@ export function Voos() {
   if (voos.length === 0) {
     return (
       <>
-        <Titulo>Voos</Titulo>
+        <Titulo acao={<AdminAcoes entidade="voo">+ Voo</AdminAcoes>}>Voos</Titulo>
         <Vazio titulo="Nenhum voo cadastrado" texto="Os trechos aéreos aparecem aqui em cartões." />
       </>
     )
@@ -117,7 +121,7 @@ export function Voos() {
 
   return (
     <>
-      <Titulo>Voos</Titulo>
+      <Titulo acao={<AdminAcoes entidade="voo">+ Voo</AdminAcoes>}>Voos</Titulo>
       <div className="space-y-3">
         {voos.map((v) => {
           const escalas = (v.escalas ?? []) as any[]
@@ -130,9 +134,12 @@ export function Voos() {
                     <p className="tab-num text-[13px] text-[--color-tinta-3]">{String(v.numero)}</p>
                   )}
                 </div>
-                {v.duracao_min ? (
-                  <Badge tipo="voo" texto={formatarDuracao(Number(v.duracao_min))} />
-                ) : null}
+                <div className="flex shrink-0 items-center gap-2">
+                  {v.duracao_min ? (
+                    <Badge tipo="voo" texto={formatarDuracao(Number(v.duracao_min))} />
+                  ) : null}
+                  <AdminAcoes entidade="voo" registro={v} />
+                </div>
               </div>
 
               <div className="flex items-center gap-3">
@@ -236,7 +243,7 @@ export function Cruzeiro() {
   if (cruzeiros.length === 0) {
     return (
       <>
-        <Titulo>Cruzeiro</Titulo>
+        <Titulo acao={<AdminAcoes entidade="cruzeiro">+ Cruzeiro</AdminAcoes>}>Cruzeiro</Titulo>
         <Vazio
           titulo="Sem cruzeiro nesta viagem"
           texto="Esta aba aparece quando há um navio no roteiro."
@@ -247,7 +254,7 @@ export function Cruzeiro() {
 
   return (
     <>
-      <Titulo>Cruzeiro</Titulo>
+      <Titulo acao={<AdminAcoes entidade="cruzeiro">+ Cruzeiro</AdminAcoes>}>Cruzeiro</Titulo>
       <div className="space-y-4">
         {cruzeiros.map((c) => {
           const portos = [...((c.portos ?? []) as any[])].sort(
@@ -269,12 +276,15 @@ export function Cruzeiro() {
                       <p className="text-sm text-[--color-tinta-3]">{String(c.companhia)}</p>
                     )}
                   </div>
-                  {nApenas > 0 && (
-                    <Badge
-                      tipo="cruzeiro"
-                      texto={`${nApenas} ${nApenas === 1 ? 'noite' : 'noites'}`}
-                    />
-                  )}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {nApenas > 0 && (
+                      <Badge
+                        tipo="cruzeiro"
+                        texto={`${nApenas} ${nApenas === 1 ? 'noite' : 'noites'}`}
+                      />
+                    )}
+                    <AdminAcoes entidade="cruzeiro" registro={c} />
+                  </div>
                 </div>
 
                 <div className="mt-3 divide-y divide-[--color-borda] border-t border-[--color-borda] pt-1">
@@ -372,7 +382,7 @@ export function Hospedagem() {
   if (estadias.length === 0) {
     return (
       <>
-        <Titulo>Hospedagem</Titulo>
+        <Titulo acao={<AdminAcoes entidade="hospedagem">+ Estadia</AdminAcoes>}>Hospedagem</Titulo>
         <Vazio
           titulo="Nenhuma estadia cadastrada"
           texto="Hotéis e apartamentos aparecem aqui, com as noites calculadas."
@@ -383,7 +393,7 @@ export function Hospedagem() {
 
   return (
     <>
-      <Titulo>Hospedagem</Titulo>
+      <Titulo acao={<AdminAcoes entidade="hospedagem">+ Estadia</AdminAcoes>}>Hospedagem</Titulo>
       <div className="space-y-3">
         {estadias.map((h) => {
           const n = noites(h.checkin, h.checkout)
@@ -394,11 +404,14 @@ export function Hospedagem() {
                   <p className="font-semibold">{String(h.nome)}</p>
                   {h.cidade && <p className="text-sm text-[--color-tinta-3]">{String(h.cidade)}</p>}
                 </div>
-                {n > 0 && (
-                  <span className="tab-num inline-flex shrink-0 items-center gap-1 rounded-full bg-[--color-fundo] px-2.5 py-1 text-[11px] font-semibold">
-                    <Moon size={11} /> {n} {n === 1 ? 'noite' : 'noites'}
-                  </span>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {n > 0 && (
+                    <span className="tab-num inline-flex items-center gap-1 rounded-full bg-[--color-fundo] px-2.5 py-1 text-[11px] font-semibold">
+                      <Moon size={11} /> {n} {n === 1 ? 'noite' : 'noites'}
+                    </span>
+                  )}
+                  <AdminAcoes entidade="hospedagem" registro={h} />
+                </div>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[--color-borda] pt-3">
@@ -457,7 +470,7 @@ export function Lugares() {
   if (lugares.length === 0) {
     return (
       <>
-        <Titulo>Cidades & Países</Titulo>
+        <Titulo acao={<AdminAcoes entidade="lugar">+ Cidade</AdminAcoes>}>Cidades & Países</Titulo>
         <Vazio
           titulo="Nenhum lugar cadastrado"
           texto="Cada cidade visitada aparece aqui, com país, dias e as suas notas."
@@ -468,7 +481,7 @@ export function Lugares() {
 
   return (
     <>
-      <Titulo>Cidades & Países</Titulo>
+      <Titulo acao={<AdminAcoes entidade="lugar">+ Cidade</AdminAcoes>}>Cidades & Países</Titulo>
       <div className="space-y-3">
         {lugares.map((l) => (
           <Cartao key={String(l.id)}>
@@ -477,11 +490,14 @@ export function Lugares() {
                 <p className="font-semibold">{String(l.cidade)}</p>
                 {l.pais && <p className="text-sm text-[--color-tinta-3]">{String(l.pais)}</p>}
               </div>
-              {l.dias ? (
-                <span className="tab-num shrink-0 rounded-full bg-[--color-fundo] px-2.5 py-1 text-[11px] font-semibold">
-                  {Number(l.dias)} {Number(l.dias) === 1 ? 'dia' : 'dias'}
-                </span>
-              ) : null}
+              <div className="flex shrink-0 items-center gap-2">
+                {l.dias ? (
+                  <span className="tab-num rounded-full bg-[--color-fundo] px-2.5 py-1 text-[11px] font-semibold">
+                    {Number(l.dias)} {Number(l.dias) === 1 ? 'dia' : 'dias'}
+                  </span>
+                ) : null}
+                <AdminAcoes entidade="lugar" registro={l} />
+              </div>
             </div>
             {l.notas && <p className="mt-2.5 text-sm text-[--color-tinta-2]">{String(l.notas)}</p>}
             {l.lat == null && (
@@ -505,7 +521,7 @@ export function Documentos() {
   if (docs.length === 0) {
     return (
       <>
-        <Titulo>Documentos</Titulo>
+        <Titulo acao={<AdminAcoes entidade="documento">+ Documento</AdminAcoes>}>Documentos</Titulo>
         <Vazio
           titulo="Nenhum documento cadastrado"
           texto="Localizadores, apólices e links importantes ficam aqui."
@@ -516,7 +532,7 @@ export function Documentos() {
 
   return (
     <>
-      <Titulo>Documentos</Titulo>
+      <Titulo acao={<AdminAcoes entidade="documento">+ Documento</AdminAcoes>}>Documentos</Titulo>
       <div className="space-y-2">
         {docs.map((d) => (
           <Cartao key={String(d.id)}>
@@ -527,7 +543,8 @@ export function Documentos() {
                   <p className="mt-0.5 text-[13px] text-[--color-tinta-3]">{String(d.obs)}</p>
                 )}
               </div>
-              <div className="shrink-0">
+              <div className="flex shrink-0 items-center gap-2">
+                <AdminAcoes entidade="documento" registro={d} />
                 {!d.valor ? (
                   <span className="rounded-full bg-[--color-alerta-bg] px-2.5 py-1 text-[11px] font-semibold text-[--color-alerta-ink]">
                     A preencher

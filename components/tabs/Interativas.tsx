@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Phone, Plus, Trash2, Check } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import { Cartao, Vazio, Rotulo, Titulo, Progresso, Botao } from '../ui.tsx'
+import { AdminAcoes } from '../EditorSheet.tsx'
 import {
   progressoChecklist,
   formatarData,
@@ -25,7 +26,7 @@ export function Emergencia() {
   // estresse, às vezes por outra pessoa segurando o celular.
   return (
     <div className="text-[17px]">
-      <Titulo>Emergência</Titulo>
+      <Titulo acao={<AdminAcoes entidade="emergencia">+ Contato</AdminAcoes>}>Emergência</Titulo>
       <p className="-mt-2 mb-4 text-sm text-[--color-tinta-2]">
         Funciona sem internet. Toque no número para ligar.
       </p>
@@ -39,7 +40,10 @@ export function Emergencia() {
         <div className="space-y-2.5">
           {contatos.map((c) => (
             <Cartao key={String(c.id)}>
-              <p className="font-semibold">{String(c.titulo)}</p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-semibold">{String(c.titulo)}</p>
+                <AdminAcoes entidade="emergencia" registro={c} />
+              </div>
               {c.detalhe && (
                 <p className="mt-1 text-[15px] text-[--color-tinta-2]">{String(c.detalhe)}</p>
               )}
@@ -99,7 +103,7 @@ export function Checklist() {
   if (itens.length === 0) {
     return (
       <>
-        <Titulo>Checklist</Titulo>
+        <Titulo acao={<AdminAcoes entidade="checklist_item">+ Item</AdminAcoes>}>Checklist</Titulo>
         <div className="mb-4">
           <Progresso pct={0} />
         </div>
@@ -113,7 +117,7 @@ export function Checklist() {
 
   return (
     <>
-      <Titulo>Checklist</Titulo>
+      <Titulo acao={<AdminAcoes entidade="checklist_item">+ Item</AdminAcoes>}>Checklist</Titulo>
       <Cartao className="mb-4">
         <div className="mb-2 flex items-baseline justify-between">
           <Rotulo>Seu progresso</Rotulo>

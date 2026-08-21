@@ -5,17 +5,68 @@ import { useState } from 'react'
 import { Upload, Download, Printer, AlertTriangle } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import { Cartao, Rotulo, Titulo, Botao } from '../ui.tsx'
+import { AdminAcoes } from '../EditorSheet.tsx'
 
 type Resumo = Record<string, number>
 
 export function Dados() {
-  const { souAdmin, recarregar } = useTrip()
-  if (!souAdmin) return null
+  const { souAdmin, recarregar, snapshot } = useTrip()
+  if (!souAdmin || !snapshot) return null
 
   return (
     <>
       <Titulo>Dados</Titulo>
       <div className="space-y-3">
+        <Cartao>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Rotulo>A viagem</Rotulo>
+              <p className="mt-1 font-semibold">{String(snapshot.viagem?.nome ?? '—')}</p>
+              <p className="text-sm text-[--color-tinta-3]">
+                {String(snapshot.viagem?.data_partida ?? '').slice(0, 10)} a{' '}
+                {String(snapshot.viagem?.data_retorno ?? '').slice(0, 10)} ·{' '}
+                {String(snapshot.viagem?.moeda ?? '')}
+              </p>
+            </div>
+            <AdminAcoes entidade="viagem" registro={snapshot.viagem ?? undefined} />
+          </div>
+        </Cartao>
+
+        <Cartao>
+          <div className="mb-2 flex items-center justify-between">
+            <Rotulo>Viajantes</Rotulo>
+            <AdminAcoes entidade="viajante">+ Viajante</AdminAcoes>
+          </div>
+          <p className="mb-3 text-[12px] text-[--color-tinta-3]">
+            O PIN aparece em texto puro só no momento em que você define. Depois disso fica guardado
+            como hash e nem eu consigo lê-lo — para trocar, defina um novo.
+          </p>
+          <ul className="divide-y divide-[--color-borda]">
+            {snapshot.viajantes.map((t) => (
+              <li key={String(t.id)} className="flex items-center gap-3 py-2.5">
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                  style={{ background: 'var(--destaque)' }}
+                >
+                  {String(t.nome)
+                    .split(' ')
+                    .slice(0, 2)
+                    .map((x) => x[0])
+                    .join('')
+                    .toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{String(t.nome)}</span>
+                  <span className="text-[12px] text-[--color-tinta-3]">
+                    {t.papel === 'admin' ? 'Dono da viagem' : 'Viajante'}
+                  </span>
+                </span>
+                <AdminAcoes entidade="viajante" registro={t} />
+              </li>
+            ))}
+          </ul>
+        </Cartao>
+
         <Cartao>
           <Rotulo>PDF de bolso</Rotulo>
           <p className="mt-1 text-sm text-[--color-tinta-2]">
