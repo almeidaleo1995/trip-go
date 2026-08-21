@@ -1,5 +1,6 @@
 # Planejador de Viagens em Grupo — Especificação
 
+> **Revisão 3** — incorpora as referências visuais do usuário (teal calmo), CRUD completo pela interface, aba Cruzeiro e mapa da rota.
 > **Revisão 2** — a arquitetura mudou de artifact offline sem backend para app Next.js + Neon Postgres.
 > A revisão 1 (arquivo único, sem sync) está superada; ver Assumptions para o registro do que mudou e por quê.
 
@@ -13,7 +14,7 @@ Um grupo de 5 pessoas viaja junto pela Europa e as informações da viagem (rote
 - [ ] Offline-first de verdade: aberto uma vez, funciona em modo avião com os últimos dados sincronizados, e as escritas feitas offline sobem sozinhas quando a rede volta.
 - [ ] O admin corrige imprevistos pelo celular em segundos e o grupo vê o que mudou, quem mudou e quando.
 - [ ] O Financeiro é protegido no servidor: a API nunca devolve dados financeiros para uma sessão de viajante.
-- [ ] Trocar de viagem não exige programar: o admin sobe um arquivo JSON no formato padrão pela própria tela de administração.
+- [ ] Trocar de viagem não exige programar: o admin cadastra e gerencia tudo pela interface, com importação de JSON como atalho de carga em massa.
 
 ## Out of Scope
 
@@ -24,7 +25,7 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | Parsing automático de PDF pelo app | Frágil. A conversão PDF → JSON padrão é feita fora do app (por mim, sob demanda) e entra pela tela de importação. |
 | Acerto de contas / quem-deve-a-quem / Pix | Financeiro é registro de custos e totais, não split ledger. Pedido foi tabela de custos, não fechamento de contas. |
 | Mapas, clima, câmbio ao vivo, tradução | Dependem de rede em tempo de uso e de chaves de API de terceiros; nenhum foi pedido. |
-| Múltiplas viagens simultâneas no mesmo app | Uma viagem ativa por vez. O schema tem `trip_id` para não travar isso no futuro, mas a UI de troca de viagem não é construída agora. |
+| Convite/onboarding de viajante por link ou email | Sem serviço de email. O admin cadastra a pessoa e entrega o PIN pessoalmente. |
 | Push notification de alteração | Exige service worker com push + permissão + VAPID. O aviso de alterações aparece dentro do app ao sincronizar. |
 | Resolução de conflito por merge (CRDT) | Com 5 pessoas e escrita quase sempre de um admin só, last-write-wins por campo com carimbo de tempo basta. Registrado como simplificação deliberada. |
 | Tema escuro | Pedido explícito de tema claro de alto contraste, otimizado para leitura sob sol. |
@@ -42,13 +43,17 @@ Toda ambiguidade está resolvida ou registrada aqui.
 | Onde vive a credencial do Neon | Variável de ambiente no servidor; nunca chega ao bundle do cliente | Connection string no navegador daria acesso total ao banco a qualquer pessoa com DevTools | y |
 | Como a credencial chega até mim | Usuário cola a connection string nesta conversa | Escolha explícita do usuário, com o custo declarado. Mitigação recomendada: rotacionar a senha no Neon depois do deploy | y |
 | Fonte da verdade do conteúdo | O banco Neon. O arquivo JSON de config é um importador de carga inicial, não a fonte permanente | O usuário quer editar pela UI durante a viagem; um arquivo versionado divergiria do banco na primeira edição | y |
-| Autenticação | Nome + PIN de 4 dígitos, PIN com hash (bcrypt) no banco, sessão em cookie httpOnly de 90 dias | Sem email e sem senha para decorar; funciona para 5 pessoas conhecidas. 90 dias cobre a viagem inteira sem relogin no exterior | y |
+| Autenticação | Nome + PIN de 4 dígitos, PIN com hash scrypt (`node:crypto`) no banco, sessão em cookie httpOnly de 90 dias | Sem email e sem senha para decorar; funciona para 5 pessoas conhecidas. 90 dias cobre a viagem inteira sem relogin no exterior | y |
 | Como o Financeiro é protegido | Autorização no servidor: o endpoint de financeiro checa o papel da sessão e retorna 403 para viajante | Esconder na UI não é proteção. Com backend dá para proteger de verdade, então protege | y |
 | Estratégia offline | PWA com service worker; cache local do último snapshot em IndexedDB; escritas otimistas numa fila que dá flush ao reconectar | É o mínimo que entrega "abre em modo avião e funciona" sem introduzir CRDT | y |
 | Resolução de conflito | Last-write-wins por campo, usando `updated_at` do servidor | Simplificação deliberada com teto conhecido: duas edições simultâneas do mesmo campo perdem a mais antiga. Marcada com comentário `ponytail:` no código | y |
 | Fuso horário | Horários gravados como hora local do destino (`timestamp without time zone` + campo de cidade), sem conversão | Converter fuso num app usado offline em trânsito gera erro de horário de voo. A string literal é o que está no bilhete | y |
 | PDF de bolso | Gerado por `window.print()` sobre uma folha de estilo de impressão dedicada, sem biblioteca de PDF | Entrega salvar-como-PDF e imprimir com zero dependência e zero peso no bundle | y |
-| Identidade visual | Painel denso de alto contraste, uma cor de destaque configurável, alvos de toque de 44px | Escolha do usuário ("painel denso"), com o piso de acessibilidade preservado para uso sob sol e em movimento | y |
+| Identidade visual | As duas imagens de referência do usuário: calmo, arejado, monocromático em teal `#0F766E`, numeral gigante na contagem, mapa da rota como herói | Referência visual concreta ganha de adjetivo abstrato. Substitui "painel denso e vibrante", escolhido antes das imagens existirem. Registrado em AD-006 | y |
+| Amplitude do CRUD | Admin cria, edita e remove tudo pela interface — inclusive a própria viagem e os viajantes. Importar JSON continua como atalho de carga em massa, não como caminho único | Pedido explícito do usuário. Sem isso ele depende de mim para cada mudança de conteúdo | y |
+| Dados de demonstração | A viagem das referências: Hamburgo 2027, 17 dias, 8 cidades, 7 países, cruzeiro MSC Lirica pelo Báltico | Pedido do usuário. Exercita voo, hospedagem, cruzeiro e mapa com dados realistas em vez de exemplo genérico | y |
+| Aba Cruzeiro | Condicional — só aparece se a viagem tiver ao menos um registro em `cruises` | A navegação é montada a partir dos dados. Viagem sem navio não mostra aba morta | y |
+| Fundo do mapa da rota | Gradiente abstrato com pinos e curva projetados de lat/lon; sem contorno de continente na v1 | Costa real exige GeoJSON simplificado de fonte confiável (~20–50 KB). É viável e offline, mas é dado que não se inventa. Entra como tarefa própria se pedido | n |
 | Idioma | Toda a interface em português do Brasil; datas e valores via `Intl` com locale `pt-BR` | Requisito explícito | y |
 
 **Open questions:** none — tudo resolvido ou registrado acima.
@@ -71,7 +76,7 @@ Toda ambiguidade está resolvida ou registrada aqui.
 4. IF a mesma origem envia mais de 10 tentativas de PIN incorretas em 5 minutos THEN the system SHALL recusar novas tentativas por 15 minutos.
 5. WHILE a sessão ativa tem papel `viajante` the system SHALL responder com HTTP 403 a qualquer requisição aos endpoints de financeiro, independentemente do que a interface exibir.
 6. WHILE a sessão ativa tem papel `viajante` the system SHALL omitir a aba Financeiro da navegação.
-7. The system SHALL armazenar PINs exclusivamente como hash bcrypt, nunca em texto puro, nem em log, nem em resposta de API.
+7. The system SHALL armazenar PINs exclusivamente como hash scrypt, nunca em texto puro, nem em log, nem em resposta de API.
 8. WHEN o usuário aciona "Sair" THEN the system SHALL invalidar o cookie de sessão e limpar o cache local de dados financeiros do aparelho.
 
 **Independent Test**: Entrar como viajante e chamar `/api/financeiro` direto pelo navegador — recebe 403 mesmo com sessão válida.
@@ -270,6 +275,64 @@ Toda ambiguidade está resolvida ou registrada aqui.
 
 ---
 
+### P12: Cruzeiro
+
+**User Story**: Como viajante numa viagem que inclui navio, quero uma aba própria com embarque, cabine, portos e dias no mar — porque isso não cabe em Voos nem em Hospedagem.
+
+**Why P12**: A viagem de demonstração e a viagem real do usuário são cruzeiros. Sem esta aba, metade do itinerário fica sem lugar.
+
+**Acceptance Criteria**:
+
+1. WHERE a viagem tem ao menos um registro de cruzeiro the system SHALL exibir a aba Cruzeiro na navegação.
+2. IF a viagem não tem nenhum registro de cruzeiro THEN the system SHALL omitir a aba Cruzeiro da navegação em vez de exibi-la vazia.
+3. The system SHALL exibir do cruzeiro o navio, a companhia, o porto e a data de embarque, o porto e a data de desembarque, e a cabine quando cadastrada.
+4. The system SHALL exibir os portos em ordem de escala, com data, horário de chegada e de saída.
+5. WHERE uma escala está marcada como dia no mar the system SHALL identificá-la como "Dia no mar" em vez de exibir porto vazio.
+6. The system SHALL calcular e exibir o total de noites a bordo a partir das datas de embarque e desembarque.
+
+**Independent Test**: Carregar a demo do Báltico e conferir os 6 portos em ordem com o dia no mar identificado.
+
+---
+
+### P13: Gestão completa pela interface
+
+**User Story**: Como dono da viagem, quero cadastrar uma viagem do zero pelo app e gerenciar tudo dela — inclusive os viajantes e os PINs — sem nunca depender de alguém editar código ou gerar arquivo para mim.
+
+**Why P13**: É a diferença entre um app que eu opero e um app que eu preciso pedir para alguém mexer.
+
+**Acceptance Criteria**:
+
+1. WHEN o admin cria uma viagem informando nome, data de partida, data de retorno e moeda THEN the system SHALL persistir a viagem e torná-la a viagem ativa.
+2. The system SHALL permitir ao admin editar nome, subtítulo, datas, moeda e cor de destaque da viagem ativa.
+3. The system SHALL permitir ao admin criar, editar e remover viajantes, definindo nome e papel de cada um.
+4. WHEN o admin define ou redefine o PIN de um viajante THEN the system SHALL gravar apenas o hash e exibir o PIN em texto puro uma única vez, no momento da definição.
+5. IF o admin tenta remover o último viajante com papel `admin` THEN the system SHALL recusar a remoção, para que a viagem não fique sem dono.
+6. The system SHALL oferecer criação, edição e remoção pela interface para todas as seções de conteúdo: roteiro, voos, cruzeiro, portos, hospedagens, lugares, checklist, documentos, contatos de emergência, categorias e custos.
+7. WHERE existe mais de uma viagem cadastrada the system SHALL permitir ao admin escolher qual é a ativa.
+8. IF um usuário com papel `viajante` acessa qualquer tela ou endpoint de gestão THEN the system SHALL responder 403 e não exibir o acesso na interface.
+
+**Independent Test**: Num banco vazio, criar uma viagem, cadastrar 2 viajantes com PIN, adicionar um voo e uma hospedagem — tudo pela tela, sem terminal.
+
+---
+
+### P14: Mapa da rota
+
+**User Story**: Como viajante, quero ver a rota desenhada no Início, porque um mapa comunica a viagem inteira mais rápido que qualquer lista.
+
+**Why P14**: É o herói visual das duas referências e o que dá identidade à tela de abertura.
+
+**Acceptance Criteria**:
+
+1. The system SHALL projetar as coordenadas de cada lugar em posições do SVG e ligá-las na ordem da viagem.
+2. The system SHALL enquadrar automaticamente o mapa nos extremos da rota, de modo que qualquer conjunto de cidades caiba na área visível.
+3. IF nenhum lugar tem coordenadas cadastradas THEN the system SHALL omitir o mapa e exibir apenas a contagem regressiva, sem espaço vazio.
+4. The system SHALL renderizar o mapa sem nenhuma requisição de rede.
+5. The system SHALL rotular cada pino com o nome da cidade em contraste mínimo de 4.5:1.
+
+**Independent Test**: Trocar as cidades da demo por outras em outro continente e conferir que o mapa se reenquadra sozinho.
+
+---
+
 ## Edge Cases
 
 - IF o banco não tem nenhuma viagem cadastrada THEN the system SHALL exibir a tela de importação em vez de um app vazio.
@@ -357,12 +420,31 @@ Toda ambiguidade está resolvida ou registrada aqui.
 | UI-04 | P11: Navegação e pt-BR | Design | Pending |
 | UI-05 | P11: Navegação e pt-BR | Design | Pending |
 | UI-06 | P11: Navegação e pt-BR | Design | Pending |
+| CRZ-01 | P12: Cruzeiro | Design | Pending |
+| CRZ-02 | P12: Cruzeiro | Design | Pending |
+| CRZ-03 | P12: Cruzeiro | Design | Pending |
+| CRZ-04 | P12: Cruzeiro | Design | Pending |
+| CRZ-05 | P12: Cruzeiro | Design | Pending |
+| CRZ-06 | P12: Cruzeiro | Design | Pending |
+| ADM-01 | P13: Gestão completa | Design | Pending |
+| ADM-02 | P13: Gestão completa | Design | Pending |
+| ADM-03 | P13: Gestão completa | Design | Pending |
+| ADM-04 | P13: Gestão completa | Design | Pending |
+| ADM-05 | P13: Gestão completa | Design | Pending |
+| ADM-06 | P13: Gestão completa | Design | Pending |
+| ADM-07 | P13: Gestão completa | Design | Pending |
+| ADM-08 | P13: Gestão completa | Design | Pending |
+| MAP-01 | P14: Mapa da rota | Design | Pending |
+| MAP-02 | P14: Mapa da rota | Design | Pending |
+| MAP-03 | P14: Mapa da rota | Design | Pending |
+| MAP-04 | P14: Mapa da rota | Design | Pending |
+| MAP-05 | P14: Mapa da rota | Design | Pending |
 
 **ID format:** `[AREA]-NN`, na ordem dos critérios de aceite de cada história.
 
 **Status values:** Pending → In Design → In Tasks → Implementing → Verified
 
-**Coverage:** 70 total, 0 mapeados para tasks, 70 não mapeados (fase Tasks ainda não executada).
+**Coverage:** 89 total, 0 mapeados para tasks, 89 não mapeados (fase Tasks ainda não executada).
 
 ---
 
@@ -374,3 +456,6 @@ Toda ambiguidade está resolvida ou registrada aqui.
 - [ ] Subir o JSON de demonstração numa base vazia popula as nove seções numa transação só.
 - [ ] Exportar, zerar o banco e reimportar reproduz a viagem idêntica.
 - [ ] Nenhuma seção quebra sem dados: todas exibem estado vazio.
+- [ ] Num banco vazio, dá para criar viagem, viajantes, voo e hospedagem inteiramente pela interface.
+- [ ] Viagem sem cruzeiro não exibe a aba Cruzeiro.
+- [ ] O mapa se reenquadra sozinho ao trocar as cidades por outras em outro continente.

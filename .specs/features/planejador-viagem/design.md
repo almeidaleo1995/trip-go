@@ -81,7 +81,14 @@ Projeto novo. O "reuso" aqui é não instalar o que a plataforma já entrega.
 - **Detalhe**: `mutate` aplica no estado local, enfileira e tenta o flush. Ouve `online`/`offline` do `window`.
 
 ### `components/tabs/*.tsx`
-Nove abas, uma por arquivo: `Inicio`, `Roteiro`, `Voos`, `Hospedagem`, `Lugares`, `Checklist`, `Documentos`, `Emergencia`, `Financeiro`. Cada uma lê `useTrip()` e não conhece rede nem banco.
+Dez abas, uma por arquivo: `Inicio`, `Roteiro`, `Voos`, `Cruzeiro`, `Hospedagem`, `Lugares`, `Checklist`, `Documentos`, `Emergencia`, `Financeiro`. Cada uma lê `useTrip()` e não conhece rede nem banco.
+
+**Cruzeiro é aba condicional**: só aparece quando a viagem tem ao menos um registro em `cruises`. Uma viagem sem navio não mostra a aba — a navegação é montada a partir dos dados, não fixa no código.
+
+### `components/MapaRota.tsx`
+- **Purpose**: mapa da rota no Início — pinos das cidades na ordem da viagem, ligados por curva.
+- **Interfaces**: `<MapaRota lugares={Lugar[]} />`
+- **Detalhe**: projeção equirretangular de `lat`/`lon` para o viewBox, com enquadramento automático nos extremos da rota mais uma margem. Sem rede.
 
 ### `lib/derive.ts` (puro, testável)
 - **Purpose**: todo cálculo derivado. Sem React, sem I/O — é aqui que mora o gate de testes.
@@ -116,7 +123,13 @@ flights            (id, trip_id, companhia, numero, origem_iata, origem_cidade,
 flight_stops       (id, flight_id, iata, cidade, espera_min int, ordem int)
 stays              (id, trip_id, nome, cidade, checkin date, checkout date,
                     endereco, link, nota)
-places             (id, trip_id, cidade, pais, dias int, notas)
+places             (id, trip_id, cidade, pais, dias int, notas,
+                    lat numeric, lon numeric, ordem int)
+cruises            (id, trip_id, navio, companhia, embarque_em timestamp,
+                    desembarque_em timestamp, porto_embarque, porto_desembarque,
+                    cabine, localizador, nota)
+cruise_ports       (id, cruise_id, porto, pais, chega_em timestamp,
+                    sai_em timestamp, dia_no_mar bool, ordem int, nota)
 checklist_items    (id, trip_id, titulo, categoria,
                     escopo 'global'|'pessoal', ordem int)
 checklist_state    (traveler_id, item_id, feito bool)          PK (traveler_id, item_id)
@@ -165,40 +178,62 @@ Cliente                                    Servidor
 
 ## Sistema visual
 
-Denso, vibrante, alto contraste. **Três desvios explícitos** do que a busca de design sugeriu:
+**Fonte da verdade: as duas referências visuais do usuário** (mock mobile e mock desktop), não a busca de design nem os adjetivos da conversa. Onde eles divergem, a referência ganha — está registrado em AD-006.
 
-| Sugerido | Adotado | Por quê |
-| -------- | ------- | ------- |
-| Glassmorphism | Cartões sólidos, borda 1px | `backdrop-blur` sob sol direto destrói legibilidade — que é justamente o contexto de uso. |
-| Fundo rosado `#FFF1F2` | Neutro `#F8FAFC` | Fundo colorido briga com as cores categóricas de cidade/categoria. |
-| Padrão "Newsletter/Content First" | Painel denso | Resultado desalinhado da busca; o produto é dashboard, não landing. |
+Direção: **calma, arejada, monocromática em teal**. Muito branco, cartões arredondados com sombra suave, numeral gigante na contagem regressiva, mapa da rota como herói do Início.
 
-**Mantido da busca**: a direção vibrante rosa+azul, e o par **Fira Sans / Fira Code** — mono nas horas, códigos de voo, localizadores e dinheiro é o que faz uma tabela densa ficar escaneável.
-
-**Tokens** (contraste medido, não estimado — todos passam AA sobre `#F8FAFC`):
+### Tokens (contraste medido, não estimado)
 
 ```
-fundo    #F8FAFC     texto    #0F172A  (17.06:1)
-cartão   #FFFFFF     borda    #E2E8F0     secundário #475569
-destaque #E11D48  ← configurável por viagem (trips.cor_destaque)
+fundo     #F7FAFA      texto        #0F172A   17.01:1
+cartão    #FFFFFF      secundário   #475569    7.22:1
+borda     #E2E8F0      apagado      #64748B    4.53:1  ← piso; nunca mais claro
+destaque  #0F766E      5.47:1 como texto no branco E com branco em cima
+gradiente #0F766E → #115E59   (hero; branco em cima passa em ambos)
 ```
 
-Cada cor categórica tem dois tons — `fill` para fundo com texto branco, `ink` para texto sobre fundo claro:
+**`#0D9488` é proibido para texto ou como fundo de texto** — dá 3.74:1, reprova AA nas duas direções. Só entra como ponta decorativa de gradiente e traço do mapa.
 
-| Nome | fill (branco em cima) | ink (texto no claro) |
-| ---- | --------------------- | -------------------- |
-| rosa | `#E11D48` 4.70 | `#BE123C` 6.01 |
-| azul | `#2563EB` 5.17 | `#2563EB` 4.94 |
-| verde | `#047857` 5.48 | `#047857` 5.24 |
-| âmbar | `#B45309` 5.02 | `#B45309` 4.80 |
-| violeta | `#7C3AED` 5.70 | `#7C3AED` 5.45 |
-| ciano | `#0E7490` 5.36 | `#0E7490` 5.12 |
-| magenta | `#A21CAF` 6.32 | `#A21CAF` 6.04 |
-| laranja | `#C2410C` 5.18 | `#C2410C` 4.95 |
+**`#94A3B8` é proibido para qualquer texto** — 2.44:1. O cinza mais claro permitido é `#64748B`.
 
-O par rosa é o único que precisou de tons diferentes: `#E11D48` como texto dá 4.49, reprova por 0.01. Cidades e categorias recebem uma cor do ciclo pelo índice — estável entre recarregamentos.
+`--destaque` continua vindo de `trips.cor_destaque`, com `#0F766E` como padrão. Trocar a viagem troca a identidade sem tocar em componente (CONT-02).
 
-**Densidade**: escala de espaçamento 4/8/12/16/24. Linhas de tabela com 44px de altura — denso no visual, mas sem violar o alvo de toque. Corpo 15px, rótulos 12px em maiúsculas com `letter-spacing`, números tabulares.
+### Badges de tipo
+
+O roteiro marca cada linha com o tipo do evento — é o que a referência usa para diferenciar Voo, Hospedagem e Cruzeiro sem poluir com cor forte. Tinta escura sobre fundo pastel, todos acima de 4.5:1:
+
+| Tipo | Texto | Fundo | Contraste |
+| ---- | ----- | ----- | --------- |
+| Voo | `#0F766E` | `#CCFBF1` | 4.86 |
+| Hospedagem | `#9A3412` | `#FFEDD5` | 6.38 |
+| Cruzeiro | `#1E40AF` | `#DBEAFE` | 7.15 |
+| Passeio | `#6B21A8` | `#F3E8FF` | 7.39 |
+
+### Tipografia
+
+Uma família só, sem serifa, com numerais tabulares — a referência não usa mono, e a contagem gigante pede uma sans com bom peso display. **Inter** via `next/font` (auto-hospedada no build, zero requisição de rede em uso — requisito SYNC/BKP-01).
+
+```
+contagem   60px / 700 / tabular
+título     22px / 600
+corpo      15px / 400 / line-height 1.5
+rótulo     12px / 600 / maiúsculas / tracking 0.05em
+```
+
+### Layout
+
+- **< 768px**: tab bar inferior fixa, ícones outline com rótulo, ≥44px, cor de destaque na aba ativa.
+- **≥ 768px**: barra lateral fixa à esquerda com ícone + rótulo, cartões em grade de 2–3 colunas.
+- Espaçamento generoso: escala 8/12/16/24/32/48. Cartões com `border-radius` 16px e sombra `0 1px 3px rgb(0 0 0 / 0.06)`.
+- Ícones **outline** do `lucide-react`, nunca emoji.
+
+**O que fica de fora das referências** — elas mostram um produto SaaS comercial, e estas partes não são o nosso app: plano pago "TripGo Pro", aba Mensagens/chat, busca global ⌘K, múltiplas viagens ("Viagens", "Reservas") e fotos de perfil. Avatares do grupo são iniciais em círculo colorido — não há upload de imagem no escopo.
+
+### Mapa da rota
+
+`MapaRota.tsx` projeta `lat`/`lon` de cada lugar em coordenadas SVG (equirretangular), desenha os pinos na ordem da viagem e liga com uma curva suave. É genérico: muda a viagem, o mapa se redesenha. Zero rede, zero API de mapa.
+
+**Limitação declarada da v1**: o fundo é um gradiente abstrato, não o contorno real dos continentes. Desenhar costas de verdade exige um GeoJSON simplificado embarcado (~20–50 KB) — é viável e offline, mas é um arquivo de dados que precisa ser obtido de uma fonte real. Não invento coordenadas de contorno. Se o usuário quiser a costa, entra como tarefa própria com o dataset citado.
 
 ---
 
