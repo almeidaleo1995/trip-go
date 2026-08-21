@@ -20,7 +20,7 @@ test('aceita importacao so com a viagem, sem nenhuma lista', () => {
   const r = validarImportacao(MINIMA)
   assert.equal(r.sucesso, true)
   if (r.sucesso) {
-    assert.equal(r.dados.moeda ?? r.dados.viagem.moeda, 'EUR')
+    assert.equal(r.dados.viagem.moeda, 'EUR')
     assert.deepEqual(r.dados.voos, [])
   }
 })

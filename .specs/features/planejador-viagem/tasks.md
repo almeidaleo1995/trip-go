@@ -368,7 +368,7 @@ T34 -> T35 -> T36 -> T37
 
 ### T13: Viagem de demonstracao
 
-**What**: JSON da viagem das referencias - Hamburgo 2027, cruzeiro MSC Lirica pelo Baltico - preenchendo as 11 secoes.
+**What**: JSON da viagem real do usuario - Europa 2027, cruzeiro MSC Preziosa - extraido dos dois PDFs pela skill de conversao.
 **Where**: `db/viagem-demo.json`
 **Depends on**: T12
 **Reuses**: `lib/schema.ts` como contrato
@@ -376,11 +376,11 @@ T34 -> T35 -> T36 -> T37
 
 **Done when**:
 
-- [ ] 17 dias, 8 cidades, 7 paises, coerente com as referencias visuais
-- [ ] Cruzeiro MSC Lirica com portos Hamburgo, Copenhague, Oslo, Estocolmo, Helsinque e Tallinn, em ordem (CRZ-04)
+- [ ] 17 dias, 7 paises, 30/12/2026 a 15/01/2027, fiel aos PDFs
+- [ ] Cruzeiro MSC Preziosa com Hamburgo, Zeebrugge, Roterda, Le Havre e Southampton, em ordem (CRZ-04)
 - [ ] Pelo menos uma escala marcada como dia no mar (CRZ-05)
 - [ ] Todas as cidades com `lat` e `lon` para o mapa (MAP-01)
-- [ ] 1 admin e 4 viajantes com PIN ficticio
+- [ ] Os 5 viajantes reais dos PDFs, com PIN inicial ficticio a ser trocado pelo admin
 - [ ] Checklist com itens globais e pessoais; documentos, emergencia e custos em 3+ categorias
 - [ ] Pelo menos um voo com escala e um sem, para exercitar o estado "Direto" (CONT-04)
 - [ ] Valida contra `TripImportSchema` sem erro
@@ -388,7 +388,7 @@ T34 -> T35 -> T36 -> T37
 **Tests**: none
 **Gate**: none
 
-**Commit**: `feat(db): viagem de demonstracao do baltico`
+**Commit**: `feat(db): viagem europa 2027 extraida dos pdfs`
 
 ---
 

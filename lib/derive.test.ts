@@ -320,9 +320,11 @@ test('mesclarLWW em empate fica com o remoto, que e a fonte da verdade', () => {
 })
 
 test('mesclarLWW cai para o lado que tem timestamp valido', () => {
-  const bom = { updated_at: '2026-08-21T10:00:00.000Z', v: 'bom' }
-  assert.equal(mesclarLWW({ updated_at: null, v: 'ruim' }, bom).v, 'bom')
-  assert.equal(mesclarLWW(bom, { updated_at: null, v: 'ruim' }).v, 'bom')
+  type Reg = { updated_at: string | null; v: string }
+  const bom: Reg = { updated_at: '2026-08-21T10:00:00.000Z', v: 'bom' }
+  const semData: Reg = { updated_at: null, v: 'ruim' }
+  assert.equal(mesclarLWW(semData, bom).v, 'bom')
+  assert.equal(mesclarLWW(bom, semData).v, 'bom')
 })
 
 // ---------------------------------------------------------------- formatacao
