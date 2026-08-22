@@ -3,8 +3,9 @@
 // Round-trip é requisito, não conveniência: exportar, zerar o banco e reimportar
 // tem que reproduzir a viagem idêntica. Por isso a saída é montada a partir do
 // snapshot e validada contra o próprio TripImportSchema antes de sair.
-import { viagemAtiva, getSnapshot } from '@/lib/db.ts'
-import { requireSession, ErroHttp } from '@/lib/session.ts'
+import { viagemPadrao, getSnapshot } from '@/lib/db.ts'
+import { ErroHttp } from '@/lib/session.ts'
+import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { SCHEMA_VERSION, validarImportacao } from '@/lib/schema.ts'
 import { rota } from '@/lib/api.ts'
 import { NextResponse } from 'next/server'
@@ -38,11 +39,12 @@ const quando = (v: unknown) => formatar(v, true)
 const dia = (v: unknown) => formatar(v, false)
 
 export const GET = rota(async () => {
-  const sessao = await requireSession()
-  const viagem = await viagemAtiva()
+  const u = await exigirUsuario()
+  const viagem = await viagemPadrao(u.id)
   if (!viagem) throw new ErroHttp(404, 'Nenhuma viagem cadastrada ainda.')
 
-  const s = await getSnapshot(viagem.id, sessao.papel)
+  const acesso = await exigirViagem(u.id, viagem.id)
+  const s = await getSnapshot(viagem.id, acesso.papel)
   const v = s.viagem as Record<string, unknown>
   const catPorId = new Map(
     (s.financeiro?.categorias ?? []).map((c) => [String(c.id), String(c.nome)]),
@@ -59,9 +61,9 @@ export const GET = rota(async () => {
       cor_destaque: String(v.cor_destaque),
     },
     // PIN nunca é exportado: o arquivo circula por e-mail e pen drive.
-    viajantes: s.viajantes.map((t) => ({
+    viajantes: s.participantes.map((t) => ({
       nome: String(t.nome),
-      papel: t.papel as 'admin' | 'viajante',
+      papel: t.papel as 'proprietario' | 'editor' | 'visualizador',
       telefone: texto(t.telefone),
       passaporte: texto(t.passaporte),
       ordem: Number(t.ordem ?? 0),
@@ -118,16 +120,18 @@ export const GET = rota(async () => {
         nota: texto(p.nota),
       })),
     })),
-    hospedagens: s.hospedagens.map((h) => ({
-      nome: String(h.nome),
-      cidade: texto(h.cidade),
-      checkin: dia(h.checkin),
-      checkout: dia(h.checkout),
-      endereco: texto(h.endereco),
-      link: texto(h.link),
-      telefone: texto(h.telefone),
-      nota: texto(h.nota),
-    })),
+    hospedagens: s.reservas
+      .filter((r) => r.tipo === 'hospedagem')
+      .map((h) => ({
+        nome: String(h.nome),
+        cidade: texto(h.cidade),
+        checkin: dia(h.inicio_em),
+        checkout: dia(h.fim_em),
+        endereco: texto(h.endereco),
+        link: texto(h.link),
+        telefone: texto(h.telefone),
+        nota: texto(h.nota),
+      })),
     lugares: s.lugares.map((l) => ({
       cidade: String(l.cidade),
       pais: texto(l.pais),
