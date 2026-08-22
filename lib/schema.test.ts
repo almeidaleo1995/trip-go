@@ -214,6 +214,6 @@ test('validarCampos aceita edicao parcial, so o campo que mudou', () => {
   assert.equal(r.sucesso, true)
 })
 
-test('validarCampos rejeita papel invalido em viajante', () => {
-  assert.equal(validarCampos('viajante', { papel: 'dono' }).sucesso, false)
+test('validarCampos rejeita papel invalido em participante', () => {
+  assert.equal(validarCampos('participante', { papel: 'dono' }).sucesso, false)
 })

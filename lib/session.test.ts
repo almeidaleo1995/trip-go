@@ -6,8 +6,8 @@ import assert from 'node:assert/strict'
 process.env.SESSION_SECRET ??= 'segredo-de-teste-nao-usar-em-producao'
 
 import {
-  hashPin,
-  verifyPin,
+  hashSenha,
+  verifySenha,
   criarToken,
   lerToken,
   registrarFalha,
@@ -21,73 +21,66 @@ import {
 
 beforeEach(() => _resetRateLimit())
 
-// ---------------------------------------------------------------- hash de PIN
+// ---------------------------------------------------------------- hash de senha
 
-test('hashPin gera salt aleatorio: o mesmo PIN produz hashes diferentes', async () => {
-  const a = await hashPin('1234')
-  const b = await hashPin('1234')
+test('hashSenha gera salt aleatorio: a mesma senha produz hashes diferentes', async () => {
+  const a = await hashSenha('1234')
+  const b = await hashSenha('1234')
   assert.notEqual(a, b)
 })
 
-test('hashPin nao deixa o PIN em texto puro em lugar nenhum do hash', async () => {
-  const h = await hashPin('4831')
-  assert.ok(!h.includes('4831'), 'o PIN aparece dentro do hash')
+test('hashSenha nao deixa a senha em texto puro em lugar nenhum do hash', async () => {
+  const h = await hashSenha('4831')
+  assert.ok(!h.includes('4831'), 'a senha aparece dentro do hash')
   assert.match(h, /^scrypt\$\d+\$[0-9a-f]+\$[0-9a-f]+$/)
 })
 
-test('verifyPin aceita o PIN correto e recusa o errado', async () => {
-  const h = await hashPin('1234')
-  assert.equal(await verifyPin('1234', h), true)
-  assert.equal(await verifyPin('1235', h), false)
-  assert.equal(await verifyPin('', h), false)
+test('verifySenha aceita a senha correta e recusa a errada', async () => {
+  const h = await hashSenha('1234')
+  assert.equal(await verifySenha('1234', h), true)
+  assert.equal(await verifySenha('1235', h), false)
+  assert.equal(await verifySenha('', h), false)
 })
 
-test('verifyPin recusa hash ausente, vazio ou corrompido sem lancar', async () => {
+test('verifySenha recusa hash ausente, vazio ou corrompido sem lancar', async () => {
   for (const ruim of [null, undefined, '', 'nao-e-hash', 'scrypt$16384$zz$zz', 'a$b$c$d']) {
-    assert.equal(await verifyPin('1234', ruim as string), false, `deveria recusar: ${ruim}`)
+    assert.equal(await verifySenha('1234', ruim as string), false, `deveria recusar: ${ruim}`)
   }
 })
 
-test('verifyPin recusa hash com tamanho de chave errado', async () => {
-  assert.equal(await verifyPin('1234', 'scrypt$16384$abcd$00ff'), false)
+test('verifySenha recusa hash com tamanho de chave errado', async () => {
+  assert.equal(await verifySenha('1234', 'scrypt$16384$abcd$00ff'), false)
 })
 
 // ---------------------------------------------------------------- token de sessao
 
-test('criarToken e lerToken fazem a volta preservando id e papel', () => {
-  const s = lerToken(criarToken('t1', 'admin'))!
-  assert.equal(s.travelerId, 't1')
-  assert.equal(s.papel, 'admin')
+test('criarToken e lerToken fazem a volta preservando userId', () => {
+  const s = lerToken(criarToken('t1'))!
+  assert.equal(s.userId, 't1')
 })
 
 test('token dura 90 dias', () => {
   const agora = Date.UTC(2026, 7, 21)
-  const s = lerToken(criarToken('t1', 'viajante', agora), agora)!
+  const s = lerToken(criarToken('t1', agora), agora)!
   const dias = (s.expiraEm * 1000 - agora) / 86_400_000
   assert.equal(Math.round(dias), 90)
 })
 
 test('token com assinatura adulterada e rejeitado', () => {
-  const t = criarToken('t1', 'viajante')
-  const [id, papel, exp] = t.split('.')
-  assert.equal(lerToken(`${id}.${papel}.${exp}.assinaturaFalsa`), null)
-})
-
-test('promover viajante a admin no token e rejeitado - a assinatura nao bate', () => {
-  const t = criarToken('t1', 'viajante')
-  const [id, , exp, sig] = t.split('.')
-  assert.equal(lerToken(`${id}.admin.${exp}.${sig}`), null)
+  const t = criarToken('t1')
+  const [id, exp] = t.split('.')
+  assert.equal(lerToken(`${id}.${exp}.assinaturaFalsa`), null)
 })
 
 test('esticar a expiracao no token e rejeitado', () => {
-  const t = criarToken('t1', 'viajante')
-  const [id, papel, exp, sig] = t.split('.')
-  assert.equal(lerToken(`${id}.${papel}.${Number(exp) + 86_400}.${sig}`), null)
+  const t = criarToken('t1')
+  const [id, exp, sig] = t.split('.')
+  assert.equal(lerToken(`${id}.${Number(exp) + 86_400}.${sig}`), null)
 })
 
 test('token expirado e rejeitado', () => {
   const agora = Date.UTC(2026, 7, 21)
-  const t = criarToken('t1', 'admin', agora)
+  const t = criarToken('t1', agora)
   const daqui91Dias = agora + 91 * 86_400_000
   assert.equal(lerToken(t, daqui91Dias), null)
 })
