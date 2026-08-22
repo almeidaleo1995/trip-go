@@ -52,7 +52,7 @@ import {
   useAviso,
 } from '../ui.tsx'
 import { FormDespesa } from '../FormDespesa.tsx'
-import { formatarData, formatarDinheiro, paraCentavos } from '@/lib/derive.ts'
+import { formatarData, formatarDinheiro, paraCentavos, paraCampoDinheiro } from '@/lib/derive.ts'
 import {
   totaisViagem,
   percentual,
@@ -64,6 +64,7 @@ import {
   porParticipante,
   porMes,
   origemDaDivida,
+  obrigacoesDe,
   paraDia,
   NOME_STATUS,
   type StatusParcela,
@@ -695,14 +696,36 @@ const FILTROS_PARCELA: { id: string; nome: string }[] = [
 ]
 
 function Parcelas({ moeda, lista }: { moeda: string; lista: ReturnType<typeof parcelasDaViagem> }) {
+  const { snapshot } = useTrip()
   const [filtro, setFiltro] = useState('todas')
+  const [pessoa, setPessoa] = useState('')
   const [quitando, setQuitando] = useState<(typeof lista)[number] | null>(null)
 
-  const filtradas = lista.filter((p) => {
+  const fin = snapshot!.financeiro
+  const pessoas = snapshot!.participantes as Record<string, any>[]
+
+  // Filtrar por pessoa não é recortar a mesma lista: a parcela da viagem é
+  // R$ 600, e a parte de quem está selecionado é R$ 120. São números
+  // diferentes, então é outra consulta — a mesma que o viajante comum recebe.
+  const minhas = useMemo(() => {
+    if (!pessoa || !fin.admin) return []
+    return obrigacoesDe(pessoa, {
+      categorias: fin.categorias as never,
+      despesas: fin.despesas as never,
+      divisoes: fin.divisoes as never,
+      parcelas: fin.parcelas as never,
+      pagamentos: fin.pagamentos as never,
+      participantes: pessoas as never,
+    })
+  }, [pessoa, fin, pessoas])
+
+  const passaFiltro = (status: StatusParcela) => {
     if (filtro === 'todas') return true
-    if (filtro === 'proximas') return p.status === 'futura' || p.status === 'hoje'
-    return p.status === filtro
-  })
+    if (filtro === 'proximas') return status === 'futura' || status === 'hoje'
+    return status === filtro
+  }
+
+  const filtradas = lista.filter((p) => passaFiltro(p.status))
 
   // Agrupa por mês: é assim que se lê um calendário de pagamentos, não numa
   // lista corrida de trinta linhas.
@@ -712,9 +735,9 @@ function Parcelas({ moeda, lista }: { moeda: string; lista: ReturnType<typeof pa
     meses.set(chave, [...(meses.get(chave) ?? []), p])
   }
 
-  return (
-    <>
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+  const filtros = (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         <Filter size={14} className="mr-1 text-(--color-tinta-3)" />
         {FILTROS_PARCELA.map((f) => (
           <button
@@ -732,6 +755,38 @@ function Parcelas({ moeda, lista }: { moeda: string; lista: ReturnType<typeof pa
           </button>
         ))}
       </div>
+      <div className="ms-auto w-full sm:w-56">
+        <Selecao
+          compacto
+          rotulo="Ver as parcelas de"
+          valor={pessoa}
+          aoMudar={setPessoa}
+          opcoes={[
+            { valor: '', nome: 'Parcelas da viagem' },
+            ...pessoas.map((p) => ({ valor: String(p.id), nome: `Só de ${String(p.nome)}` })),
+          ]}
+        />
+      </div>
+    </div>
+  )
+
+  if (pessoa) {
+    return (
+      <>
+        {filtros}
+        <PagamentosDaPessoa
+          moeda={moeda}
+          obrigacoes={minhas.filter((o) => passaFiltro(o.status))}
+          total={minhas.length}
+          pessoa={pessoas.find((p) => String(p.id) === pessoa)}
+        />
+      </>
+    )
+  }
+
+  return (
+    <>
+      {filtros}
 
       {filtradas.length === 0 ? (
         <Vazio titulo="Nenhuma parcela aqui" texto="Troque o filtro para ver as outras." />
@@ -828,6 +883,227 @@ function Parcelas({ moeda, lista }: { moeda: string; lista: ReturnType<typeof pa
   )
 }
 
+/**
+ * O que UMA pessoa paga, mês a mês, e para quem.
+ *
+ * É tabela e não cartão de propósito: aqui não se age sobre cada linha, se LÊ
+ * uma coluna de valores para conferir um mês. Cartão é para objeto que se
+ * edita; tabela é para número que se compara.
+ *
+ * Cada mês fecha com quanto mandar para CADA pessoa. É a pergunta real de quem
+ * senta para pagar — ninguém transfere por despesa, transfere por pessoa —, e
+ * é o único lugar da tela em que a soma some as despesas de vista.
+ */
+function PagamentosDaPessoa({
+  moeda,
+  obrigacoes,
+  total,
+  pessoa,
+}: {
+  moeda: string
+  obrigacoes: Obrigacao[]
+  /** Quantas obrigações existem antes do filtro de situação. */
+  total: number
+  pessoa?: Record<string, any>
+}) {
+  const { snapshot } = useTrip()
+  const [acertando, setAcertando] = useState<{
+    de: string
+    para: string
+    valor_centavos: number
+  } | null>(null)
+
+  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const nome = String(pessoa?.nome ?? 'Esta pessoa')
+  const primeiro = nome.split(' ')[0]
+
+  if (total === 0) {
+    return (
+      <Vazio
+        titulo={`${primeiro} não divide nenhuma despesa`}
+        texto="Abra uma despesa e inclua esta pessoa na divisão para que ela apareça aqui."
+      />
+    )
+  }
+  if (obrigacoes.length === 0) {
+    return (
+      <Vazio
+        titulo="Nada com essa situação"
+        texto={`${primeiro} tem pagamentos, mas nenhum nessa situação. Troque o filtro acima.`}
+      />
+    )
+  }
+
+  const devendo = obrigacoes.reduce(
+    (s, o) => s + Math.max(0, o.valor_centavos - o.pago_centavos),
+    0,
+  )
+
+  const meses = new Map<string, Obrigacao[]>()
+  for (const o of obrigacoes) {
+    const chave = o.vence_em?.slice(0, 7) ?? 'sem-data'
+    meses.set(chave, [...(meses.get(chave) ?? []), o])
+  }
+
+  return (
+    <>
+      <Cartao tom="destaque" className="mb-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Avatar nome={nome} url={pessoa?.avatar_url} tamanho={38} />
+          <div className="min-w-0 flex-1">
+            <p className="t-cartao truncate">{nome}</p>
+            <p className="text-[13px] text-(--color-tinta-2)">
+              {obrigacoes.length} {obrigacoes.length === 1 ? 'pagamento' : 'pagamentos'} em{' '}
+              {meses.size} {meses.size === 1 ? 'mês' : 'meses'}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="t-legenda">Ainda deve</p>
+            <p className="tab-num text-xl leading-tight font-bold">
+              {formatarDinheiro(devendo, moeda)}
+            </p>
+          </div>
+        </div>
+      </Cartao>
+
+      <div className="space-y-5">
+        {[...meses.entries()].map(([mes, itens]) => {
+          // O total do mês é o que FALTA, igual à coluna e ao rodapé. Somar o
+          // valor cheio aqui deixaria três números na mesma seção que deveriam
+          // fechar entre si e não fechavam.
+          const doMes = itens.reduce(
+            (s, o) => s + Math.max(0, o.valor_centavos - o.pago_centavos),
+            0,
+          )
+          const cheioDoMes = itens.reduce((s, o) => s + o.valor_centavos, 0)
+
+          // Quanto mandar para cada credor neste mês.
+          const porCredor = new Map<string, { nome: string; valor: number }>()
+          for (const o of itens) {
+            const atual = porCredor.get(o.para_id) ?? { nome: o.para, valor: 0 }
+            atual.valor += Math.max(0, o.valor_centavos - o.pago_centavos)
+            porCredor.set(o.para_id, atual)
+          }
+          const credores = [...porCredor.entries()].filter(([, c]) => c.valor > 0)
+
+          return (
+            <section key={mes}>
+              <div className="mb-2 flex items-baseline justify-between gap-3">
+                <Rotulo>{mes === 'sem-data' ? 'Sem vencimento' : nomeDoMes(mes)}</Rotulo>
+                <span className="tab-num text-[13px] font-semibold">
+                  {formatarDinheiro(doMes, moeda)}
+                  {cheioDoMes !== doMes && (
+                    <span className="ms-1.5 font-normal text-(--color-tinta-3)">
+                      de {formatarDinheiro(cheioDoMes, moeda)}
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-(--color-borda) bg-(--color-cartao)">
+                {/* Cabeçalho só no desktop: no celular cada linha se lê sozinha. */}
+                <div
+                  aria-hidden
+                  className="t-legenda hidden gap-3 border-b border-(--color-borda) bg-(--color-superficie-2) px-4 py-2 sm:grid sm:grid-cols-[minmax(0,2.2fr)_7rem_minmax(0,1.3fr)_7rem]"
+                >
+                  <span>Despesa</span>
+                  <span>Vence</span>
+                  <span>Pagar para</span>
+                  <span className="text-right">Valor</span>
+                </div>
+
+                <div className="divide-y divide-(--color-borda)">
+                  {itens.map((o) => {
+                    const falta = Math.max(0, o.valor_centavos - o.pago_centavos)
+                    const credor = pessoas.find((p) => String(p.id) === o.para_id)
+                    return (
+                      <div
+                        key={o.id}
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[minmax(0,2.2fr)_7rem_minmax(0,1.3fr)_7rem]"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[14px] font-medium">
+                            {o.descricao}
+                            {o.total_parcelas > 1 && (
+                              <span className="text-(--color-tinta-3)">
+                                {' '}
+                                {o.numero}/{o.total_parcelas}
+                              </span>
+                            )}
+                          </p>
+                          {o.categoria && (
+                            <p className="truncate text-[12px] text-(--color-tinta-3)">
+                              {o.categoria}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Vence — no celular vira etiqueta ao lado do credor. */}
+                        <p className="tab-num order-3 text-[13px] text-(--color-tinta-2) sm:order-none">
+                          {o.vence_em
+                            ? formatarData(o.vence_em, { day: '2-digit', month: '2-digit' })
+                            : '—'}
+                          {o.status === 'atrasada' && (
+                            <span className="ms-1.5 font-semibold text-(--color-perigo-ink)">
+                              +{o.atraso_dias}d
+                            </span>
+                          )}
+                        </p>
+
+                        <div className="order-4 flex min-w-0 items-center gap-2 sm:order-none">
+                          <Avatar nome={o.para} url={credor?.avatar_url} tamanho={22} />
+                          <span className="truncate text-[13px]">{o.para}</span>
+                        </div>
+
+                        <div className="order-2 text-right sm:order-none">
+                          <p className="tab-num font-semibold">{formatarDinheiro(falta, moeda)}</p>
+                          {o.pago_centavos > 0 && (
+                            <p className="tab-num text-[11px] text-(--color-sucesso-ink)">
+                              pagou {formatarDinheiro(o.pago_centavos, moeda)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {credores.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-(--color-borda) bg-(--color-superficie-2) px-4 py-2.5">
+                    <span className="t-legenda">Fecha o mês</span>
+                    {credores.map(([id, c]) => (
+                      <button
+                        key={id}
+                        onClick={() =>
+                          setAcertando({
+                            de: String(pessoa?.id ?? ''),
+                            para: id,
+                            valor_centavos: c.valor,
+                          })
+                        }
+                        className="tab-num flex cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1 text-[13px] transition-colors hover:bg-(--color-cartao)"
+                        title={`Registrar ${formatarDinheiro(c.valor, moeda)} de ${primeiro} para ${c.nome}`}
+                      >
+                        <HandCoins size={14} className="text-(--destaque)" />
+                        <span className="text-(--color-tinta-2)">{c.nome}</span>
+                        <span className="font-bold">{formatarDinheiro(c.valor, moeda)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          )
+        })}
+      </div>
+
+      {acertando && (
+        <FormPagamento moeda={moeda} sugestao={acertando} aoFechar={() => setAcertando(null)} />
+      )}
+    </>
+  )
+}
+
 /** Quanto desta parcela já foi pago ao fornecedor. Aceita pagamento parcial. */
 function FormQuitarParcela({
   parcela,
@@ -841,7 +1117,7 @@ function FormQuitarParcela({
   const { mutate } = useTrip()
   const avisar = useAviso()
   const valor = Number(parcela.valor_centavos)
-  const [pago, setPago] = useState(String(Number(parcela.pago_centavos) / 100).replace('.', ','))
+  const [pago, setPago] = useState(paraCampoDinheiro(Number(parcela.pago_centavos)))
   const [quando, setQuando] = useState(paraDia(parcela.pago_em) ?? hojeISO())
   const [erro, setErro] = useState<string | null>(null)
 
@@ -893,7 +1169,7 @@ function FormQuitarParcela({
           <Botao
             variante="contorno"
             tamanho="pequeno"
-            onClick={() => setPago(String(valor / 100).replace('.', ','))}
+            onClick={() => setPago(paraCampoDinheiro(valor))}
           >
             <Check size={14} /> Quitar tudo
           </Botao>
@@ -1031,9 +1307,7 @@ function FormPagamento({
 
   const [de, setDe] = useState(sugestao?.de ?? String(pessoas[0]?.id ?? ''))
   const [para, setPara] = useState(sugestao?.para ?? String(pessoas[1]?.id ?? ''))
-  const [valor, setValor] = useState(
-    sugestao ? String(sugestao.valor_centavos / 100).replace('.', ',') : '',
-  )
+  const [valor, setValor] = useState(sugestao ? paraCampoDinheiro(sugestao.valor_centavos) : '')
   const [quando, setQuando] = useState(hojeISO())
   const [referencia, setReferencia] = useState('')
   const [erros, setErros] = useState<Record<string, string>>({})
@@ -1430,7 +1704,7 @@ function FormOrcamento({ aoFechar }: { aoFechar: () => void }) {
   const { snapshot, mutate } = useTrip()
   const avisar = useAviso()
   const atual = Number(snapshot!.viagem?.orcamento_centavos ?? 0)
-  const [valor, setValor] = useState(atual > 0 ? String(atual / 100).replace('.', ',') : '')
+  const [valor, setValor] = useState(atual > 0 ? paraCampoDinheiro(atual) : '')
   const [erro, setErro] = useState<string | null>(null)
 
   function salvar() {

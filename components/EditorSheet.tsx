@@ -20,6 +20,7 @@ import {
   useAviso,
 } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
+import { paraCampoDinheiro } from '@/lib/derive.ts'
 import { type Papel } from '@/config/navigation.ts'
 
 type TipoCampo = 'texto' | 'area' | 'data' | 'datahora' | 'numero' | 'dinheiro' | 'bool' | 'opcao'
@@ -264,7 +265,7 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
 /** Converte o valor do banco para o que o <input> espera. */
 function paraInput(valor: unknown, tipo: TipoCampo): string {
   if (valor === null || valor === undefined) return ''
-  if (tipo === 'dinheiro') return String(Number(valor) / 100).replace('.', ',')
+  if (tipo === 'dinheiro') return paraCampoDinheiro(Number(valor))
   if (tipo === 'data' || tipo === 'datahora') {
     const d = valor instanceof Date ? valor : new Date(String(valor).replace(' ', 'T'))
     if (Number.isNaN(d.getTime())) return String(valor)

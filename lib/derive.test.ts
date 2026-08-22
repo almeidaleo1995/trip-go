@@ -16,6 +16,7 @@ import {
   contarLugares,
   progressoChecklist,
   paraCentavos,
+  paraCampoDinheiro,
   projetarRota,
   mesclarLWW,
   formatarDuracao,
@@ -224,6 +225,19 @@ test('paraCentavos devolve null para o que nao e numero', () => {
   for (const v of ['', '   ', 'abc', '-10', '1,2,3']) {
     assert.equal(paraCentavos(v), null, `deveria recusar: ${v}`)
   }
+})
+
+test('paraCampoDinheiro e paraCentavos fazem a volta sem perder centavo', () => {
+  for (const c of [0, 99, 100, 11111, 22223, 480000, 987654]) {
+    assert.equal(paraCentavos(paraCampoDinheiro(c)), c, `nao voltou: ${c}`)
+  }
+})
+
+test('paraCampoDinheiro sempre mostra as duas casas', () => {
+  // Um campo que exibe "100" quando o valor e R$ 100,00 faz conferir duas vezes.
+  assert.equal(paraCampoDinheiro(10000), '100,00')
+  assert.equal(paraCampoDinheiro(22220), '222,20')
+  assert.equal(paraCampoDinheiro(null), '0,00')
 })
 
 test('paraCentavos nao deixa residuo de ponto flutuante', () => {

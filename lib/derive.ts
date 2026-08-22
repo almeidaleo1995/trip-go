@@ -356,6 +356,19 @@ export function formatarDinheiro(centavos: number, moeda = 'EUR'): string {
  * 814,9999... e arredondar depois ja teria perdido o centavo. Separar a parte
  * inteira da decimal antes de multiplicar nao tem esse problema.
  */
+/**
+ * Centavos -> o texto que vai DENTRO do campo de digitacao: "1234,56".
+ *
+ * Nao e `formatarDinheiro`: sem simbolo de moeda e sem separador de milhar,
+ * porque o que sai daqui volta por `paraCentavos` quando a pessoa salva. E
+ * sempre com duas casas — `String(10000 / 100)` da "100", e um campo de dinheiro
+ * que mostra "100" quando o valor e R$ 100,00 faz a pessoa conferir duas vezes.
+ */
+export function paraCampoDinheiro(centavos: number | null | undefined): string {
+  const n = Math.round(Number(centavos) || 0)
+  return (n / 100).toFixed(2).replace('.', ',')
+}
+
 export function paraCentavos(texto: string | null | undefined): number | null {
   const limpo = String(texto ?? '').trim()
   if (!limpo) return null

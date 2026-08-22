@@ -23,7 +23,13 @@ import {
   CLASSE_CAMPO,
 } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
-import { formatarDinheiro, formatarData, paraCentavos, diasAte } from '@/lib/derive.ts'
+import {
+  formatarDinheiro,
+  formatarData,
+  paraCentavos,
+  paraCampoDinheiro,
+  diasAte,
+} from '@/lib/derive.ts'
 import { resolverDivisao, gerarParcelas, paraDia, type Frequencia } from '@/lib/financeiro.ts'
 import { DIVISOES } from '@/lib/schema.ts'
 
@@ -78,7 +84,7 @@ export function FormDespesa({
   const [descricao, setDescricao] = useState(String(despesa?.descricao ?? ''))
   const [categoria, setCategoria] = useState(String(despesa?.categoria_id ?? ''))
   const [valor, setValor] = useState(
-    despesa ? String(Number(despesa.valor_centavos) / 100).replace('.', ',') : '',
+    despesa ? paraCampoDinheiro(Number(despesa.valor_centavos)) : '',
   )
   const [data, setData] = useState(paraDia(despesa?.ocorre_em) ?? '')
   const [pagador, setPagador] = useState(String(despesa?.traveler_id ?? pessoas[0]?.id ?? ''))
@@ -98,7 +104,7 @@ export function FormDespesa({
     Object.fromEntries(
       divisoesAtuais.map((d) => [
         String(d.traveler_id),
-        String(Number(d.valor_centavos) / 100).replace('.', ','),
+        paraCampoDinheiro(Number(d.valor_centavos)),
       ]),
     ),
   )
