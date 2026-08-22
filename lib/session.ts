@@ -1,7 +1,12 @@
-// Autenticacao: hash de PIN, token de sessao assinado e limitador de tentativas.
+// Autenticacao: hash de senha, token de sessao assinado e limitador de tentativas.
 //
 // Zero dependencias: `node:crypto` faz scrypt e HMAC melhor do que bcryptjs faria,
-// e um cookie assinado de 3 campos nao justifica trazer jose ou next-auth.
+// e um cookie assinado de 2 campos nao justifica trazer jose ou next-auth.
+//
+// O token carrega APENAS o id da conta. Papel nao cabe aqui: a mesma pessoa e
+// proprietaria de uma viagem e visualizadora de outra, entao papel e propriedade
+// do par (usuario, viagem) e e resolvido por consulta em lib/auth.ts. Guardar
+// papel no cookie deixaria uma promocao ou remocao valendo por 90 dias.
 //
 // Este modulo NAO importa `next/headers` no topo de proposito - assim ele roda no
 // runner de teste do Node sem contexto de request. As funcoes que mexem em cookie
@@ -15,10 +20,12 @@ const scrypt = promisify(scryptCb) as (
   tamanho: number,
 ) => Promise<Buffer>
 
-export type Papel = 'admin' | 'viajante'
-export type Sessao = { travelerId: string; papel: Papel; expiraEm: number }
+export type Sessao = { userId: string; expiraEm: number }
 
-export const COOKIE = 'viagem_sessao'
+export const COOKIE = 'tripgo_sessao'
+/** Cookie que lembra qual viagem estava aberta. Nao e credencial: so preferencia. */
+export const COOKIE_VIAGEM = 'tripgo_viagem'
+
 const DIAS_90 = 90 * 24 * 60 * 60
 
 // Parametros do scrypt. N=16384 e o padrao recomendado para uso interativo:
@@ -26,12 +33,15 @@ const DIAS_90 = 90 * 24 * 60 * 60
 const N = 16_384
 const TAMANHO_CHAVE = 64
 
-// ---------------------------------------------------------------- PIN
+/** Piso da senha. Trocar aqui muda o cadastro e a validacao junto (lib/schema.ts). */
+export const SENHA_MINIMA = 6
 
-/** Gera `scrypt$N$salt$hash`. Salt aleatorio por PIN: dois hashes do mesmo PIN diferem. */
-export async function hashPin(pin: string): Promise<string> {
+// ---------------------------------------------------------------- senha
+
+/** Gera `scrypt$N$salt$hash`. Salt aleatorio por senha: dois hashes da mesma senha diferem. */
+export async function hashSenha(senha: string): Promise<string> {
   const sal = randomBytes(16)
-  const chave = await scrypt(String(pin), sal, TAMANHO_CHAVE)
+  const chave = await scrypt(String(senha), sal, TAMANHO_CHAVE)
   return `scrypt$${N}$${sal.toString('hex')}$${chave.toString('hex')}`
 }
 
@@ -39,8 +49,8 @@ export async function hashPin(pin: string): Promise<string> {
  * Compara em tempo constante. Devolve false para qualquer entrada malformada em vez
  * de lancar - um hash corrompido no banco nao deve virar 500 na tela de login.
  */
-export async function verifyPin(
-  pin: string,
+export async function verifySenha(
+  senha: string,
   guardado: string | null | undefined,
 ): Promise<boolean> {
   if (!guardado || typeof guardado !== 'string') return false
@@ -52,11 +62,18 @@ export async function verifyPin(
   try {
     esperado = Buffer.from(hashHex, 'hex')
     if (esperado.length !== TAMANHO_CHAVE) return false
-    const calculado = await scrypt(String(pin), Buffer.from(salHex, 'hex'), TAMANHO_CHAVE)
+    const calculado = await scrypt(String(senha), Buffer.from(salHex, 'hex'), TAMANHO_CHAVE)
     return timingSafeEqual(calculado, esperado)
   } catch {
     return false
   }
+}
+
+/** Normaliza e-mail para comparacao e gravacao. O unique do banco conta com isto. */
+export function normalizarEmail(email: string): string {
+  return String(email ?? '')
+    .trim()
+    .toLowerCase()
 }
 
 // ---------------------------------------------------------------- token de sessao
@@ -71,10 +88,10 @@ function assinar(corpo: string): string {
   return createHmac('sha256', segredo()).update(corpo).digest('base64url')
 }
 
-/** `travelerId.papel.expiraEm.assinatura` — assinado, nao criptografado. */
-export function criarToken(travelerId: string, papel: Papel, agora = Date.now()): string {
+/** `userId.expiraEm.assinatura` — assinado, nao criptografado. */
+export function criarToken(userId: string, agora = Date.now()): string {
   const expiraEm = Math.floor(agora / 1000) + DIAS_90
-  const corpo = `${travelerId}.${papel}.${expiraEm}`
+  const corpo = `${userId}.${expiraEm}`
   return `${corpo}.${assinar(corpo)}`
 }
 
@@ -85,12 +102,12 @@ export function criarToken(travelerId: string, papel: Papel, agora = Date.now())
 export function lerToken(token: string | null | undefined, agora = Date.now()): Sessao | null {
   if (!token || typeof token !== 'string') return null
   const partes = token.split('.')
-  if (partes.length !== 4) return null
+  if (partes.length !== 3) return null
 
-  const [travelerId, papel, expStr, assinatura] = partes
-  if (papel !== 'admin' && papel !== 'viajante') return null
+  const [userId, expStr, assinatura] = partes
+  if (!userId) return null
 
-  const esperada = assinar(`${travelerId}.${papel}.${expStr}`)
+  const esperada = assinar(`${userId}.${expStr}`)
   const a = Buffer.from(assinatura)
   const b = Buffer.from(esperada)
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
@@ -98,7 +115,7 @@ export function lerToken(token: string | null | undefined, agora = Date.now()): 
   const expiraEm = Number(expStr)
   if (!Number.isFinite(expiraEm) || expiraEm * 1000 <= agora) return null
 
-  return { travelerId, papel, expiraEm }
+  return { userId, expiraEm }
 }
 
 // ---------------------------------------------------------------- rate limit
@@ -116,8 +133,8 @@ export const BLOQUEIO_MS = 15 * 60 * 1000
  *
  * ponytail: contador em memoria do processo. Em serverless cada instancia tem o
  * seu, entao um atacante distribuido consegue mais que 10 tentativas por janela -
- * mitigacao parcial, assumida e documentada nos Risks do design. Se virar
- * preocupacao real, mover o contador para uma tabela no Neon e uma troca local.
+ * mitigacao parcial, assumida e documentada no README. Se virar preocupacao real,
+ * mover o contador para uma tabela no Neon e uma troca local.
  */
 export function registrarFalha(
   chave: string,
@@ -159,7 +176,7 @@ export function _resetRateLimit(): void {
   janelas.clear()
 }
 
-// ---------------------------------------------------------------- cookies e guardas
+// ---------------------------------------------------------------- cookies
 
 export class ErroHttp extends Error {
   // Campo explicito, nao parameter property: o type stripping do Node so aceita
@@ -172,45 +189,42 @@ export class ErroHttp extends Error {
   }
 }
 
+const OPCOES_COOKIE = {
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+  maxAge: DIAS_90,
+} as const
+
 export async function gravarCookie(token: string): Promise<void> {
   const { cookies } = await import('next/headers')
   const jar = await cookies()
-  jar.set(COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: DIAS_90,
-  })
+  jar.set(COOKIE, token, OPCOES_COOKIE)
 }
 
 export async function limparCookie(): Promise<void> {
   const { cookies } = await import('next/headers')
   const jar = await cookies()
   jar.set(COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 })
+  jar.set(COOKIE_VIAGEM, '', { httpOnly: true, path: '/', maxAge: 0 })
+}
+
+/** Lembra a viagem aberta para que servidor e cliente concordem na proxima visita. */
+export async function gravarViagemAtual(tripId: string): Promise<void> {
+  const { cookies } = await import('next/headers')
+  const jar = await cookies()
+  jar.set(COOKIE_VIAGEM, tripId, OPCOES_COOKIE)
+}
+
+export async function lerViagemAtual(): Promise<string | null> {
+  const { cookies } = await import('next/headers')
+  const jar = await cookies()
+  return jar.get(COOKIE_VIAGEM)?.value ?? null
 }
 
 export async function lerSessao(): Promise<Sessao | null> {
   const { cookies } = await import('next/headers')
   const jar = await cookies()
   return lerToken(jar.get(COOKIE)?.value)
-}
-
-/** Lanca 401 se nao houver sessao valida. */
-export async function requireSession(): Promise<Sessao> {
-  const s = await lerSessao()
-  if (!s) throw new ErroHttp(401, 'Entre para continuar.')
-  return s
-}
-
-/**
- * Lanca 403 se o papel nao for admin.
- *
- * Esta e a barreira real do Financeiro. Esconder a aba na interface e conveniencia;
- * o que efetivamente protege e este check rodar no servidor antes de qualquer query.
- */
-export async function requireAdmin(): Promise<Sessao> {
-  const s = await requireSession()
-  if (s.papel !== 'admin') throw new ErroHttp(403, 'Somente o dono da viagem pode fazer isso.')
-  return s
 }

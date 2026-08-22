@@ -11,6 +11,12 @@ import { readFileSync } from 'node:fs'
 import { neon } from '@neondatabase/serverless'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
+
+// Segunda trava, além do runner: se alguém rodar `node --test tests/` direto,
+// a suíte se recusa a tocar num banco que não seja o de teste. Ela dá TRUNCATE.
+if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL !== process.env.TEST_DATABASE_URL) {
+  throw new Error('Rode com `npm run test:api` — a suíte apaga todas as tabelas e exige o banco de teste.')
+}
 const sql = neon(process.env.DATABASE_URL)
 const VIAGEM = JSON.parse(readFileSync(new URL('../db/europa-2027.json', import.meta.url), 'utf8'))
 

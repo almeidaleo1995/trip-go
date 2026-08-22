@@ -22,14 +22,41 @@ const sql = neon(process.env.DATABASE_URL)
 const schema = readFileSync(join(raiz, 'db', 'schema.sql'), 'utf8')
 
 // O driver HTTP do Neon nao aceita multiplos comandos numa chamada, entao
-// separamos por `;` no fim de linha, ignorando comentarios.
-const comandos = schema
-  .split('\n')
-  .filter((l) => !l.trimStart().startsWith('--'))
-  .join('\n')
-  .split(';')
-  .map((c) => c.trim())
-  .filter(Boolean)
+// separamos por `;`, ignorando comentarios.
+//
+// O split precisa respeitar `$$ ... $$`: um bloco `do $$ begin ... end $$` tem
+// ponto-e-virgula dentro, e cortar ali entrega meio comando ao banco. Sem isso,
+// nenhuma migracao condicional pode existir neste arquivo.
+function separarComandos(sql) {
+  const limpo = sql
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n')
+
+  const comandos = []
+  let atual = ''
+  let dentroDeBloco = false
+
+  for (let i = 0; i < limpo.length; i++) {
+    if (limpo[i] === '$' && limpo[i + 1] === '$') {
+      dentroDeBloco = !dentroDeBloco
+      atual += '$$'
+      i++
+      continue
+    }
+    if (limpo[i] === ';' && !dentroDeBloco) {
+      comandos.push(atual)
+      atual = ''
+      continue
+    }
+    atual += limpo[i]
+  }
+  comandos.push(atual)
+
+  return comandos.map((c) => c.trim()).filter(Boolean)
+}
+
+const comandos = separarComandos(schema)
 
 console.log(`Aplicando ${comandos.length} comandos em ${new URL(process.env.DATABASE_URL).host}...`)
 
