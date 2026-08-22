@@ -30,7 +30,7 @@ export const siteConfig = {
 
   /** Conta que o seed cria. Some da tela de login quando `mostrar` é false. */
   demo: {
-    mostrar: true,
+    mostrar: false,
     email: 'demo@tripgo.com',
     senha: '123456',
     titulo: 'Comece com um exemplo',

@@ -2,13 +2,14 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { ProvedorAvisos } from '@/components/ui.tsx'
+import { siteConfig } from '@/config/site.ts'
 
 // next/font auto-hospeda a fonte no build: zero requisicao a fonts.googleapis.com
 // em tempo de uso, que e requisito do modo offline.
 const inter = Inter({ subsets: ['latin'], variable: '--fonte-inter', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'Planejador de Viagem',
+  title: siteConfig.nome,
   description: 'Roteiro, voos, hospedagem e checklist da viagem do grupo. Funciona offline.',
 }
 
