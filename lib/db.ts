@@ -8,7 +8,8 @@
 // cache offline trivial e dispensa gerenciar estado por endpoint. Trocar de viagem
 // troca o snapshot; a conta pode ter quantas viagens quiser.
 import { neon } from '@neondatabase/serverless'
-import type { Papel } from '../config/navigation.ts'
+import { papelAlcanca, type Papel } from '../config/navigation.ts'
+import { resumoPessoal, type ResumoPessoal } from './financeiro.ts'
 
 function conectar() {
   const url = process.env.DATABASE_URL
@@ -56,6 +57,32 @@ export type ViagemResumo = {
   destinos: string | null
 }
 
+/**
+ * O financeiro de quem administra a viagem: tudo, linha por linha.
+ *
+ * `divisoes` diz quem arca com cada despesa, `parcelas` quando o dinheiro sai e
+ * `pagamentos` quem ja reembolsou quem. Saldo e acerto sao calculados a partir
+ * disto, nunca gravados.
+ */
+export type FinanceiroAdmin = {
+  admin: true
+  categorias: Record<string, unknown>[]
+  despesas: Record<string, unknown>[]
+  divisoes: Record<string, unknown>[]
+  parcelas: Record<string, unknown>[]
+  pagamentos: Record<string, unknown>[]
+}
+
+/**
+ * O financeiro de um viajante comum: SO as obrigacoes dele.
+ *
+ * Nao e o pacote do admin filtrado no cliente — e uma resposta diferente. O
+ * total da viagem, o orcamento, a despesa de que ele nao participa e o valor
+ * cheio de uma parcela (que revelaria o total do grupo) nao existem neste
+ * objeto, entao nao existem na rede.
+ */
+export type FinanceiroPessoal = { admin: false } & ResumoPessoal
+
 export type Snapshot = {
   viagem: Record<string, unknown> | null
   participantes: Record<string, unknown>[]
@@ -70,8 +97,8 @@ export type Snapshot = {
   emergencia: Record<string, unknown>[]
   mensagens: Record<string, unknown>[]
   alteracoes: Record<string, unknown>[]
-  /** null para papel `visualizador`. As queries financeiras nem chegam a rodar. */
-  financeiro: { categorias: Record<string, unknown>[]; custos: Record<string, unknown>[] } | null
+  /** Conteudo decidido pelo papel — veja `financeiroDaViagem`. */
+  financeiro: FinanceiroAdmin | FinanceiroPessoal
   server_time: string
 }
 
@@ -247,11 +274,17 @@ export async function viagemPadrao(userId: string, preferida?: string | null) {
 /**
  * Monta o snapshot de uma viagem conforme o papel.
  *
- * Para `visualizador`, as duas queries financeiras nao sao executadas e o campo
- * sai null. Nao e filtro depois de buscar: o dado nao sai do banco. Essa e a
- * diferenca entre esconder na interface e proteger de verdade.
+ * O financeiro nao e um bloco que se esconde: sao DUAS respostas diferentes,
+ * escolhidas por `financeiroDaViagem`. Quem administra recebe as linhas todas;
+ * um viajante comum recebe so as obrigacoes dele, e as despesas de que ele nao
+ * participa nem chegam a sair do banco. Essa e a diferenca entre esconder na
+ * interface e proteger de verdade.
  */
-export async function getSnapshot(tripId: string, papel: Papel): Promise<Snapshot> {
+export async function getSnapshot(
+  tripId: string,
+  papel: Papel,
+  participanteId: string,
+): Promise<Snapshot> {
   const [
     viagem,
     participantes,
@@ -309,14 +342,7 @@ export async function getSnapshot(tripId: string, papel: Papel): Promise<Snapsho
     portos: portos.filter((p) => p.cruise_id === c.id),
   }))
 
-  let financeiro: Snapshot['financeiro'] = null
-  if (papel !== 'visualizador') {
-    const [categorias, custos] = await Promise.all([
-      sql`select * from expense_categories where trip_id = ${tripId} order by ordem`,
-      sql`select * from expenses where trip_id = ${tripId} order by ordem`,
-    ])
-    financeiro = { categorias, custos }
-  }
+  const financeiro = await financeiroDaViagem(tripId, papel, participanteId, participantes)
 
   return {
     viagem: viagem[0] ?? null,
@@ -334,6 +360,75 @@ export async function getSnapshot(tripId: string, papel: Papel): Promise<Snapsho
     alteracoes,
     financeiro,
     server_time: new Date().toISOString(),
+  }
+}
+
+// ---------------------------------------------------------------- financeiro
+
+/**
+ * O financeiro que este papel pode ver. Duas consultas diferentes, nao uma
+ * consulta com filtro na saida.
+ *
+ * Administrador (`editor` para cima) recebe as cinco listas cruas e faz as
+ * contas na tela.
+ *
+ * Viajante comum (`visualizador`) recebe apenas as obrigacoes dele, ja
+ * resolvidas. As proprias QUERIES ja o recortam: uma despesa em que ele nao
+ * entra nao e lida do banco, e a linha de divisao de outra pessoa tambem nao. O
+ * valor cheio da parcela e lido (para calcular a parte dele) mas nunca sai
+ * daqui — `resumoPessoal` devolve so a fatia dele, entao o total do grupo nao
+ * chega a existir na resposta.
+ */
+export async function financeiroDaViagem(
+  tripId: string,
+  papel: Papel,
+  participanteId: string,
+  participantes: Record<string, unknown>[],
+): Promise<FinanceiroAdmin | FinanceiroPessoal> {
+  if (papelAlcanca(papel, 'editor')) {
+    const [categorias, despesas, divisoes, parcelas, pagamentos] = await Promise.all([
+      sql`select * from expense_categories where trip_id = ${tripId} order by ordem, nome`,
+      sql`select * from expenses where trip_id = ${tripId} order by ocorre_em nulls last, ordem`,
+      sql`select s.* from expense_shares s
+          join expenses e on e.id = s.expense_id
+          where e.trip_id = ${tripId}`,
+      sql`select i.* from installments i
+          join expenses e on e.id = i.expense_id
+          where e.trip_id = ${tripId} order by i.vence_em nulls last, i.numero`,
+      sql`select * from payments where trip_id = ${tripId}
+          order by ocorre_em desc nulls last, criado_em desc`,
+    ])
+    return { admin: true, categorias, despesas, divisoes, parcelas, pagamentos }
+  }
+
+  const meu = ` and exists (select 1 from expense_shares s
+                            where s.expense_id = e.id and s.traveler_id = $2)`
+  const [categorias, despesas, divisoes, parcelas, pagamentos] = await Promise.all([
+    // So o nome, para rotular a obrigacao. Categoria nao carrega valor nenhum.
+    sql`select id, nome from expense_categories where trip_id = ${tripId}`,
+    sql.query(`select e.* from expenses e where e.trip_id = $1${meu}`, [tripId, participanteId]),
+    sql`select s.* from expense_shares s
+        join expenses e on e.id = s.expense_id
+        where e.trip_id = ${tripId} and s.traveler_id = ${participanteId}`,
+    sql.query(
+      `select i.* from installments i join expenses e on e.id = i.expense_id
+       where e.trip_id = $1${meu}`,
+      [tripId, participanteId],
+    ),
+    // So os reembolsos que ELE fez. Quem recebeu o que de quem e conta do admin.
+    sql`select * from payments where trip_id = ${tripId} and de_id = ${participanteId}`,
+  ])
+
+  return {
+    admin: false,
+    ...resumoPessoal(participanteId, {
+      categorias: categorias as { id: string; nome: string }[],
+      despesas: despesas as never,
+      divisoes: divisoes as never,
+      parcelas: parcelas as never,
+      pagamentos: pagamentos as never,
+      participantes: participantes as never,
+    }),
   }
 }
 

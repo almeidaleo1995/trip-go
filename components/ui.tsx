@@ -490,6 +490,61 @@ export function Campo({
   )
 }
 
+/** Lista de opções. `<select>` nativo — o do sistema já é acessível e rola bem no celular. */
+export function Selecao({
+  rotulo,
+  valor,
+  aoMudar,
+  opcoes,
+  dica,
+  erro,
+  compacto,
+}: {
+  rotulo: string
+  valor: string
+  aoMudar: (v: string) => void
+  opcoes: { valor: string; nome: string }[]
+  dica?: string
+  erro?: string | null
+  /** Sem rótulo em cima — para filtros, onde o próprio texto já diz o que é. */
+  compacto?: boolean
+}) {
+  const id = useId()
+  const campo = (
+    <select
+      id={id}
+      value={valor}
+      aria-label={compacto ? rotulo : undefined}
+      aria-invalid={erro ? true : undefined}
+      onChange={(e) => aoMudar(e.target.value)}
+      style={erro ? { borderColor: 'var(--color-perigo-ink)' } : undefined}
+      className={`toque ${compacto ? '' : 'mt-1'} ${CLASSE_CAMPO}`}
+    >
+      {opcoes.map((o) => (
+        <option key={o.valor} value={o.valor}>
+          {o.nome}
+        </option>
+      ))}
+    </select>
+  )
+
+  if (compacto) return campo
+  return (
+    <div>
+      <label htmlFor={id} className="flex items-baseline gap-2">
+        <RotuloCampo>{rotulo}</RotuloCampo>
+        {dica && <span className="text-[12px] text-(--color-tinta-3)">{dica}</span>}
+      </label>
+      {campo}
+      {erro && (
+        <p className="mt-1 flex items-center gap-1 text-[13px] text-(--color-perigo-ink)">
+          <AlertTriangle size={13} className="shrink-0" /> {erro}
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** Interruptor. Estado dito por aria-checked, não só pela posição da bolinha. */
 export function Interruptor({
   rotulo,

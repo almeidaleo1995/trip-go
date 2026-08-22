@@ -50,11 +50,11 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
 
   q.push(sql`
     insert into trips (id, owner_id, nome, subtitulo, descricao, data_partida, data_retorno,
-                       moeda, cor_destaque, capa_url, arquivada)
+                       moeda, cor_destaque, capa_url, arquivada, orcamento_centavos)
     values (${tripId}, ${ownerId}, ${d.viagem.nome}, ${d.viagem.subtitulo ?? null},
             ${d.viagem.descricao ?? null}, ${d.viagem.data_partida}, ${d.viagem.data_retorno},
             ${d.viagem.moeda}, ${d.viagem.cor_destaque}, ${d.viagem.capa_url ?? null},
-            ${d.viagem.arquivada})
+            ${d.viagem.arquivada}, ${d.viagem.orcamento_centavos ?? null})
   `)
 
   if (!jaEstou) {
@@ -188,14 +188,75 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     `)
   }
 
+  // Pessoas vem por NOME no arquivo (ids nao sobrevivem entre viagens), entao a
+  // divisao e o pagador sao resolvidos contra a lista de participantes recem-criada.
+  const idPorNome = new Map(participantes.map((p) => [p.nome, p.id]))
+  // "descricao|numero" -> id da parcela, para religar os reembolsos no fim.
+  const idPorParcela = new Map<string, string>()
+
   for (const c of d.custos) {
+    const despesaId = randomUUID()
     q.push(sql`
-      insert into expenses (id, trip_id, categoria_id, descricao, valor_centavos, moeda,
-                            pessoas, ocorre_em, pago, estimado, nota, ordem)
-      values (${randomUUID()}, ${tripId},
+      insert into expenses (id, trip_id, categoria_id, traveler_id, descricao, valor_centavos,
+                            moeda, ocorre_em, divisao, estimado, nota, ordem)
+      values (${despesaId}, ${tripId},
               ${c.categoria ? (idPorCategoria.get(c.categoria) ?? null) : null},
-              ${c.descricao}, ${c.valor_centavos}, ${c.moeda ?? null}, ${c.pessoas},
-              ${c.ocorre_em ?? null}, ${c.pago}, ${c.estimado}, ${c.nota ?? null}, ${c.ordem})
+              ${c.pagador ? (idPorNome.get(c.pagador) ?? null) : null},
+              ${c.descricao}, ${c.valor_centavos}, ${c.moeda ?? null},
+              ${c.ocorre_em ?? null}, ${c.divisao}, ${c.estimado}, ${c.nota ?? null}, ${c.ordem})
+    `)
+
+    for (const div of c.divisoes) {
+      const quem = idPorNome.get(div.participante)
+      // Divisao apontando para quem nao esta na lista de participantes seria uma
+      // FK quebrada: pula a linha em vez de derrubar a importacao inteira.
+      if (!quem) continue
+      q.push(sql`
+        insert into expense_shares (id, expense_id, traveler_id, peso, valor_centavos)
+        values (${randomUUID()}, ${despesaId}, ${quem}, ${div.peso}, ${div.valor_centavos})
+        on conflict (expense_id, traveler_id) do nothing
+      `)
+    }
+
+    // Toda despesa tem pelo menos uma parcela. Arquivo sem nenhuma (v3 escrito a
+    // mao) ganha a parcela unica aqui, senao o vencimento nao teria onde morar.
+    const parcelas =
+      c.parcelas.length > 0
+        ? c.parcelas
+        : [
+            {
+              numero: 1,
+              vence_em: c.ocorre_em ?? null,
+              valor_centavos: c.valor_centavos,
+              pago_centavos: 0,
+              pago_em: null,
+            },
+          ]
+    for (const p of parcelas) {
+      const parcelaId = randomUUID()
+      const chave = `${c.descricao}|${p.numero}`
+      if (!idPorParcela.has(chave)) idPorParcela.set(chave, parcelaId)
+      q.push(sql`
+        insert into installments (id, expense_id, numero, vence_em, valor_centavos,
+                                  pago_centavos, pago_em)
+        values (${parcelaId}, ${despesaId}, ${p.numero}, ${p.vence_em ?? null},
+                ${p.valor_centavos}, ${p.pago_centavos}, ${p.pago_em ?? null})
+        on conflict (expense_id, numero) do nothing
+      `)
+    }
+  }
+
+  for (const g of d.pagamentos) {
+    const parcelaId =
+      g.despesa && g.parcela ? (idPorParcela.get(`${g.despesa}|${g.parcela}`) ?? null) : null
+    q.push(sql`
+      insert into payments (id, trip_id, de_id, para_id, parcela_id, valor_centavos, ocorre_em,
+                            referencia, nota)
+      values (${randomUUID()}, ${tripId},
+              ${g.de ? (idPorNome.get(g.de) ?? null) : null},
+              ${g.para ? (idPorNome.get(g.para) ?? null) : null},
+              ${parcelaId}, ${g.valor_centavos}, ${g.ocorre_em ?? null}, ${g.referencia ?? null},
+              ${g.nota ?? null})
     `)
   }
 

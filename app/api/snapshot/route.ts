@@ -33,7 +33,7 @@ export const GET = rota(async (req) => {
   }
 
   const acesso = await exigirViagem(u.id, escolhida)
-  const snapshot = await getSnapshot(escolhida, acesso.papel)
+  const snapshot = await getSnapshot(escolhida, acesso.papel, acesso.participanteId)
 
   return NextResponse.json(
     {

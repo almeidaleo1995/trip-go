@@ -269,21 +269,89 @@ create table if not exists expense_categories (
   updated_at  timestamptz not null default now()
 );
 
+-- Uma despesa da viagem.
+--
+-- Tres papeis diferentes convivem aqui, e confundi-los e o erro classico deste
+-- modulo:
+--   `traveler_id`  -> quem PAGOU o fornecedor (adiantou o dinheiro pelo grupo)
+--   `expense_shares` -> quem DEVE arcar com ela, e com quanto
+--   `payments`     -> quem REEMBOLSOU quem
+--
+-- `valor_centavos` e o valor TOTAL da despesa, nunca o valor por pessoa. Ate a
+-- versao 2 do formato ele guardava o valor por pessoa e `pessoas` multiplicava;
+-- a secao de migracoes converte e derruba a coluna.
 create table if not exists expenses (
   id             text primary key default gen_random_uuid()::text,
   trip_id        text not null references trips(id) on delete cascade,
   categoria_id   text references expense_categories(id) on delete set null,
+  -- quem pagou o fornecedor. Null = ninguem adiantou (despesa so prevista).
   traveler_id    text references travelers(id) on delete set null,
   descricao      text not null,
-  -- centavos, sempre. `pessoas` = quantas pessoas o valor por pessoa multiplica.
   valor_centavos integer not null default 0 check (valor_centavos >= 0),
   moeda          text,
-  pessoas        integer not null default 1 check (pessoas >= 1),
   ocorre_em      date,
-  pago           boolean not null default false,
+  -- como o valor foi repartido entre os participantes
+  divisao        text not null default 'igual'
+                 check (divisao in ('igual', 'peso', 'personalizado')),
   estimado       boolean not null default true,
   nota           text,
   ordem          integer not null default 0,
+  updated_at     timestamptz not null default now()
+);
+
+-- Quem arca com a despesa. Uma linha por participante que entra nela.
+--
+-- `peso` e quantas partes a pessoa assume: um casal que paga por dois e peso 2.
+-- Isso representa casal, crianca meia-entrada e quem so entrou num pedaco sem
+-- precisar de uma entidade "casal" no modelo.
+--
+-- `valor_centavos` e o resultado ja resolvido - guardado, nao recalculado na
+-- leitura, para que a soma das partes continue batendo com o total mesmo depois
+-- de alguem sair da viagem.
+create table if not exists expense_shares (
+  id             text primary key default gen_random_uuid()::text,
+  expense_id     text not null references expenses(id) on delete cascade,
+  traveler_id    text not null references travelers(id) on delete cascade,
+  peso           integer not null default 1 check (peso >= 0),
+  valor_centavos integer not null default 0 check (valor_centavos >= 0),
+  updated_at     timestamptz not null default now(),
+  unique (expense_id, traveler_id)
+);
+
+-- Parcela de uma despesa. A vista e uma parcela unica: toda despesa tem pelo
+-- menos uma linha aqui, para vencimento, atraso e quitacao terem um lugar so.
+--
+-- `pago_centavos` e quanto ja foi pago AO FORNECEDOR. Reembolso entre pessoas e
+-- outra coisa e mora em `payments`.
+create table if not exists installments (
+  id             text primary key default gen_random_uuid()::text,
+  expense_id     text not null references expenses(id) on delete cascade,
+  numero         integer not null check (numero >= 1),
+  vence_em       date,
+  valor_centavos integer not null default 0 check (valor_centavos >= 0),
+  pago_centavos  integer not null default 0 check (pago_centavos >= 0),
+  pago_em        date,
+  updated_at     timestamptz not null default now(),
+  unique (expense_id, numero)
+);
+
+-- Reembolso de uma pessoa para outra. Nao e a despesa: e o dinheiro voltando
+-- para quem adiantou.
+--
+-- `parcela_id` amarra o reembolso a uma parcela especifica, e e o que permite
+-- dizer "pago 150 de 300 desta parcela". Nulo = acerto avulso no fim da viagem,
+-- que entra no saldo sem se referir a nenhuma despesa.
+create table if not exists payments (
+  id             text primary key default gen_random_uuid()::text,
+  trip_id        text not null references trips(id) on delete cascade,
+  de_id          text references travelers(id) on delete set null,
+  para_id        text references travelers(id) on delete set null,
+  parcela_id     text references installments(id) on delete set null,
+  valor_centavos integer not null default 0 check (valor_centavos >= 0),
+  ocorre_em      date,
+  referencia     text,
+  nota           text,
+  criado_em      timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
 
@@ -362,6 +430,60 @@ alter table expenses  add column if not exists traveler_id text references trave
 alter table expenses  add column if not exists moeda       text;
 alter table expenses  add column if not exists ocorre_em   date;
 
+-- Orcamento previsto da viagem, para o cartao "Total previsto". Fica nulo ate
+-- alguem definir: a tela convida a preencher em vez de exibir um zero que
+-- parece numero real.
+alter table trips     add column if not exists orcamento_centavos integer;
+
+-- ---------------------------------------------------------------- despesa v3
+--
+-- O modelo de despesa deixou de ser "valor POR PESSOA x pessoas" e passou a ser
+-- "valor TOTAL + quem divide (expense_shares) + quando vence (installments)".
+--
+-- A conversao roda UMA vez: `divisao` nula e a marca de linha ainda nao
+-- convertida, e a propria conversao a preenche. Rodar o arquivo de novo nao
+-- multiplica valor nenhum, que e o unico jeito de uma migracao de dinheiro ser
+-- idempotente de verdade.
+alter table expenses  add column if not exists divisao text;
+
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_name = 'expenses' and column_name = 'pessoas') then
+    update expenses
+       set valor_centavos = valor_centavos * greatest(pessoas, 1),
+           divisao = 'igual'
+     where divisao is null;
+  end if;
+
+  -- Toda despesa passa a ter pelo menos uma parcela. O `pago` booleano antigo
+  -- vira "parcela unica quitada" — sem isto, o que ja estava pago voltaria a
+  -- aparecer como em aberto.
+  if exists (select 1 from information_schema.columns
+             where table_name = 'expenses' and column_name = 'pago') then
+    insert into installments (expense_id, numero, vence_em, valor_centavos, pago_centavos, pago_em)
+    select e.id, 1, e.ocorre_em, e.valor_centavos,
+           case when e.pago then e.valor_centavos else 0 end,
+           case when e.pago then e.ocorre_em end
+      from expenses e
+     where not exists (select 1 from installments i where i.expense_id = e.id);
+  end if;
+end $$;
+
+-- As linhas antigas nao sabem QUEM dividia a despesa (o modelo so guardava
+-- quantas pessoas). Nao inventamos participante: a despesa fica sem divisao, a
+-- tela a marca como "a dividir" e ninguem passa a dever um valor que nao foi
+-- decidido por uma pessoa.
+alter table expenses  drop column if exists pessoas;
+alter table expenses  drop column if exists pago;
+
+update expenses set divisao = 'igual' where divisao is null;
+alter table expenses alter column divisao set default 'igual';
+alter table expenses alter column divisao set not null;
+alter table expenses drop constraint if exists expenses_divisao_check;
+alter table expenses add  constraint expenses_divisao_check
+  check (divisao in ('igual', 'peso', 'personalizado'));
+
 -- `ativo` (viagem unica ativa) vira `arquivada` (varias viagens, algumas guardadas).
 do $$
 begin
@@ -426,6 +548,12 @@ create index if not exists idx_documents_trip          on documents (trip_id, or
 create index if not exists idx_emergency_trip          on emergency_contacts (trip_id, ordem);
 create index if not exists idx_expense_categories_trip on expense_categories (trip_id, ordem);
 create index if not exists idx_expenses_trip           on expenses (trip_id, categoria_id);
+create index if not exists idx_expense_shares_expense  on expense_shares (expense_id);
+create index if not exists idx_expense_shares_traveler on expense_shares (traveler_id);
+create index if not exists idx_installments_expense    on installments (expense_id, numero);
+create index if not exists idx_installments_vence      on installments (vence_em);
+create index if not exists idx_payments_trip           on payments (trip_id, ocorre_em desc);
+create index if not exists idx_payments_de             on payments (de_id);
 create index if not exists idx_messages_trip           on messages (trip_id, criado_em desc);
 create index if not exists idx_notifications_user      on notifications (user_id, lida, criado_em desc);
 create index if not exists idx_change_log_trip         on change_log (trip_id, criado_em desc);

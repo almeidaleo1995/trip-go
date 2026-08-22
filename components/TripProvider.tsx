@@ -26,6 +26,28 @@ import {
   type Operacao,
 } from '@/lib/offline.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
+import { resolverDivisao, gerarParcelas, type Obrigacao } from '@/lib/financeiro.ts'
+
+/** Financeiro de quem administra: as listas cruas, para a tela fazer as contas. */
+export type FinanceiroAdmin = {
+  admin: true
+  categorias: Record<string, any>[]
+  despesas: Record<string, any>[]
+  divisoes: Record<string, any>[]
+  parcelas: Record<string, any>[]
+  pagamentos: Record<string, any>[]
+}
+
+/** Financeiro de um viajante comum: só as obrigações dele, já resolvidas. */
+export type FinanceiroPessoal = {
+  admin: false
+  obrigacoes: Obrigacao[]
+  historico: Record<string, any>[]
+  devendo: number
+  pago: number
+  do_mes: number
+  atrasadas: number
+}
 
 export type Snapshot = {
   viagem: Record<string, any> | null
@@ -41,7 +63,7 @@ export type Snapshot = {
   emergencia: Record<string, any>[]
   mensagens: Record<string, any>[]
   alteracoes: Record<string, any>[]
-  financeiro: { categorias: Record<string, any>[]; custos: Record<string, any>[] } | null
+  financeiro: FinanceiroAdmin | FinanceiroPessoal
   server_time: string
   eu: { userId: string; usuario: Record<string, any>; participanteId: string; papel: Papel }
 }
@@ -89,7 +111,7 @@ export function TripProvider({
 
   const aplicarSnapshot = useCallback(
     (s: Snapshot) => {
-      setSnapshot(s)
+      setSnapshot(normalizar(s))
       setUltimaSync(new Date().toISOString())
       void gravarSnapshot(tripId, s)
     },
@@ -151,7 +173,7 @@ export function TripProvider({
       setOfflineOk(await offlineDisponivel())
       const cache = await lerSnapshot<Snapshot>(tripId)
       if (vivo && cache) {
-        setSnapshot(cache)
+        setSnapshot(normalizar(cache))
         setCarregando(false)
       }
       setPendentes(await tamanhoFila())
@@ -235,6 +257,115 @@ const LISTA: Record<string, keyof Snapshot> = {
   participante: 'participantes',
 }
 
+/** Financeiro vazio de viajante comum. É o que a tela mostra quando não há dado. */
+const FINANCEIRO_VAZIO: FinanceiroPessoal = {
+  admin: false,
+  obrigacoes: [],
+  historico: [],
+  devendo: 0,
+  pago: 0,
+  do_mes: 0,
+  atrasadas: 0,
+}
+
+/**
+ * Garante que o snapshot tem o formato que as telas esperam.
+ *
+ * Existe por causa de UMA situação real: o cache offline pode conter a resposta
+ * gravada por uma versão anterior do app, e a primeira pintura sai dele, antes
+ * de a rede responder. `lib/offline.ts` descarta o cache quando a versão sobe,
+ * mas isso protege só as mudanças que alguém lembrou de versionar — aqui a tela
+ * fica de pé mesmo diante de um objeto que não reconhece, em vez de quebrar
+ * inteira por causa de uma propriedade que sumiu.
+ */
+function normalizar(s: Snapshot): Snapshot {
+  const f = s?.financeiro as unknown as { admin?: boolean } | null | undefined
+  if (f && typeof f.admin === 'boolean') return s
+  return { ...s, financeiro: FINANCEIRO_VAZIO }
+}
+
+/**
+ * Espelha uma escrita financeira no snapshot local.
+ *
+ * A despesa é o único caso em que a tela precisa refazer a conta do servidor:
+ * criar uma despesa em modo avião tem que mostrar a divisão e as parcelas na
+ * hora, não depois do sync. Usa as MESMAS funções puras que o servidor
+ * (`resolverDivisao`, `gerarParcelas`), então o que aparece offline é
+ * exatamente o que vai ser gravado — não uma aproximação que muda ao sincronizar.
+ */
+function aplicarFinanceiro(fin: FinanceiroAdmin, op: Operacao): FinanceiroAdmin {
+  const lista = (chave: keyof FinanceiroAdmin, idDe = (x: any) => x.id) => {
+    const atual = fin[chave] as Record<string, any>[]
+    if (op.op === 'remover') return atual.filter((x) => idDe(x) !== op.id)
+    if (op.op === 'criar') return [...atual, { id: op.id, ...op.campos }]
+    return atual.map((x) => (idDe(x) === op.id ? { ...x, ...op.campos } : x))
+  }
+
+  if (op.entidade === 'categoria') return { ...fin, categorias: lista('categorias') }
+  if (op.entidade === 'parcela') return { ...fin, parcelas: lista('parcelas') }
+  if (op.entidade === 'pagamento') return { ...fin, pagamentos: lista('pagamentos') }
+
+  // custo — a despesa e tudo que pende dela
+  const id = String(op.id ?? '')
+  if (op.op === 'remover') {
+    return {
+      ...fin,
+      despesas: fin.despesas.filter((x) => x.id !== id),
+      divisoes: fin.divisoes.filter((x) => x.expense_id !== id),
+      parcelas: fin.parcelas.filter((x) => x.expense_id !== id),
+    }
+  }
+
+  const c = op.campos as Record<string, any>
+  const total = Number(c.valor_centavos) || 0
+  const divisoes = resolverDivisao(total, c.divisao, c.divisoes ?? []).map((d) => ({
+    ...d,
+    expense_id: id,
+  }))
+  const parcelas = gerarParcelas(
+    total,
+    Number(c.parcelas_quantidade) || 1,
+    c.parcelas_primeira_em ?? c.ocorre_em ?? null,
+    c.parcelas_frequencia ?? 'mensal',
+  ).map((p) => {
+    // Preserva o que já foi pago ao fornecedor: o formulário de despesa não
+    // manda esse campo, e zerá-lo aqui faria uma parcela quitada voltar a
+    // aparecer como em aberto até o próximo sync.
+    const antiga = fin.parcelas.find((x) => x.expense_id === id && Number(x.numero) === p.numero)
+    return {
+      id: antiga?.id ?? `${id}:${p.numero}`,
+      expense_id: id,
+      pago_centavos: 0,
+      ...antiga,
+      ...p,
+    }
+  })
+
+  const despesa = {
+    id,
+    categoria_id: c.categoria_id ?? null,
+    traveler_id: c.traveler_id ?? null,
+    descricao: c.descricao,
+    valor_centavos: total,
+    moeda: c.moeda ?? null,
+    ocorre_em: c.ocorre_em ?? null,
+    divisao: c.divisao ?? 'igual',
+    estimado: c.estimado ?? true,
+    nota: c.nota ?? null,
+    ordem: c.ordem ?? 0,
+  }
+
+  return {
+    ...fin,
+    despesas:
+      op.op === 'criar'
+        ? [...fin.despesas, despesa]
+        : fin.despesas.map((x) => (x.id === id ? { ...x, ...despesa } : x)),
+    divisoes: [...fin.divisoes.filter((x) => x.expense_id !== id), ...divisoes],
+    parcelas: [...fin.parcelas.filter((x) => x.expense_id !== id), ...parcelas],
+  }
+}
+
 function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
   const novo = { ...s }
 
@@ -256,19 +387,11 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
     return novo
   }
 
-  if (op.entidade === 'custo' || op.entidade === 'categoria') {
-    if (!s.financeiro) return novo
-    const chave = op.entidade === 'custo' ? 'custos' : 'categorias'
-    const lista = s.financeiro[chave]
-    novo.financeiro = {
-      ...s.financeiro,
-      [chave]:
-        op.op === 'remover'
-          ? lista.filter((x) => x.id !== op.id)
-          : op.op === 'criar'
-            ? [...lista, { id: op.id, ...op.campos }]
-            : lista.map((x) => (x.id === op.id ? { ...x, ...op.campos } : x)),
-    }
+  // Financeiro: só o pacote de administrador tem listas para espelhar. O do
+  // viajante comum é calculado no servidor e ele não escreve nada nele.
+  if (['custo', 'categoria', 'parcela', 'pagamento'].includes(op.entidade)) {
+    if (!s.financeiro.admin) return novo
+    novo.financeiro = aplicarFinanceiro(s.financeiro, op)
     return novo
   }
 

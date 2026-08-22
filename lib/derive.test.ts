@@ -15,7 +15,7 @@ import {
   ordenarEventos,
   contarLugares,
   progressoChecklist,
-  totaisFinanceiro,
+  paraCentavos,
   projetarRota,
   mesclarLWW,
   formatarDuracao,
@@ -207,36 +207,30 @@ test('progressoChecklist trata valor falso como nao feito', () => {
   assert.equal(progressoChecklist([{ id: '1' }], { '1': false }).feitos, 0)
 })
 
-// ---------------------------------------------------------------- financeiro
+// ---------------------------------------------------------------- dinheiro digitado
 
-test('totaisFinanceiro multiplica por pessoa e soma por categoria', () => {
-  // ETA do Reino Unido: R$ 110 por pessoa x 5 = R$ 550
-  const r = totaisFinanceiro([
-    { categoria_id: 'doc', valor_centavos: 11_000, pessoas: 5 },
-    { categoria_id: 'doc', valor_centavos: 28_000, pessoas: 5 },
-    { categoria_id: 'voo', valor_centavos: 96_700, pessoas: 5 },
-  ])
-  assert.equal(r.porCategoria.doc, 195_000)
-  assert.equal(r.porCategoria.voo, 483_500)
-  assert.equal(r.total, 678_500)
+test('paraCentavos le o numero como a pessoa digita em pt-BR', () => {
+  assert.equal(paraCentavos('1.234,56'), 123456)
+  assert.equal(paraCentavos('4800'), 480000)
+  assert.equal(paraCentavos('4800,5'), 480050)
+  assert.equal(paraCentavos('0,99'), 99)
 })
 
-test('totaisFinanceiro mantem tudo inteiro, sem residuo de ponto flutuante', () => {
-  const r = totaisFinanceiro([
-    { categoria_id: 'a', valor_centavos: 10, pessoas: 3 },
-    { categoria_id: 'a', valor_centavos: 20, pessoas: 3 },
-  ])
-  assert.equal(r.total, 90)
-  assert.ok(Number.isInteger(r.total))
+test('paraCentavos aceita ponto decimal para quem digita no teclado numerico', () => {
+  assert.equal(paraCentavos('1234.56'), 123456)
 })
 
-test('totaisFinanceiro agrupa custo sem categoria', () => {
-  const r = totaisFinanceiro([{ categoria_id: null, valor_centavos: 500, pessoas: 1 }])
-  assert.equal(r.porCategoria['sem-categoria'], 500)
+test('paraCentavos devolve null para o que nao e numero', () => {
+  for (const v of ['', '   ', 'abc', '-10', '1,2,3']) {
+    assert.equal(paraCentavos(v), null, `deveria recusar: ${v}`)
+  }
 })
 
-test('totaisFinanceiro com lista vazia devolve total 0', () => {
-  assert.equal(totaisFinanceiro([]).total, 0)
+test('paraCentavos nao deixa residuo de ponto flutuante', () => {
+  // 0.1 + 0.2 e o classico; aqui o risco e 8,15 * 100 dar 814,9999...
+  assert.equal(paraCentavos('8,15'), 815)
+  assert.equal(paraCentavos('1,10'), 110)
+  assert.ok(Number.isInteger(paraCentavos('19,99')!))
 })
 
 // ---------------------------------------------------------------- mapa

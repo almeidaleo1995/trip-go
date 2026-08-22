@@ -30,6 +30,7 @@ import {
   formatarHora,
   parseData,
 } from '@/lib/derive.ts'
+import { totaisViagem, percentual } from '@/lib/financeiro.ts'
 
 /** Uma célula do resumo. Vira botão só quando existe uma aba para onde ir. */
 function Estatistica({
@@ -91,16 +92,28 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
   )
   const progresso = progressoChecklist(snapshot.checklist as { id: string }[], meus)
 
+  // Financeiro: quem administra vê o andamento da viagem inteira; um viajante
+  // comum vê o das próprias obrigações. São duas contas porque são dois dados
+  // diferentes — o segundo nem sabe quanto a viagem custa.
   const financeiro = snapshot.financeiro
-  const custosPendentes = financeiro
-    ? (financeiro.custos as any[]).filter((c) => !c.pago).length
-    : 0
-  const financeiroPct = financeiro && financeiro.custos.length
-    ? Math.round(
-        ((financeiro.custos as any[]).filter((c) => c.pago).length / financeiro.custos.length) *
-          100,
-      )
-    : null
+  const { pendentesFin, financeiroPct, rotuloFin } = financeiro.admin
+    ? (() => {
+        const t = totaisViagem(financeiro.despesas as never, financeiro.parcelas as never)
+        return {
+          pendentesFin: t.parcelasAbertas || (t.aberto > 0 ? 1 : 0),
+          financeiroPct: t.total > 0 ? percentual(t.pago, t.total) : null,
+          rotuloFin: 'Financeiro',
+        }
+      })()
+    : (() => {
+        const abertas = financeiro.obrigacoes.filter((o) => o.valor_centavos > o.pago_centavos)
+        const total = financeiro.devendo + financeiro.pago
+        return {
+          pendentesFin: abertas.length,
+          financeiroPct: total > 0 ? percentual(financeiro.pago, total) : null,
+          rotuloFin: 'Meus pagamentos',
+        }
+      })()
 
   // Alterações das últimas 48h — é como o grupo descobre que algo mudou.
   const recentes = snapshot.alteracoes.filter((a) => {
@@ -134,11 +147,13 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
           } a preencher`,
         }
       : null,
-    financeiro && custosPendentes > 0
+    pendentesFin > 0
       ? {
           icone: Wallet,
           aba: 'financeiro' as AbaId,
-          rotulo: `${custosPendentes} ${custosPendentes === 1 ? 'despesa' : 'despesas'} a pagar`,
+          rotulo: financeiro.admin
+            ? `${pendentesFin} ${pendentesFin === 1 ? 'valor' : 'valores'} a pagar`
+            : `${pendentesFin} ${pendentesFin === 1 ? 'pagamento seu' : 'pagamentos seus'} em aberto`,
         }
       : null,
   ].filter(Boolean) as { icone: React.ElementType; aba: AbaId; rotulo: string }[]
@@ -146,7 +161,7 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
   const barras = [
     progresso.total > 0 ? { rotulo: 'Checklist', pct: progresso.pct } : null,
     documentosPct !== null ? { rotulo: 'Documentos', pct: documentosPct } : null,
-    financeiroPct !== null ? { rotulo: 'Financeiro', pct: financeiroPct } : null,
+    financeiroPct !== null ? { rotulo: rotuloFin, pct: financeiroPct } : null,
   ].filter(Boolean) as { rotulo: string; pct: number }[]
 
   return (
@@ -170,7 +185,8 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
             <div
               className="flex flex-col justify-center p-6 text-white"
               style={{
-                background: 'linear-gradient(135deg, var(--destaque), var(--color-destaque-escuro))',
+                background:
+                  'linear-gradient(135deg, var(--destaque), var(--color-destaque-escuro))',
               }}
             >
               {fase.fase === 'antes' && (

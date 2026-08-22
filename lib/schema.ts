@@ -6,7 +6,10 @@
 // escritos a mao, e o servidor valida contra os mesmos schemas antes de gravar.
 import { z } from 'zod'
 
-export const SCHEMA_VERSION = 2
+// v3: a despesa passou a guardar o valor TOTAL (era valor por pessoa x `pessoas`)
+// e ganhou divisao por participante, parcelas e pagador. Arquivos v2 continuam
+// sendo aceitos e sao convertidos na leitura — eles vivem no HD das pessoas.
+export const SCHEMA_VERSION = 3
 
 // ---------------------------------------------------------------- primitivos
 
@@ -128,6 +131,8 @@ export const ViagemSchema = z.object({
   cor_destaque: Cor.default('#0F766E'),
   capa_url: Url,
   arquivada: z.boolean().default(false),
+  /** Orcamento previsto. Nulo = ninguem definiu; a tela convida em vez de exibir zero. */
+  orcamento_centavos: Centavos.nullish(),
 })
 
 export const ParticipanteSchema = z.object({
@@ -293,21 +298,175 @@ export const CategoriaSchema = z.object({
   ordem: z.number().int().default(0),
 })
 
-export const CustoSchema = z.object({
+// ---------------------------------------------------------------- financeiro
+//
+// Tres papeis que nao podem ser confundidos: quem PAGOU o fornecedor
+// (`traveler_id` na despesa), quem DEVE arcar com ela (`divisoes`) e quem
+// REEMBOLSA quem (`pagamento`). Cada um tem o seu schema.
+
+export const DIVISOES = ['igual', 'peso', 'personalizado'] as const
+
+/** Quanto cabe a um participante numa despesa. `peso` 2 = duas partes (casal). */
+export const DivisaoSchema = z.object({
+  traveler_id: Id,
+  peso: z.number().int().min(0).max(999).default(1),
+  valor_centavos: Centavos.default(0),
+})
+
+/**
+ * Uma parcela ja gravada, editada sozinha.
+ *
+ * Existe separada de `ParcelaSchema` porque marcar uma parcela como quitada e a
+ * acao mais frequente da tela, e reenviar a despesa inteira para mudar um campo
+ * de uma linha e o caminho mais curto para duas pessoas se atropelarem.
+ */
+export const ParcelaMutacaoSchema = z.object({
+  expense_id: Id,
+  numero: z.number().int().min(1),
+  vence_em: Data.nullish(),
+  valor_centavos: Centavos,
+  pago_centavos: Centavos,
+  pago_em: Data.nullish(),
+})
+
+/** Uma parcela. A vista e uma parcela unica — nunca um caminho separado. */
+export const ParcelaSchema = z.object({
+  numero: z.number().int().min(1, 'a primeira parcela e a 1'),
+  vence_em: Data.nullish(),
+  valor_centavos: Centavos,
+  /** Quanto ja foi pago ao fornecedor. Reembolso entre pessoas e `pagamento`. */
+  pago_centavos: Centavos.default(0),
+  pago_em: Data.nullish(),
+})
+
+export const FREQUENCIAS = ['mensal', 'quinzenal', 'semanal'] as const
+
+/**
+ * Despesa, no formato das MUTACOES (ids, nao nomes).
+ *
+ * `valor_centavos` e o valor TOTAL. A divisao chega junto porque uma despesa e a
+ * sua divisao sao um fato so — gravar em duas idas deixaria uma despesa sem
+ * divisao na tela se a segunda falhasse, e despesa sem divisao e dinheiro que
+ * ninguem deve.
+ *
+ * As parcelas NAO chegam prontas: o cliente manda a INTENCAO (quantas, a partir
+ * de quando, com que frequencia) e quem calcula os valores e o servidor. Assim a
+ * aritmetica que faz a soma fechar acontece num lugar so, testado, em vez de
+ * depender de o navegador ter arredondado igual.
+ *
+ * Este schema NAO e parcial nas mutacoes: editar uma despesa reenvia a despesa
+ * inteira. Meia despesa gravada e um numero errado na tela de outra pessoa.
+ */
+export const DespesaSchema = z.object({
   id: Id.optional(),
-  categoria: TextoOpc,
+  categoria_id: Id.nullish(),
+  /** Quem pagou o fornecedor. */
+  traveler_id: Id.nullish(),
   descricao: Texto,
   valor_centavos: Centavos,
   moeda: TextoOpc,
-  /** Quantas pessoas o valor por pessoa multiplica. */
-  pessoas: z.number().int().min(1, 'precisa ser pelo menos 1').default(1),
   ocorre_em: Data.nullish(),
-  pago: z.boolean().default(false),
+  divisao: z.enum(DIVISOES).default('igual'),
   /** Estimativa de planejamento vs. valor efetivamente cotado. */
   estimado: z.boolean().default(true),
   nota: TextoOpc,
   ordem: z.number().int().default(0),
+  divisoes: z.array(DivisaoSchema).max(60, 'gente demais numa despesa so').default([]),
+  parcelas_quantidade: z
+    .number()
+    .int()
+    .min(1, 'precisa ser pelo menos 1')
+    .max(120, 'parcelas demais')
+    .default(1),
+  parcelas_primeira_em: Data.nullish(),
+  parcelas_frequencia: z.enum(FREQUENCIAS).default('mensal'),
 })
+
+/** Reembolso de uma pessoa para outra. */
+export const PagamentoSchema = z.object({
+  id: Id.optional(),
+  de_id: Id.nullish(),
+  para_id: Id.nullish(),
+  /** Parcela a que se refere. Nulo = acerto avulso. */
+  parcela_id: Id.nullish(),
+  valor_centavos: Centavos,
+  ocorre_em: Data.nullish(),
+  referencia: TextoOpc,
+  nota: TextoOpc,
+})
+
+/**
+ * Despesa no formato do ARQUIVO de importacao: referencia pessoas e categorias
+ * por NOME, porque ids nao sobrevivem a exportar de uma viagem e importar noutra.
+ */
+export const CustoSchema = z.object({
+  id: Id.optional(),
+  categoria: TextoOpc,
+  descricao: Texto,
+  /** Valor TOTAL da despesa. Em arquivos v2 isto era o valor por pessoa. */
+  valor_centavos: Centavos,
+  moeda: TextoOpc,
+  ocorre_em: Data.nullish(),
+  /** Nome do participante que pagou o fornecedor. */
+  pagador: TextoOpc,
+  divisao: z.enum(DIVISOES).default('igual'),
+  estimado: z.boolean().default(true),
+  nota: TextoOpc,
+  ordem: z.number().int().default(0),
+  divisoes: z
+    .array(
+      z.object({
+        participante: Texto,
+        peso: z.number().int().min(0).max(999).default(1),
+        valor_centavos: Centavos.default(0),
+      }),
+    )
+    .default([]),
+  parcelas: z.array(ParcelaSchema).default([]),
+  // Campos so do formato v2, lidos para converter arquivos antigos e nunca escritos.
+  pessoas: z.number().int().min(1).optional(),
+  pago: z.boolean().optional(),
+})
+
+/**
+ * Reembolso no formato do arquivo: pessoas por nome.
+ *
+ * A parcela a que ele se refere e apontada por descricao da despesa + numero,
+ * porque o id da parcela e recriado na importacao.
+ *
+ * ponytail: duas despesas com a MESMA descricao e um reembolso amarrado a uma
+ * delas restauram com o reembolso na primeira. O saldo continua exato (ele so
+ * depende de quem pagou quanto a quem); o que troca de lugar e o rotulo "pago
+ * desta parcela". Se um dia isso incomodar, exporte tambem a ordem da despesa.
+ */
+export const PagamentoArquivoSchema = z.object({
+  de: TextoOpc,
+  para: TextoOpc,
+  valor_centavos: Centavos,
+  ocorre_em: Data.nullish(),
+  despesa: TextoOpc,
+  parcela: z.number().int().min(1).nullish(),
+  referencia: TextoOpc,
+  nota: TextoOpc,
+})
+
+/**
+ * Categorias sugeridas quando a viagem ainda nao tem nenhuma. Ficam aqui, e nao
+ * em config/, porque sao vocabulario de dado — a viagem grava as suas proprias
+ * e pode renomear qualquer uma.
+ */
+export const CATEGORIAS_PADRAO = [
+  'Passagens',
+  'Hospedagem',
+  'Transporte',
+  'Alimentação',
+  'Passeios',
+  'Ingressos',
+  'Seguro',
+  'Documentos',
+  'Compras',
+  'Outros',
+] as const
 
 export const MensagemSchema = z.object({
   texto: Texto.max(2000, 'mensagem longa demais'),
@@ -315,7 +474,7 @@ export const MensagemSchema = z.object({
 
 // ---------------------------------------------------------------- importacao
 
-export const TripImportSchema = z.object({
+const TripArquivoSchema = z.object({
   schemaVersion: z.number().int().max(SCHEMA_VERSION, 'arquivo de uma versao mais nova do app'),
   viagem: ViagemSchema,
   // Toda secao de lista e opcional: uma viagem so com roteiro e valida.
@@ -330,6 +489,44 @@ export const TripImportSchema = z.object({
   emergencia: z.array(EmergenciaSchema).default([]),
   categorias: z.array(CategoriaSchema).default([]),
   custos: z.array(CustoSchema).default([]),
+  pagamentos: z.array(PagamentoArquivoSchema).default([]),
+})
+
+/**
+ * Converte um arquivo v2 para o modelo v3, na leitura.
+ *
+ * Em v2 `valor_centavos` era o valor POR PESSOA e `pessoas` multiplicava; em v3
+ * o campo e o total. Sem esta conversao, reimportar um backup antigo dividiria
+ * o orcamento da viagem pelo numero de pessoas em silencio.
+ *
+ * O arquivo v2 nao diz QUEM dividia a despesa (so quantos eram), entao a divisao
+ * fica vazia de proposito — inventar participante seria pior do que a viagem
+ * abrir com as despesas marcadas como "a dividir".
+ */
+export const TripImportSchema = TripArquivoSchema.transform((d) => {
+  if (d.schemaVersion >= 3) return d
+  return {
+    ...d,
+    custos: d.custos.map((c) => {
+      const total = c.valor_centavos * (c.pessoas ?? 1)
+      return {
+        ...c,
+        valor_centavos: total,
+        parcelas:
+          c.parcelas.length > 0
+            ? c.parcelas
+            : [
+                {
+                  numero: 1,
+                  vence_em: c.ocorre_em ?? null,
+                  valor_centavos: total,
+                  pago_centavos: c.pago ? total : 0,
+                  pago_em: c.pago ? (c.ocorre_em ?? null) : null,
+                },
+              ],
+      }
+    }),
+  }
 })
 
 export type TripImport = z.infer<typeof TripImportSchema>
@@ -352,7 +549,11 @@ export const ENTIDADES = [
   'documento',
   'emergencia',
   'categoria',
+  // `custo` e a despesa. O nome ficou de quando ela era so um valor na lista;
+  // renomear quebraria as operacoes que estao na fila offline de quem ja usa.
   'custo',
+  'parcela',
+  'pagamento',
 ] as const
 
 export type Entidade = (typeof ENTIDADES)[number]
@@ -387,7 +588,10 @@ const POR_ENTIDADE: Partial<Record<Entidade, z.ZodTypeAny>> = {
   documento: DocumentoSchema.partial(),
   emergencia: EmergenciaSchema.partial(),
   categoria: CategoriaSchema.partial(),
-  custo: CustoSchema.partial(),
+  // Despesa NÃO é parcial: editar reenvia o registro inteiro. Ver DespesaSchema.
+  custo: DespesaSchema,
+  parcela: ParcelaMutacaoSchema.partial(),
+  pagamento: PagamentoSchema.partial(),
   checklist_state: z.object({ item_id: Id, feito: z.boolean() }).partial(),
 }
 
@@ -454,5 +658,7 @@ export function resumirImportacao(dados: TripImport): Record<string, number> {
     emergencia: dados.emergencia.length,
     categorias: dados.categorias.length,
     custos: dados.custos.length,
+    parcelas: dados.custos.reduce((s, c) => s + c.parcelas.length, 0),
+    pagamentos: dados.pagamentos.length,
   }
 }

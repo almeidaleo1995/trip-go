@@ -27,12 +27,6 @@ export type Evento = {
 export type ItemChecklist = { id: string }
 export type EstadoChecklist = Record<string, boolean>
 
-export type Custo = {
-  categoria_id?: string | null
-  valor_centavos: number
-  pessoas: number
-}
-
 export type Ponto = { cidade?: string; lat: number | string | null; lon: number | string | null }
 
 // ---------------------------------------------------------------- datas
@@ -241,27 +235,6 @@ export function progressoChecklist(
   return { feitos, total, pct: Math.round((feitos / total) * 100) }
 }
 
-// ---------------------------------------------------------------- financeiro
-
-/**
- * Totais em centavos. Tudo inteiro do inicio ao fim - converter para reais/euros
- * so acontece na formatacao, nunca no calculo.
- */
-export function totaisFinanceiro(custos: Custo[]): {
-  porCategoria: Record<string, number>
-  total: number
-} {
-  const porCategoria: Record<string, number> = {}
-  let total = 0
-  for (const c of custos ?? []) {
-    const valor = Math.round(Number(c?.valor_centavos) || 0) * (Number(c?.pessoas) || 0)
-    const chave = c?.categoria_id ?? 'sem-categoria'
-    porCategoria[chave] = (porCategoria[chave] ?? 0) + valor
-    total += valor
-  }
-  return { porCategoria, total }
-}
-
 // ---------------------------------------------------------------- mapa da rota
 
 /**
@@ -371,6 +344,33 @@ export function formatarDinheiro(centavos: number, moeda = 'EUR'): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: moeda }).format(
     (Number(centavos) || 0) / 100,
   )
+}
+
+/**
+ * O caminho de volta: o que a pessoa digitou vira centavos inteiros.
+ *
+ * Aceita "1.234,56" (pt-BR) e "1234.56" (teclado numerico). Devolve null quando
+ * nao e numero, para o formulario poder dizer "valor invalido" em vez de gravar 0.
+ *
+ * Os centavos saem de uma conta com INTEIROS: `8,15 * 100` em ponto flutuante da
+ * 814,9999... e arredondar depois ja teria perdido o centavo. Separar a parte
+ * inteira da decimal antes de multiplicar nao tem esse problema.
+ */
+export function paraCentavos(texto: string | null | undefined): number | null {
+  const limpo = String(texto ?? '').trim()
+  if (!limpo) return null
+
+  // Ponto e separador de milhar em pt-BR; virgula e o decimal. Sem virgula, um
+  // ponto sozinho e tratado como decimal (teclado numerico do celular).
+  const normalizado = limpo.includes(',')
+    ? limpo.replace(/\./g, '').replace(',', '.')
+    : limpo.replace(/\.(?=\d{3}(\D|$))/g, '')
+
+  if (!/^\d+(\.\d+)?$/.test(normalizado)) return null
+
+  const [inteiro, decimal = ''] = normalizado.split('.')
+  const centavos = (decimal + '00').slice(0, 2)
+  return Number(inteiro) * 100 + Number(centavos)
 }
 
 /** Duracao em minutos -> "12h40" / "45min". Usado em voos e conexoes. */

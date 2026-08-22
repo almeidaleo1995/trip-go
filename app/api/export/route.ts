@@ -45,10 +45,30 @@ export const GET = rota(async (req) => {
   if (!tripId) throw new ErroHttp(404, 'Nenhuma viagem cadastrada ainda.')
 
   const acesso = await exigirViagem(u.id, tripId)
-  const s = await getSnapshot(tripId, acesso.papel)
+  const s = await getSnapshot(tripId, acesso.papel, acesso.participanteId)
   const v = s.viagem as Record<string, unknown>
-  const catPorId = new Map(
-    (s.financeiro?.categorias ?? []).map((c) => [String(c.id), String(c.nome)]),
+
+  // Viajante comum exporta um arquivo SEM nenhum dado financeiro: o snapshot
+  // dele nem traz as linhas, entao aqui o bloco simplesmente nao existe.
+  const fin = s.financeiro.admin ? s.financeiro : null
+  const catPorId = new Map((fin?.categorias ?? []).map((c) => [String(c.id), String(c.nome)]))
+  const nomePorParticipante = new Map(s.participantes.map((p) => [String(p.id), String(p.nome)]))
+  const parcelasPorDespesa = new Map<string, Record<string, unknown>[]>()
+  for (const p of fin?.parcelas ?? []) {
+    const chave = String(p.expense_id)
+    parcelasPorDespesa.set(chave, [...(parcelasPorDespesa.get(chave) ?? []), p])
+  }
+
+  // O reembolso aponta para a parcela por descrição + número, não por id: o id
+  // é recriado na importação.
+  const descPorDespesa = new Map(
+    (fin?.despesas ?? []).map((c) => [String(c.id), String(c.descricao)]),
+  )
+  const porIdDeParcela = new Map(
+    (fin?.parcelas ?? []).map((p) => [
+      String(p.id),
+      { descricao: descPorDespesa.get(String(p.expense_id)), numero: Number(p.numero) },
+    ]),
   )
 
   const arquivo = {
@@ -60,10 +80,15 @@ export const GET = rota(async (req) => {
       data_retorno: dia(v.data_retorno)!,
       moeda: String(v.moeda),
       cor_destaque: String(v.cor_destaque),
+      orcamento_centavos: numero(v.orcamento_centavos),
     },
-    // PIN nunca é exportado: o arquivo circula por e-mail e pen drive.
-    viajantes: s.participantes.map((t) => ({
+    // A chave é `participantes`, igual à da importação. Enquanto ela se chamou
+    // `viajantes` aqui, o zod descartava a seção inteira em silêncio e o backup
+    // restaurava uma viagem sem ninguém dentro.
+    // Senha nunca é exportada: o arquivo circula por e-mail e pen drive.
+    participantes: s.participantes.map((t) => ({
       nome: String(t.nome),
+      email: texto(t.email),
       papel: t.papel as 'proprietario' | 'editor' | 'visualizador',
       telefone: texto(t.telefone),
       passaporte: texto(t.passaporte),
@@ -123,18 +148,23 @@ export const GET = rota(async (req) => {
         nota: texto(p.nota),
       })),
     })),
-    hospedagens: s.reservas
-      .filter((r) => r.tipo === 'hospedagem')
-      .map((h) => ({
-        nome: String(h.nome),
-        cidade: texto(h.cidade),
-        checkin: dia(h.inicio_em),
-        checkout: dia(h.fim_em),
-        endereco: texto(h.endereco),
-        link: texto(h.link),
-        telefone: texto(h.telefone),
-        nota: texto(h.nota),
-      })),
+    // Idem: era `hospedagens`, com o formato antigo de check-in/check-out, e o
+    // resto das reservas (restaurante, passeio, carro) não saía no backup.
+    reservas: s.reservas.map((r) => ({
+      tipo: r.tipo as
+        'hospedagem' | 'restaurante' | 'passeio' | 'ingresso' | 'carro' | 'transporte' | 'outro',
+      nome: String(r.nome),
+      cidade: texto(r.cidade),
+      inicio_em: quando(r.inicio_em),
+      fim_em: quando(r.fim_em),
+      endereco: texto(r.endereco),
+      link: texto(r.link),
+      telefone: texto(r.telefone),
+      localizador: texto(r.localizador),
+      valor_centavos: numero(r.valor_centavos),
+      nota: texto(r.nota),
+      ordem: Number(r.ordem ?? 0),
+    })),
     lugares: s.lugares.map((l) => ({
       cidade: String(l.cidade),
       pais: texto(l.pais),
@@ -167,21 +197,55 @@ export const GET = rota(async (req) => {
       detalhe: texto(e.detalhe),
       ordem: Number(e.ordem ?? 0),
     })),
-    // Viajante exporta arquivo SEM nenhum dado financeiro (BKP-04).
-    categorias: (s.financeiro?.categorias ?? []).map((c) => ({
+    categorias: (fin?.categorias ?? []).map((c) => ({
       nome: String(c.nome),
       ordem: Number(c.ordem ?? 0),
     })),
-    custos: (s.financeiro?.custos ?? []).map((c) => ({
+    // Pessoas e categorias saem por NOME: ids nao sobrevivem a exportar de uma
+    // viagem e importar noutra.
+    custos: (fin?.despesas ?? []).map((c) => ({
       categoria: c.categoria_id ? catPorId.get(String(c.categoria_id)) : undefined,
       descricao: String(c.descricao),
       valor_centavos: Number(c.valor_centavos),
-      pessoas: Number(c.pessoas),
-      pago: Boolean(c.pago),
+      moeda: texto(c.moeda),
+      ocorre_em: dia(c.ocorre_em),
+      pagador: c.traveler_id ? nomePorParticipante.get(String(c.traveler_id)) : undefined,
+      divisao: c.divisao as 'igual' | 'peso' | 'personalizado',
       estimado: Boolean(c.estimado),
       nota: texto(c.nota),
       ordem: Number(c.ordem ?? 0),
+      divisoes: (fin?.divisoes ?? [])
+        .filter((d) => d.expense_id === c.id)
+        .map((d) => ({
+          participante: nomePorParticipante.get(String(d.traveler_id)) ?? '',
+          peso: Number(d.peso ?? 1),
+          valor_centavos: Number(d.valor_centavos ?? 0),
+        }))
+        // Divisao de participante ja removido nao tem nome para restaurar.
+        .filter((d) => d.participante !== ''),
+      parcelas: (parcelasPorDespesa.get(String(c.id)) ?? [])
+        .map((p) => ({
+          numero: Number(p.numero),
+          vence_em: dia(p.vence_em),
+          valor_centavos: Number(p.valor_centavos),
+          pago_centavos: Number(p.pago_centavos ?? 0),
+          pago_em: dia(p.pago_em),
+        }))
+        .sort((a, b) => a.numero - b.numero),
     })),
+    pagamentos: (fin?.pagamentos ?? []).map((g) => {
+      const parcela = g.parcela_id ? porIdDeParcela.get(String(g.parcela_id)) : undefined
+      return {
+        de: g.de_id ? nomePorParticipante.get(String(g.de_id)) : undefined,
+        para: g.para_id ? nomePorParticipante.get(String(g.para_id)) : undefined,
+        valor_centavos: Number(g.valor_centavos),
+        ocorre_em: dia(g.ocorre_em),
+        despesa: parcela?.descricao,
+        parcela: parcela?.numero,
+        referencia: texto(g.referencia),
+        nota: texto(g.nota),
+      }
+    }),
   }
 
   // Trava de round-trip: se o que saiu não valida na entrada, é bug nosso, não do

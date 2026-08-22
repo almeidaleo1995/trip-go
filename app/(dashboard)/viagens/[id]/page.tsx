@@ -11,8 +11,16 @@ import { TripProvider, useTrip } from '@/components/TripProvider.tsx'
 import { Shell, type AbaId } from '@/components/Shell.tsx'
 import { PdfBolso } from '@/components/PdfBolso.tsx'
 import { Inicio } from '@/components/tabs/Inicio.tsx'
-import { Roteiro, Voos, Cruzeiro, Hospedagem, Lugares, Documentos } from '@/components/tabs/Conteudo.tsx'
-import { Emergencia, Checklist, Financeiro } from '@/components/tabs/Interativas.tsx'
+import {
+  Roteiro,
+  Voos,
+  Cruzeiro,
+  Hospedagem,
+  Lugares,
+  Documentos,
+} from '@/components/tabs/Conteudo.tsx'
+import { Emergencia, Checklist } from '@/components/tabs/Interativas.tsx'
+import { Financeiro } from '@/components/tabs/Financeiro.tsx'
 import { Dados } from '@/components/tabs/Dados.tsx'
 
 export default function ViagemPagina({ params }: { params: Promise<{ id: string }> }) {

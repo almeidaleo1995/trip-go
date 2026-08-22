@@ -1,6 +1,6 @@
 # TripGo
 
-**A multi-user, offline-first trip planner.** Itinerary, flights, cruises, lodging, cities, checklists, documents, emergency contacts and budget — for one traveller or a group of twenty. It opens in airplane mode, accepts edits with no network, and syncs when connectivity returns.
+**A multi-user, offline-first trip planner.** Itinerary, flights, cruises, lodging, cities, checklists, documents, emergency contacts and shared costs — for one traveller or a group of twenty. It opens in airplane mode, accepts edits with no network, and syncs when connectivity returns.
 
 Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 
@@ -34,12 +34,12 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | | |
 | --- | --- |
 | **Framework** | Next.js 16.3.2, App Router, React 19.2, Node runtime |
-| **Database** | Neon serverless Postgres — 19 tables, one idempotent `schema.sql` |
+| **Database** | Neon serverless Postgres — 22 tables, one idempotent `schema.sql` |
 | **Auth** | Email + password, scrypt hashes, HMAC-signed httpOnly cookie, 90 days |
 | **Runtime deps** | 4 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react` |
 | **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
-| **Tests** | 88 unit tests, `node --test`, zero test frameworks |
+| **Tests** | 137 unit tests, `node --test`, zero test frameworks |
 | **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
@@ -85,7 +85,7 @@ flowchart TB
     API --> SCHEMA
 ```
 
-**Why this shape.** Any design that puts credentials in the browser cannot protect the Budget tab, and any design without a server cannot sync five devices. Once a server exists, the only question left is how thin it can stay — and the answer was: nine route handlers, three server modules, no ORM.
+**Why this shape.** Any design that puts credentials in the browser cannot keep one traveller from reading the whole trip's finances, and any design without a server cannot sync five devices. Once a server exists, the only question left is how thin it can stay — and the answer was: nine route handlers, three server modules, no ORM.
 
 ---
 
@@ -95,7 +95,7 @@ Each of these was a fork in the road. The rationale matters more than the outcom
 
 ### 1. One snapshot per trip, not one endpoint per resource
 
-`GET /api/snapshot?trip=<id>` returns **the whole trip** in a single response: trip, participants, itinerary, flights with nested stops, cruises with nested ports, reservations, places, checklist and its per-person state, documents, emergency contacts, messages, change history, budget, plus the account's trip list and notifications.
+`GET /api/snapshot?trip=<id>` returns **the whole trip** in a single response: trip, participants, itinerary, flights with nested stops, cruises with nested ports, reservations, places, checklist and its per-person state, documents, emergency contacts, messages, change history, and the slice of the trip's finances this person may see, plus the account's trip list and notifications.
 
 A full trip is a few dozen KB. In exchange for that payload:
 
@@ -144,7 +144,28 @@ Every brand string, colour and menu entry lives in `config/`. If you find `"Trip
 
 Rebranding this app touches three files and no components.
 
-### 7. Schema-driven forms
+### 7. An expense is four facts, not one row
+
+Who **paid** the vendor, who **owes** the money, **when** it leaves, and who **reimbursed** whom are four different things. Collapsing them (the old model was "value per person × number of people") cannot answer the question a group trip actually asks: *how much do I owe, to whom, and by when?*
+
+```mermaid
+flowchart LR
+    E["expenses<br/>total + who paid"] --> S["expense_shares<br/>who owes, and how much"]
+    E --> I["installments<br/>when it leaves"]
+    S --> B(("saldo"))
+    I --> B
+    P["payments<br/>who reimbursed whom"] --> B
+    B --> AC["acerto:<br/>quem paga quanto a quem"]
+    style B fill:#CCFBF1,stroke:#0F766E,color:#0F766E
+```
+
+Balances and settlements are **derived, never stored** — there is no field anyone can edit into disagreeing with the expenses.
+
+`peso` on a share is how many parts a person assumes. That one integer expresses a couple paying for two, a child at half, or someone joining a single leg — without a `couples` table.
+
+All of it lives in `lib/financeiro.ts`: zero I/O, zero React, zero SQL. The server uses it to compute what each role may see; the screen uses it to draw; and the client uses the *same* functions for the optimistic paint, so what appears offline is exactly what gets written.
+
+### 8. Schema-driven forms
 
 `lib/schema.ts` is the single contract: the import file format, the mutation format, and the account forms. `EditorSheet.tsx` builds its fields **from the zod schema**, so fifteen entities share one editor instead of fifteen hand-written forms. The server validates against the same schemas before writing.
 
@@ -152,7 +173,7 @@ Rebranding this app touches three files and no components.
 
 ## Data model
 
-19 tables. Everything trip-scoped cascades from `trips`; everything person-scoped cascades from `users`.
+22 tables. Everything trip-scoped cascades from `trips`; everything person-scoped cascades from `users`.
 
 ```mermaid
 erDiagram
@@ -170,6 +191,11 @@ erDiagram
     trips ||--o{ emergency_contacts : has
     trips ||--o{ expense_categories : has
     trips ||--o{ expenses : has
+    trips ||--o{ payments : settles
+    expenses ||--o{ expense_shares : "split among"
+    expenses ||--o{ installments : "paid over"
+    travelers ||--o{ expense_shares : owes
+    travelers ||--o{ payments : reimburses
     trips ||--o{ messages : has
     trips ||--o{ change_log : records
     flights ||--o{ flight_stops : "layovers"
@@ -201,9 +227,26 @@ erDiagram
     }
     expenses {
         text id PK
-        integer valor_centavos "cents, never float"
-        integer pessoas
-        boolean pago
+        integer valor_centavos "TOTAL in cents, never float"
+        text traveler_id FK "who PAID the vendor"
+        text divisao "igual / peso / personalizado"
+    }
+    expense_shares {
+        text expense_id FK
+        text traveler_id FK "who OWES"
+        integer peso "parts assumed - a couple is 2"
+        integer valor_centavos "resolved share"
+    }
+    installments {
+        text expense_id FK
+        integer numero
+        date vence_em
+        integer pago_centavos "paid to the vendor"
+    }
+    payments {
+        text de_id FK "who reimbursed"
+        text para_id FK "who received"
+        text parcela_id FK "nullable — null = loose settlement"
     }
 ```
 
@@ -249,7 +292,7 @@ sequenceDiagram
     TP->>API: GET ?trip=:id
     API->>API: exigirUsuario → exigirViagem
     alt role = visualizador
-        Note over API,PG: budget queries never run;<br/>financeiro = null
+        Note over API,PG: financial queries are scoped to<br/>this person's own obligations
     end
     API->>PG: 15 parallel queries
     PG-->>API: rows
@@ -359,12 +402,37 @@ flowchart TB
 | --- | :---: | :---: | :---: |
 | See itinerary, flights, lodging, places, documents, emergency | ✅ | ✅ | ✅ |
 | Tick **their own** checklist row | ✅ | ✅ | ✅ |
-| See the **Budget** tab | ❌ | ✅ | ✅ |
-| Create / edit / delete trip content | ❌ | ✅ | ✅ |
+| See **their own** payments | ✅ | ✅ | ✅ |
+| See the trip's **totals, budget, balances and everyone's expenses** | ❌ | ✅ | ✅ |
+| Create / edit / delete trip content, including expenses | ❌ | ✅ | ✅ |
 | Manage participants and roles | ❌ | ❌ | ✅ |
 | Import, export, delete the trip | ❌ | ❌ | ✅ |
 
-The budget is not hidden — it is **absent**. For `visualizador`, `getSnapshot()` never executes the two expense queries and `financeiro` is `null`. That is the difference between hiding a tab and protecting data.
+### The money is scoped, not hidden
+
+`financeiro` is **two different responses**, chosen by `financeiroDaViagem()` in `lib/db.ts` — not one payload the UI filters.
+
+```mermaid
+flowchart TB
+    Q{"papelAlcanca(papel, editor)?"}
+    Q -->|"yes"| A["admin: true<br/>categorias · despesas · divisoes<br/>parcelas · pagamentos<br/><br/>every row of the trip"]
+    Q -->|"no"| B["admin: false<br/>obrigacoes · historico<br/>devendo · pago · atrasadas<br/><br/>only what this person owes"]
+    A --> UI1["Painel completo"]
+    B --> UI2["Meus pagamentos"]
+
+    style A fill:#CCFBF1,stroke:#0F766E,color:#0F766E
+    style B fill:#FEF3C7,stroke:#A1590A,color:#A1590A
+```
+
+For a `visualizador` the restriction is in the **SQL**, not in a `.filter()` afterwards: an expense they are not a participant of is never read from the database, and neither is anyone else's share row. The one thing that *is* read and never sent is the full installment amount — it is needed to compute their slice, and `resumoPessoal()` returns only that slice. So the group's total does not exist anywhere in the response.
+
+Measured against the real trip: the same request returns **11,459 bytes** of financial data to the owner and **92 bytes** to a common traveller, and none of the trip's expense values appear in the second.
+
+Three invariants worth keeping when this code is touched:
+
+- A traveller's per-installment share is `repartir(minha_divisao, [valores das parcelas])` — splitting *their* total across the schedule. Splitting each installment among people instead gives a different number, and the sum of their installments would stop matching what they owe.
+- Nobody owes themselves: an expense whose payer is the viewer produces no obligation.
+- An expense with **no payer** is the normal state of a trip still being planned. It counts in the trip total and in nobody's balance.
 
 Two invariants enforced server-side regardless of role:
 
@@ -429,11 +497,12 @@ travel-guide/
 ├── components/
 │   ├── TripProvider.tsx         # client state: cache → network → optimistic → queue
 │   ├── Shell.tsx                # sidebar on desktop, 4-slot tab bar + "More" on mobile
-│   ├── EditorSheet.tsx          # ONE schema-driven editor for all 15 entities
+│   ├── EditorSheet.tsx          # ONE schema-driven editor for most entities
+│   ├── FormDespesa.tsx          # the money form: pagador, divisão, parcelas
 │   ├── MapaRota.tsx             # hand-projected SVG route map
 │   ├── PdfBolso.tsx             # print-only pocket sheet — window.print(), no PDF lib
 │   ├── ui.tsx                   # the whole design system
-│   └── tabs/                    # Inicio · Conteudo · Interativas · Dados
+│   └── tabs/                    # Inicio · Conteudo · Interativas · Financeiro · Dados
 │
 ├── lib/
 │   ├── db.ts                    # SQL + snapshot assembly. Credential stops here.
@@ -441,7 +510,9 @@ travel-guide/
 │   ├── session.ts               # scrypt, HMAC token, rate limit, cookies
 │   ├── schema.ts                # zod contract: import format + mutations + forms
 │   ├── importar.ts              # one transactional importer, shared by API and seed
-│   ├── derive.ts                # every pure calculation — the file with real tests
+│   ├── derive.ts                # pure calculations: dates, money formatting
+│   ├── financeiro.ts            # the money engine — splits, schedules, balances,
+│   │                            #   settlements, and the per-role privacy cut
 │   ├── offline.ts               # IndexedDB
 │   └── api.ts                   # route wrapper: exception → HTTP + pt-BR body
 │
@@ -465,7 +536,7 @@ travel-guide/
 | `/api/viagens` | `GET` `POST` `PUT` `DELETE` | mixed | List · create · set active · delete *(owner)* |
 | `/api/viagens/duplicar` | `POST` | member | Clone a whole trip with a day offset |
 | `/api/snapshot` | `GET` | member | The entire trip in one response |
-| `/api/mutate` | `POST` | per entity | Apply the write queue |
+| `/api/mutate` | `POST` | per entity | Apply the write queue (expense + split + schedule land in one transaction) |
 | `/api/import` | `POST` | signed in | Create a trip from JSON — `dry_run` previews |
 | `/api/export` | `GET` | member | Download in the exact format import accepts |
 
@@ -575,13 +646,21 @@ node .claude/skills/viagem-para-json/scripts/validar.mjs db/europa-2027.json
 ### Unit — 88 passing
 
 ```
+lib/financeiro.test.ts 49 tests  the money engine: exact splits, weights, custom
+                                 amounts, installment schedules, overdue/partial/paid,
+                                 balances, debt simplification, and the privacy cut —
+                                 what a common traveller is allowed to receive
 lib/derive.test.ts    48 tests   pure calculations: dates, phases, countdowns,
-                                 checklist progress, budget totals, map projection
+                                 checklist progress, pt-BR money parsing, map projection
 lib/schema.test.ts    24 tests   the zod contract: field-precise error messages,
                                  calendar rollover, currency, roles, per-entity fields
 lib/session.test.ts   16 tests   scrypt round-trip, tampered/expired tokens,
                                  timing-safe comparison, rate-limit windows
 ```
+
+`lib/financeiro.ts` carries the heaviest coverage for the same reason `derive.ts` does:
+a bug here is invisible until someone is asked to pay the wrong amount. Every split
+and every schedule is asserted to sum **exactly** to the total, in integer cents.
 
 `lib/derive.ts` is where a bug stays invisible until someone misses a flight, which is why it carries the heaviest coverage. One example of what is covered: `new Date("2026-12-30")` is parsed as **UTC** by the JS spec, which lands on the previous day anywhere west of Greenwich — Brazil included. `parseData()` builds the date component by component and rejects silent rollover, so `"2026-13-05"` is an error instead of becoming January 2027 in the flights tab.
 
@@ -591,7 +670,7 @@ lib/session.test.ts   16 tests   scrypt round-trip, tampered/expired tokens,
 
 What the suite covered, and what a rewrite must preserve:
 
-- A `visualizador` receives `financeiro: null` — verified at the wire, not in the UI
+- A `visualizador` receives only their own obligations in `financeiro` — no trip total, no budget, no other person's share, no full installment amount. Verified at the wire, not in the UI
 - 403 on editing content, 403 on ticking someone else's checklist
 - Last-write-wins: a stale timestamp is rejected, the newer write survives
 - `change_log` records both the previous and the new value
@@ -640,6 +719,10 @@ flowchart TB
 | 10 — duplicate | Cloned trips come back missing it |
 
 The `via` field is the one to read twice. It is what scopes every operation by the session's `trip_id` rather than by id alone. `'trip'` for direct children, `'flight'` / `'cruise'` for grandchildren, `'self'` only for the trip row itself.
+
+### Changing the shape of the snapshot
+
+If a change alters what `/api/snapshot` returns, **bump `VERSAO` in `lib/offline.ts`**. The first paint of every screen comes from the IndexedDB cache, so without the bump the new code meets an object written by the previous version and crashes on a field that no longer exists — on the devices of people who already use the app, and only there. The upgrade drops the cached snapshot (regenerable in one request) and keeps the write queue (real work that has not synced).
 
 ### Changing the import format
 
@@ -691,6 +774,9 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | **No binary uploads** | Avatars and document files are **URLs**. `documents.arquivo_url` / `arquivo_mime` / `arquivo_bytes` exist in the schema, but nothing writes them. | Neon Object Storage, S3, or Vercel Blob + an upload route. |
 | **Map has no coastline** | The home map projects the route and pins onto an abstract gradient. | A simplified GeoJSON, ~20–50 KB, from a reliable source. |
 | **Export omits credentials** | A restored backup has no passwords. Intentional — the file circulates by email. | None wanted. |
+| **Old expenses import without a split** | A v2 backup records how *many* people shared a cost, never *who*. The importer converts the amount to a total and leaves the split empty rather than inventing participants; the screen marks those expenses "a dividir". | Open each one and choose who divides it. |
+| **A reimbursement tied to an installment is re-linked by description** | Installment ids are recreated on import, so `payments.parcela_id` is restored by matching *expense description + installment number*. Two expenses with the same description put the payment on the first. Balances stay exact either way — only the "paid on this installment" label can move. | Export the expense's `ordem` alongside it. |
+| **Debt simplification is greedy** | Largest debtor against largest creditor. At most n−1 transfers, which settles any group; not the proven minimum (that is NP-hard). | A partition solver, if a trip ever has enough participants for it to matter. |
 | **`db:push` is not part of the build** | Deploying does not migrate. | Intentional. Automate only with a real migration tool. |
 | **Social sign-in is inert** | Google and Apple buttons render disabled with a reason, driven by `siteConfig.social`. | Flip `ativo` once a provider is wired. |
 

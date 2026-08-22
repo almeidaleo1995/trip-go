@@ -6,7 +6,17 @@
 // anônima, com site data bloqueado ou sem cota simplesmente não tem modo offline —
 // o app continua funcionando online. Uma exceção aqui viraria tela branca.
 const BANCO = 'viagem'
-const VERSAO = 1
+// Suba a VERSAO sempre que o FORMATO do snapshot mudar.
+//
+// O cache guarda a resposta de /api/snapshot inteira. Quando o formato muda, o
+// que está guardado é de uma versão anterior do app, e a tela pinta a partir
+// dele ANTES de a rede responder — ou seja, o código novo lê o objeto antigo e
+// quebra na primeira propriedade que não existe mais. Subir a versão descarta o
+// cache no upgrade, e a primeira pintura passa a esperar a rede uma vez só.
+//
+//   1 -> 2  financeiro deixou de ser { categorias, custos } e virou dois
+//           formatos por papel ({ admin: true, ... } / { admin: false, ... })
+const VERSAO = 2
 const SNAPSHOT = 'snapshot'
 const FILA = 'fila'
 
@@ -28,7 +38,14 @@ function abrir(): Promise<IDBDatabase | null> {
       const req = indexedDB.open(BANCO, VERSAO)
       req.onupgradeneeded = () => {
         const db = req.result
-        if (!db.objectStoreNames.contains(SNAPSHOT)) db.createObjectStore(SNAPSHOT)
+        // Cache de uma versão anterior é jogado fora, não migrado: ele é
+        // regenerável por uma requisição, e migrar formato de dado em
+        // IndexedDB é código que só roda uma vez na vida de cada aparelho —
+        // exatamente o código que ninguém testa.
+        if (db.objectStoreNames.contains(SNAPSHOT)) db.deleteObjectStore(SNAPSHOT)
+        db.createObjectStore(SNAPSHOT)
+        // A fila SOBREVIVE: são escritas que a pessoa fez e ainda não subiram.
+        // Apagá-la perderia trabalho de verdade.
         if (!db.objectStoreNames.contains(FILA)) db.createObjectStore(FILA, { autoIncrement: true })
       }
       req.onsuccess = () => resolve(req.result)

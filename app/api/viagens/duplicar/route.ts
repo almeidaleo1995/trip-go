@@ -44,10 +44,10 @@ export const POST = rota(async (req) => {
 
   const criada = await sql`
     insert into trips (owner_id, nome, subtitulo, descricao, data_partida, data_retorno,
-                       moeda, cor_destaque, capa_url)
+                       moeda, cor_destaque, capa_url, orcamento_centavos)
     select ${u.id}, coalesce(${nome}, nome || ' (cópia)'), subtitulo, descricao,
            data_partida + ${deslocamento}::interval, data_retorno + ${deslocamento}::interval,
-           moeda, cor_destaque, capa_url
+           moeda, cor_destaque, capa_url, orcamento_centavos
     from trips where id = ${corpo.id}
     returning id
   `
@@ -143,15 +143,29 @@ export const POST = rota(async (req) => {
     select md5(id || ${novo}), ${novo}, nome, ordem
     from expense_categories where trip_id = ${corpo.id}
   `
+    // `traveler_id` (quem pagou) sai nulo: duplicar não copia participantes, e
+    // apontar para a pessoa da viagem original quebraria a chave estrangeira —
+    // além de afirmar que alguém pagou uma despesa que ainda não aconteceu.
     await sql`
-    insert into expenses (trip_id, categoria_id, descricao, valor_centavos, moeda, pessoas,
-                          ocorre_em, pago, estimado, nota, ordem)
-    select ${novo},
+    insert into expenses (id, trip_id, categoria_id, descricao, valor_centavos, moeda,
+                          ocorre_em, divisao, estimado, nota, ordem)
+    select md5(id || ${novo}), ${novo},
            case when categoria_id is null then null else md5(categoria_id || ${novo}) end,
-           descricao, valor_centavos, moeda, pessoas, ocorre_em + ${d}::interval,
-           false, estimado, nota, ordem
+           descricao, valor_centavos, moeda, ocorre_em + ${d}::interval,
+           divisao, estimado, nota, ordem
     from expenses where trip_id = ${corpo.id}
   `
+    // O calendário de parcelas vem junto (é o plano de pagamento), zerado: a
+    // viagem nova começa com tudo por pagar.
+    await sql`
+    insert into installments (id, expense_id, numero, vence_em, valor_centavos)
+    select md5(i.id || ${novo}), md5(i.expense_id || ${novo}), i.numero,
+           i.vence_em + ${d}::interval, i.valor_centavos
+    from installments i join expenses e on e.id = i.expense_id
+    where e.trip_id = ${corpo.id}
+  `
+    // Divisão e reembolsos NÃO são copiados: eles são sobre pessoas, e a cópia
+    // começa só com quem duplicou. As despesas nascem "a dividir".
   }
 
   await gravarViagemAtual(novo)

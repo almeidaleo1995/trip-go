@@ -89,15 +89,18 @@ export function Shell({
   const [maisAberto, setMaisAberto] = useState(false)
 
   const temCruzeiro = (snapshot?.cruzeiros?.length ?? 0) > 0
+  // O Financeiro existe para todo mundo, mas com CONTEÚDO diferente: quem
+  // administra vê a viagem inteira; um viajante comum vê só o que deve. Quem
+  // decide isso é o servidor — o rótulo aqui só conta a verdade ao dono da tela.
+  const financeiroCompleto = snapshot?.financeiro?.admin === true
   const visiveis = ABAS.filter((a) => {
-    // Financeiro reflete o que o servidor manda: nulo pra visualizador, então
-    // esconder a aba aqui é conveniência, não a proteção real.
-    if (a.id === 'financeiro') return snapshot?.financeiro != null
     // "Dados" gerencia participantes e configurações — só o dono da viagem.
     if (a.id === 'dados') return papel === 'proprietario'
     if (a.id === 'cruzeiro') return temCruzeiro
     return true
-  })
+  }).map((a) =>
+    a.id === 'financeiro' && !financeiroCompleto ? { ...a, nome: 'Meus pagamentos' } : a,
+  )
 
   // Restaura a aba escolhida (UI-06). Só depois de montar, para não divergir do
   // HTML renderizado no servidor.
@@ -256,7 +259,16 @@ export function Shell({
           </Link>
         </div>
 
-        <main className="mx-auto max-w-5xl px-4 py-5 md:px-8 md:py-8">{children}</main>
+        {/* O painel financeiro é a única tela com duas colunas de conteúdo, e
+            5xl aperta o painel lateral contra a tabela. As demais abas leem
+            melhor na medida mais estreita. */}
+        <main
+          className={`mx-auto px-4 py-5 md:px-8 md:py-8 ${
+            aba === 'financeiro' && financeiroCompleto ? 'max-w-7xl' : 'max-w-5xl'
+          }`}
+        >
+          {children}
+        </main>
       </div>
 
       {/* tab bar — celular. Quatro fixas + "Mais". */}

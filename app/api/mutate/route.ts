@@ -5,10 +5,24 @@
 // last-write-wins. As três no servidor, porque o cliente offline não é fonte
 // confiável de nenhuma delas.
 import { randomUUID } from 'node:crypto'
-import { sql, getSnapshot, registrarAlteracao, avisarParticipantes, usuarioPorId } from '@/lib/db.ts'
+import {
+  sql,
+  getSnapshot,
+  registrarAlteracao,
+  avisarParticipantes,
+  usuarioPorId,
+} from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem, type Acesso } from '@/lib/auth.ts'
 import { ErroHttp } from '@/lib/session.ts'
-import { MutationBatchSchema, validarCampos, formatarErroZod, type Entidade } from '@/lib/schema.ts'
+import type { z } from 'zod'
+import {
+  MutationBatchSchema,
+  validarCampos,
+  formatarErroZod,
+  DespesaSchema,
+  type Entidade,
+} from '@/lib/schema.ts'
+import { resolverDivisao, gerarParcelas } from '@/lib/financeiro.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
 import { rota, lerJson } from '@/lib/api.ts'
 
@@ -23,7 +37,7 @@ export const dynamic = 'force-dynamic'
  */
 const TABELA: Record<
   Entidade,
-  { nome: string; via: 'trip' | 'flight' | 'cruise' | 'self'; minimo: Papel }
+  { nome: string; via: 'trip' | 'flight' | 'cruise' | 'expense' | 'self'; minimo: Papel }
 > = {
   viagem: { nome: 'trips', via: 'self', minimo: 'editor' },
   participante: { nome: 'travelers', via: 'trip', minimo: 'proprietario' },
@@ -40,7 +54,11 @@ const TABELA: Record<
   documento: { nome: 'documents', via: 'trip', minimo: 'editor' },
   emergencia: { nome: 'emergency_contacts', via: 'trip', minimo: 'editor' },
   categoria: { nome: 'expense_categories', via: 'trip', minimo: 'editor' },
+  // A despesa passa pelo caminho transacional em `gravarDespesa`; a entrada aqui
+  // ainda vale para a autorização e para o `delete`.
   custo: { nome: 'expenses', via: 'trip', minimo: 'editor' },
+  parcela: { nome: 'installments', via: 'expense', minimo: 'editor' },
+  pagamento: { nome: 'payments', via: 'trip', minimo: 'editor' },
 }
 
 export const POST = rota(async (req) => {
@@ -76,7 +94,7 @@ export const POST = rota(async (req) => {
     // Mesmo envelope de /api/snapshot: sem `eu`, o cliente perde o papel e o
     // participanteId depois de QUALQUER escrita, não só na carga inicial.
     snapshot: {
-      ...(await getSnapshot(acesso.tripId, acesso.papel)),
+      ...(await getSnapshot(acesso.tripId, acesso.papel, acesso.participanteId)),
       eu: {
         userId: acesso.userId,
         usuario: await usuarioPorId(acesso.userId),
@@ -151,22 +169,206 @@ function recorte(entidade: Entidade, tripId: string, posicao: number) {
       params: [tripId],
     }
   }
+  if (meta.via === 'expense') {
+    return {
+      sql: `and expense_id in (select id from expenses where trip_id = $${posicao})`,
+      params: [tripId],
+    }
+  }
   if (meta.via === 'self') return { sql: '', params: [] as string[] }
   return { sql: `and trip_id = $${posicao}`, params: [tripId] }
 }
 
-/** Confere que o pai informado (voo, cruzeiro) é desta viagem antes de criar o filho. */
-async function conferirPai(entidade: Entidade, tripId: string, campos: Record<string, unknown>) {
+/**
+ * Grava despesa + divisão + parcelas numa transação só.
+ *
+ * O cliente manda o QUE (valor total, quem paga, quem divide, em quantas vezes);
+ * quem faz a ARITMÉTICA é este servidor, com as funções testadas de
+ * `lib/financeiro.ts`. É deliberado: a soma das partes fechar com o total não
+ * pode depender de o navegador ter arredondado do mesmo jeito.
+ *
+ * As parcelas são atualizadas por `(expense_id, numero)` e nunca apagadas em
+ * bloco: `payments.parcela_id` aponta para elas, e recriar as linhas ao renomear
+ * uma despesa desligaria os reembolsos já registrados. `pago_centavos` também
+ * não é tocado aqui — quem manda nele é a entidade `parcela`.
+ */
+async function gravarDespesa(
+  acesso: Acesso,
+  op: { op: string; id?: string | null; campos: Record<string, unknown>; client_ts: string },
+): Promise<boolean> {
+  const tripId = acesso.tripId
+  const v = validarCampos('custo', op.campos)
+  if (!v.sucesso) throw new Error(v.erro)
+  const d = v.dados as z.infer<typeof DespesaSchema>
+
+  const criando = op.op === 'criar'
+  const id = criando ? (op.id ?? randomUUID()) : String(op.id ?? '')
+  if (!id) throw new Error('id obrigatório para editar')
+
+  await conferirParticipantes(tripId, [d.traveler_id, ...d.divisoes.map((x) => x.traveler_id)])
+  if (d.categoria_id) {
+    const r = await sql`
+      select 1 from expense_categories where id = ${d.categoria_id} and trip_id = ${tripId}
+    `
+    if (r.length === 0) throw new Error('categoria não encontrada nesta viagem')
+  }
+
+  const anterior = criando
+    ? undefined
+    : ((await sql`select * from expenses where id = ${id} and trip_id = ${tripId}`)[0] as
+        Record<string, unknown> | undefined)
+  if (!criando && !anterior) throw new Error('registro não encontrado')
+
+  // Last-write-wins, igual ao caminho genérico: a versão do servidor mais nova
+  // descarta a escrita em vez de sobrescrevê-la.
+  if (anterior && new Date(String(anterior.updated_at)) >= new Date(op.client_ts)) return false
+
+  // A divisão é RECALCULADA no servidor. Em `personalizado` os valores digitados
+  // são respeitados, mas a soma tem que fechar — corrigir em silêncio esconderia
+  // um erro de digitação dentro de uma conta de dinheiro.
+  const divisoes = resolverDivisao(d.valor_centavos, d.divisao, d.divisoes)
+  if (d.divisao === 'personalizado' && divisoes.length > 0) {
+    const soma = divisoes.reduce((s, x) => s + x.valor_centavos, 0)
+    if (soma !== d.valor_centavos) {
+      throw new Error(`a divisão soma ${soma / 100} e a despesa é ${d.valor_centavos / 100}`)
+    }
+  }
+
+  const parcelas = gerarParcelas(
+    d.valor_centavos,
+    d.parcelas_quantidade,
+    d.parcelas_primeira_em ?? d.ocorre_em ?? null,
+    d.parcelas_frequencia,
+  )
+
+  await sql.transaction([
+    sql`
+      insert into expenses (id, trip_id, categoria_id, traveler_id, descricao, valor_centavos,
+                            moeda, ocorre_em, divisao, estimado, nota, ordem, updated_at)
+      values (${id}, ${tripId}, ${d.categoria_id ?? null}, ${d.traveler_id ?? null},
+              ${d.descricao}, ${d.valor_centavos}, ${d.moeda ?? null}, ${d.ocorre_em ?? null},
+              ${d.divisao}, ${d.estimado}, ${d.nota ?? null}, ${d.ordem}, now())
+      on conflict (id) do update set
+        categoria_id = excluded.categoria_id, traveler_id = excluded.traveler_id,
+        descricao = excluded.descricao, valor_centavos = excluded.valor_centavos,
+        moeda = excluded.moeda, ocorre_em = excluded.ocorre_em, divisao = excluded.divisao,
+        estimado = excluded.estimado, nota = excluded.nota, ordem = excluded.ordem,
+        updated_at = now()
+    `,
+    // Divisão não é apontada por ninguém: trocar por inteiro é mais simples e
+    // mais barato do que casar linha a linha.
+    sql`delete from expense_shares where expense_id = ${id}`,
+    ...divisoes.map(
+      (x) => sql`
+        insert into expense_shares (id, expense_id, traveler_id, peso, valor_centavos)
+        values (${randomUUID()}, ${id}, ${x.traveler_id}, ${x.peso}, ${x.valor_centavos})
+      `,
+    ),
+    ...parcelas.map(
+      (p) => sql`
+        insert into installments (id, expense_id, numero, vence_em, valor_centavos, updated_at)
+        values (${randomUUID()}, ${id}, ${p.numero}, ${p.vence_em}, ${p.valor_centavos}, now())
+        on conflict (expense_id, numero) do update set
+          vence_em = excluded.vence_em, valor_centavos = excluded.valor_centavos, updated_at = now()
+      `,
+    ),
+    // Encurtou o parcelamento: as sobras saem.
+    sql`delete from installments where expense_id = ${id} and numero > ${parcelas.length}`,
+  ])
+
+  if (criando) {
+    await registrarAlteracao(
+      tripId,
+      acesso.participanteId,
+      'custo',
+      id,
+      '(registro)',
+      null,
+      'criado',
+    )
+  } else {
+    for (const c of ['descricao', 'valor_centavos', 'traveler_id', 'divisao'] as const) {
+      if (String(anterior?.[c] ?? '') !== String(d[c] ?? '')) {
+        await registrarAlteracao(tripId, acesso.participanteId, 'custo', id, c, anterior?.[c], d[c])
+      }
+    }
+  }
+  return true
+}
+
+/**
+ * Confere que todo id que a operação referencia é DESTA viagem.
+ *
+ * É o mesmo recorte de `recorte()`, do outro lado: ali o registro editado é
+ * preso à viagem da sessão; aqui os registros que ele aponta. Sem os dois, um id
+ * chutado num campo de vínculo (o voo de uma escala, a pessoa de um reembolso)
+ * costura dados de duas viagens diferentes.
+ *
+ * Na criação o vínculo é obrigatório. Na edição só é conferido se veio no lote —
+ * um `editar` que não menciona o pai não deve exigir que ele seja reenviado.
+ */
+async function conferirPai(
+  entidade: Entidade,
+  tripId: string,
+  campos: Record<string, unknown>,
+  criando: boolean,
+) {
+  const vinculo = async (
+    campo: string,
+    consulta: (id: string) => Promise<Record<string, unknown>[]>,
+    erro: string,
+  ) => {
+    const bruto = campos[campo]
+    const id = bruto === null || bruto === undefined ? '' : String(bruto)
+    if (!id) {
+      if (criando) throw new Error(erro)
+      return
+    }
+    if ((await consulta(id)).length === 0) throw new Error(erro)
+  }
+
   if (entidade === 'escala') {
-    const id = String(campos.flight_id ?? '')
-    const r = await sql`select 1 from flights where id = ${id} and trip_id = ${tripId}`
-    if (r.length === 0) throw new Error('voo não encontrado nesta viagem')
+    await vinculo(
+      'flight_id',
+      (id) => sql`select 1 from flights where id = ${id} and trip_id = ${tripId}`,
+      'voo não encontrado nesta viagem',
+    )
   }
   if (entidade === 'porto') {
-    const id = String(campos.cruise_id ?? '')
-    const r = await sql`select 1 from cruises where id = ${id} and trip_id = ${tripId}`
-    if (r.length === 0) throw new Error('cruzeiro não encontrado nesta viagem')
+    await vinculo(
+      'cruise_id',
+      (id) => sql`select 1 from cruises where id = ${id} and trip_id = ${tripId}`,
+      'cruzeiro não encontrado nesta viagem',
+    )
   }
+  if (entidade === 'parcela') {
+    await vinculo(
+      'expense_id',
+      (id) => sql`select 1 from expenses where id = ${id} and trip_id = ${tripId}`,
+      'despesa não encontrada nesta viagem',
+    )
+  }
+  if (entidade === 'pagamento') {
+    await conferirParticipantes(tripId, [campos.de_id, campos.para_id])
+    if (campos.parcela_id) {
+      await vinculo(
+        'parcela_id',
+        (id) => sql`
+          select 1 from installments i join expenses e on e.id = i.expense_id
+          where i.id = ${id} and e.trip_id = ${tripId}
+        `,
+        'parcela não encontrada nesta viagem',
+      )
+    }
+  }
+}
+
+/** Todo participante citado precisa ser desta viagem. Nulos são ignorados. */
+async function conferirParticipantes(tripId: string, ids: unknown[]) {
+  const alvo = [...new Set(ids.filter(Boolean).map(String))]
+  if (alvo.length === 0) return
+  const r = await sql`select id from travelers where trip_id = ${tripId} and id = any(${alvo})`
+  if (r.length !== alvo.length) throw new Error('participante não encontrado nesta viagem')
 }
 
 /** Aplica uma operação. Devolve false quando o LWW descarta a escrita. */
@@ -200,27 +402,23 @@ async function aplicar(
     return true
   }
 
-  const meta = TABELA[op.entidade]
-  const v = validarCampos(op.entidade, op.campos)
-  if (!v.sucesso) throw new Error(v.erro)
-  const campos: Record<string, unknown> = { ...(v.dados as Record<string, unknown>) }
+  await conferirPai(op.entidade, tripId, op.campos, op.op === 'criar')
 
-  // Campos aninhados vêm no mesmo objeto por conveniência do formulário; cada um
-  // é gravado pela sua própria entidade.
-  delete campos.escalas
-  delete campos.portos
-
-  // `email` no participante liga o registro a uma conta existente. Sem conta com
-  // esse e-mail, o participante fica como nome na lista — que é o comportamento
-  // correto para quem viaja junto mas não usa o app.
-  if (op.entidade === 'participante' && 'email' in campos) {
-    const email = campos.email ? String(campos.email).trim().toLowerCase() : null
-    campos.email = email
-    const achado = email ? await sql`select id from users where email = ${email}` : []
-    campos.user_id = (achado[0] as { id: string } | undefined)?.id ?? null
+  // Uma despesa, a sua divisão e as suas parcelas são um fato só. Gravá-las em
+  // três idas separadas deixaria uma despesa sem divisão na tela se a segunda
+  // falhasse — e uma despesa sem divisão é dinheiro que ninguém deve.
+  if (op.entidade === 'custo' && op.op !== 'remover') {
+    return gravarDespesa(acesso, op)
   }
 
+  const meta = TABELA[op.entidade]
+
   // ---------------------------------------------------------------- remover
+  //
+  // Antes de validar os campos, de propósito: para apagar só o id importa, e
+  // exigir um registro válido para destruí-lo é pedir o que quem apaga não tem.
+  // (A despesa é o caso que denunciou isto: o schema dela não é parcial, então
+  // um `remover` com campos vazios era recusado em silêncio.)
   if (op.op === 'remover') {
     if (!op.id) throw new Error('id obrigatório para remover')
     if (op.entidade === 'viagem') throw new ErroHttp(400, 'Use a tela de viagens para excluir.')
@@ -243,14 +441,33 @@ async function aplicar(
     return true
   }
 
+  const v = validarCampos(op.entidade, op.campos)
+  if (!v.sucesso) throw new Error(v.erro)
+  const campos: Record<string, unknown> = { ...(v.dados as Record<string, unknown>) }
+
+  // Campos aninhados vêm no mesmo objeto por conveniência do formulário; cada um
+  // é gravado pela sua própria entidade.
+  delete campos.escalas
+  delete campos.portos
+
+  // `email` no participante liga o registro a uma conta existente. Sem conta com
+  // esse e-mail, o participante fica como nome na lista — que é o comportamento
+  // correto para quem viaja junto mas não usa o app.
+  if (op.entidade === 'participante' && 'email' in campos) {
+    const email = campos.email ? String(campos.email).trim().toLowerCase() : null
+    campos.email = email
+    const achado = email ? await sql`select id from users where email = ${email}` : []
+    campos.user_id = (achado[0] as { id: string } | undefined)?.id ?? null
+  }
+
   // ---------------------------------------------------------------- criar
   if (op.op === 'criar') {
     if (op.entidade === 'viagem') throw new ErroHttp(400, 'Use /api/viagens para criar viagem.')
-    await conferirPai(op.entidade, tripId, op.campos)
 
-    // O pai de escala e porto vem dos campos; os demais penduram no trip_id.
+    // O pai de escala, porto e parcela vem dos campos; os demais penduram no trip_id.
     if (meta.via === 'flight') campos.flight_id = op.campos.flight_id
     if (meta.via === 'cruise') campos.cruise_id = op.campos.cruise_id
+    if (meta.via === 'expense') campos.expense_id = op.campos.expense_id
 
     const id = op.id ?? randomUUID()
     const cols = Object.keys(campos)
