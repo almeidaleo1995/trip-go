@@ -12,6 +12,7 @@ import { useState, type ReactNode } from 'react'
 import { X, Trash2 } from 'lucide-react'
 import { Botao, Rotulo } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
+import { type Papel } from '@/config/navigation.ts'
 
 type TipoCampo = 'texto' | 'area' | 'data' | 'datahora' | 'numero' | 'dinheiro' | 'bool' | 'opcao'
 
@@ -37,8 +38,8 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
       { chave: 'cor_destaque', rotulo: 'Cor de destaque', tipo: 'texto', dica: '#0F766E' },
     ],
   },
-  viajante: {
-    nome: 'Viajante',
+  participante: {
+    nome: 'Participante',
     campos: [
       {
         chave: 'nome',
@@ -48,21 +49,24 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
         dica: 'igual ao passaporte',
       },
       {
+        chave: 'email',
+        rotulo: 'E-mail',
+        tipo: 'texto',
+        dica: 'liga a uma conta existente, se houver',
+      },
+      {
         chave: 'papel',
         rotulo: 'Papel',
         tipo: 'opcao',
         opcoes: [
-          { valor: 'viajante', nome: 'Viajante' },
-          { valor: 'admin', nome: 'Dono da viagem' },
+          { valor: 'visualizador', nome: 'Visualizador' },
+          { valor: 'editor', nome: 'Editor' },
+          { valor: 'proprietario', nome: 'Dono da viagem' },
         ],
       },
-      {
-        chave: 'pin',
-        rotulo: 'PIN (4 dígitos)',
-        tipo: 'texto',
-        dica: 'deixe vazio para não alterar',
-      },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto' },
+      { chave: 'documento', rotulo: 'CPF ou RG', tipo: 'texto' },
+      { chave: 'nascimento', rotulo: 'Nascimento', tipo: 'data' },
       { chave: 'passaporte', rotulo: 'Passaporte', tipo: 'texto' },
     ],
   },
@@ -136,13 +140,13 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
       { chave: 'nota', rotulo: 'Anotação livre', tipo: 'area' },
     ],
   },
-  hospedagem: {
+  reserva: {
     nome: 'Hospedagem',
     campos: [
       { chave: 'nome', rotulo: 'Nome', tipo: 'texto', obrigatorio: true },
       { chave: 'cidade', rotulo: 'Cidade', tipo: 'texto' },
-      { chave: 'checkin', rotulo: 'Check-in', tipo: 'data' },
-      { chave: 'checkout', rotulo: 'Check-out', tipo: 'data' },
+      { chave: 'inicio_em', rotulo: 'Check-in', tipo: 'data' },
+      { chave: 'fim_em', rotulo: 'Check-out', tipo: 'data' },
       { chave: 'endereco', rotulo: 'Endereço', tipo: 'area' },
       { chave: 'link', rotulo: 'Link da reserva', tipo: 'texto' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto' },
@@ -447,7 +451,13 @@ function CampoEditor({
   )
 }
 
-/** Botão "adicionar" e "editar" que as abas usam. Some para viajante. */
+/** Papel mínimo pra escrever cada entidade — espelha a TABELA de app/api/mutate. */
+const MINIMO: Record<string, Papel> = {
+  participante: 'proprietario',
+  checklist_state: 'visualizador',
+}
+
+/** Botão "adicionar" e "editar" que as abas usam. Some pra quem não alcança o papel mínimo. */
 export function AdminAcoes({
   entidade,
   registro,
@@ -457,9 +467,9 @@ export function AdminAcoes({
   registro?: Record<string, unknown> | null
   children?: ReactNode
 }) {
-  const { souAdmin } = useTrip()
+  const { posso } = useTrip()
   const [aberto, setAberto] = useState(false)
-  if (!souAdmin) return null
+  if (!posso(MINIMO[entidade] ?? 'editor')) return null
 
   return (
     <>

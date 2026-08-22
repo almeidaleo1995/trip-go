@@ -25,23 +25,25 @@ import {
   offlineDisponivel,
   type Operacao,
 } from '@/lib/offline.ts'
+import { papelAlcanca, type Papel } from '@/config/navigation.ts'
 
 export type Snapshot = {
   viagem: Record<string, any> | null
-  viajantes: Record<string, any>[]
+  participantes: Record<string, any>[]
   roteiro: Record<string, any>[]
   voos: Record<string, any>[]
   cruzeiros: Record<string, any>[]
-  hospedagens: Record<string, any>[]
+  reservas: Record<string, any>[]
   lugares: Record<string, any>[]
   checklist: Record<string, any>[]
   checklist_state: Record<string, any>[]
   documentos: Record<string, any>[]
   emergencia: Record<string, any>[]
+  mensagens: Record<string, any>[]
   alteracoes: Record<string, any>[]
   financeiro: { categorias: Record<string, any>[]; custos: Record<string, any>[] } | null
   server_time: string
-  sessao: { travelerId: string; papel: 'admin' | 'viajante' }
+  eu: { userId: string; usuario: Record<string, any>; participanteId: string; papel: Papel }
 }
 
 type Contexto = {
@@ -52,7 +54,8 @@ type Contexto = {
   pendentes: number
   ultimaSync: string | null
   erro: string | null
-  souAdmin: boolean
+  papel: Papel | null
+  posso: (minimo: Papel) => boolean
   mutate: (op: Operacao) => Promise<void>
   recarregar: () => Promise<void>
   sair: () => Promise<void>
@@ -66,7 +69,15 @@ export function useTrip() {
   return c
 }
 
-export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair: () => void }) {
+export function TripProvider({
+  tripId,
+  children,
+  aoSair,
+}: {
+  tripId: string
+  children: ReactNode
+  aoSair: () => void
+}) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [online, setOnline] = useState(true)
@@ -76,11 +87,14 @@ export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair
   const [erro, setErro] = useState<string | null>(null)
   const enviando = useRef(false)
 
-  const aplicarSnapshot = useCallback((s: Snapshot) => {
-    setSnapshot(s)
-    setUltimaSync(new Date().toISOString())
-    void gravarSnapshot(s)
-  }, [])
+  const aplicarSnapshot = useCallback(
+    (s: Snapshot) => {
+      setSnapshot(s)
+      setUltimaSync(new Date().toISOString())
+      void gravarSnapshot(tripId, s)
+    },
+    [tripId],
+  )
 
   /** Sobe a fila. Falha mantém tudo enfileirado para a próxima tentativa. */
   const drenar = useCallback(async () => {
@@ -92,7 +106,7 @@ export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair
       const r = await fetch('/api/mutate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ops: fila }),
+        body: JSON.stringify({ trip_id: tripId, ops: fila }),
       })
       if (!r.ok) {
         // 401 e 403 não se resolvem tentando de novo: a fila fica parada e o
@@ -111,11 +125,11 @@ export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair
       enviando.current = false
       setPendentes(await tamanhoFila())
     }
-  }, [aplicarSnapshot])
+  }, [aplicarSnapshot, tripId])
 
   const recarregar = useCallback(async () => {
     try {
-      const r = await fetch('/api/snapshot')
+      const r = await fetch(`/api/snapshot?trip=${encodeURIComponent(tripId)}`)
       if (r.status === 401) return aoSair()
       if (!r.ok) throw new Error()
       aplicarSnapshot(await r.json())
@@ -125,14 +139,17 @@ export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair
     } finally {
       setCarregando(false)
     }
-  }, [aplicarSnapshot, aoSair])
+  }, [aplicarSnapshot, aoSair, tripId])
 
-  // Primeira pintura vem do cache; a rede só confirma depois.
+  // Primeira pintura vem do cache; a rede só confirma depois. Cache trocado
+  // sempre que a viagem aberta muda — cada viagem tem o seu, nunca mistura.
   useEffect(() => {
     let vivo = true
+    setSnapshot(null)
+    setCarregando(true)
     ;(async () => {
       setOfflineOk(await offlineDisponivel())
-      const cache = await lerSnapshot<Snapshot>()
+      const cache = await lerSnapshot<Snapshot>(tripId)
       if (vivo && cache) {
         setSnapshot(cache)
         setCarregando(false)
@@ -144,7 +161,8 @@ export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair
     return () => {
       vivo = false
     }
-  }, [recarregar, drenar])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId])
 
   useEffect(() => {
     setOnline(navigator.onLine)
@@ -176,9 +194,11 @@ export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair
     await fetch('/api/sessao', { method: 'DELETE' }).catch(() => {})
     // Limpa o cache local: o próximo a entrar neste aparelho não pode ver o
     // Financeiro do anterior por sobra de cache.
-    await limparSnapshot()
+    await limparSnapshot(tripId)
     aoSair()
-  }, [aoSair])
+  }, [aoSair, tripId])
+
+  const papel = snapshot?.eu.papel ?? null
 
   return (
     <Ctx.Provider
@@ -190,7 +210,8 @@ export function TripProvider({ children, aoSair }: { children: ReactNode; aoSair
         pendentes,
         ultimaSync,
         erro,
-        souAdmin: snapshot?.sessao.papel === 'admin',
+        papel,
+        posso: (minimo) => papelAlcanca(papel, minimo),
         mutate,
         recarregar,
         sair,
@@ -206,12 +227,12 @@ const LISTA: Record<string, keyof Snapshot> = {
   roteiro: 'roteiro',
   voo: 'voos',
   cruzeiro: 'cruzeiros',
-  hospedagem: 'hospedagens',
+  reserva: 'reservas',
   lugar: 'lugares',
   checklist_item: 'checklist',
   documento: 'documentos',
   emergencia: 'emergencia',
-  viajante: 'viajantes',
+  participante: 'participantes',
 }
 
 function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
@@ -219,12 +240,11 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
 
   if (op.entidade === 'checklist_state') {
     const itemId = String(op.campos.item_id)
-    const outros = s.checklist_state.filter(
-      (e) => !(e.item_id === itemId && e.traveler_id === s.sessao.travelerId),
-    )
+    const meuId = s.eu.participanteId
+    const outros = s.checklist_state.filter((e) => !(e.item_id === itemId && e.traveler_id === meuId))
     novo.checklist_state = [
       ...outros,
-      { item_id: itemId, traveler_id: s.sessao.travelerId, feito: Boolean(op.campos.feito) },
+      { item_id: itemId, traveler_id: meuId, feito: Boolean(op.campos.feito) },
     ]
     return novo
   }

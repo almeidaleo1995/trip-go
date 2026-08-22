@@ -5,7 +5,6 @@
 // folha de edicao monta os campos a partir daqui em vez de ter 16 formularios
 // escritos a mao, e o servidor valida contra os mesmos schemas antes de gravar.
 import { z } from 'zod'
-import { SENHA_MINIMA } from './session.ts'
 
 export const SCHEMA_VERSION = 2
 
@@ -65,6 +64,11 @@ const Email = z
   .email('e-mail invalido')
   .max(254)
 
+// Fonte da verdade do piso da senha -- lib/session.ts também importa daqui.
+// Não pode ser o contrário: session.ts usa node:crypto e next/headers, então
+// se este arquivo dependesse dele, formulário de conta (client component)
+// levaria scrypt pro bundle do navegador junto.
+export const SENHA_MINIMA = 6
 const Senha = z.string().min(SENHA_MINIMA, `use pelo menos ${SENHA_MINIMA} caracteres`).max(200)
 
 export const LoginSchema = z.object({
@@ -121,6 +125,9 @@ export const ParticipanteSchema = z.object({
   papel: z.enum(PAPEIS).default('visualizador'),
   telefone: TextoOpc,
   passaporte: TextoOpc,
+  /** CPF ou RG -- diferente de `passaporte` (documento de viagem internacional). */
+  documento: TextoOpc,
+  nascimento: Data.nullish(),
   ordem: z.number().int().default(0),
 })
 

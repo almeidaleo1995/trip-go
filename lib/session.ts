@@ -33,9 +33,6 @@ const DIAS_90 = 90 * 24 * 60 * 60
 const N = 16_384
 const TAMANHO_CHAVE = 64
 
-/** Piso da senha. Trocar aqui muda o cadastro e a validacao junto (lib/schema.ts). */
-export const SENHA_MINIMA = 6
-
 // ---------------------------------------------------------------- senha
 
 /** Gera `scrypt$N$salt$hash`. Salt aleatorio por senha: dois hashes da mesma senha diferem. */

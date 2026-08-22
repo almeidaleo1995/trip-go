@@ -62,15 +62,17 @@ export function PdfBolso() {
       )}
 
       <Bloco titulo="Hospedagem">
-        {(snapshot.hospedagens as any[]).map((h) => (
-          <p key={String(h.id)} style={linha}>
-            <strong>{String(h.nome)}</strong>
-            {h.cidade ? ` · ${h.cidade}` : ''} · {formatarData(h.checkin)} a{' '}
-            {formatarData(h.checkout)} ({noites(h.checkin, h.checkout)}n)
-            {h.endereco ? ` · ${h.endereco}` : ' · endereço: ______________________'}
-            {h.telefone ? ` · ${h.telefone}` : ''}
-          </p>
-        ))}
+        {(snapshot.reservas as any[])
+          .filter((r) => r.tipo === 'hospedagem')
+          .map((h) => (
+            <p key={String(h.id)} style={linha}>
+              <strong>{String(h.nome)}</strong>
+              {h.cidade ? ` · ${h.cidade}` : ''} · {formatarData(h.inicio_em)} a{' '}
+              {formatarData(h.fim_em)} ({noites(h.inicio_em, h.fim_em)}n)
+              {h.endereco ? ` · ${h.endereco}` : ' · endereço: ______________________'}
+              {h.telefone ? ` · ${h.telefone}` : ''}
+            </p>
+          ))}
       </Bloco>
 
       <Bloco titulo="Emergência">
@@ -92,7 +94,7 @@ export function PdfBolso() {
       </Bloco>
 
       <Bloco titulo="Viajantes">
-        {(snapshot.viajantes as any[]).map((t) => (
+        {(snapshot.participantes as any[]).map((t) => (
           <p key={String(t.id)} style={linha}>
             {String(t.nome)} · passaporte: {t.passaporte ? String(t.passaporte) : '______________'}{' '}
             · validade: __________

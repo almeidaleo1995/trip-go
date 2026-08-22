@@ -70,16 +70,18 @@ function transacao<T>(
   )
 }
 
-export function lerSnapshot<T = unknown>(): Promise<T | null> {
-  return transacao<T | null>(SNAPSHOT, 'readonly', (s) => s.get('atual'), null)
+// Chave = tripId: cada viagem guarda seu proprio cache, para trocar de viagem
+// offline nao mostrar o snapshot (e o financeiro) de outra por sobra de cache.
+export function lerSnapshot<T = unknown>(chave: string): Promise<T | null> {
+  return transacao<T | null>(SNAPSHOT, 'readonly', (s) => s.get(chave), null)
 }
 
-export function gravarSnapshot(dados: unknown): Promise<unknown> {
-  return transacao(SNAPSHOT, 'readwrite', (s) => s.put(dados, 'atual'), null)
+export function gravarSnapshot(chave: string, dados: unknown): Promise<unknown> {
+  return transacao(SNAPSHOT, 'readwrite', (s) => s.put(dados, chave), null)
 }
 
-export function limparSnapshot(): Promise<unknown> {
-  return transacao(SNAPSHOT, 'readwrite', (s) => s.clear(), null)
+export function limparSnapshot(chave: string): Promise<unknown> {
+  return transacao(SNAPSHOT, 'readwrite', (s) => s.delete(chave), null)
 }
 
 export function enfileirar(op: Operacao): Promise<unknown> {

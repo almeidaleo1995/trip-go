@@ -23,6 +23,8 @@ import {
   WifiOff,
   RefreshCw,
 } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { useTrip } from './TripProvider.tsx'
 import { formatarHora } from '@/lib/derive.ts'
 
@@ -64,12 +66,16 @@ export function Shell({
   setAba: (a: AbaId) => void
   children: ReactNode
 }) {
-  const { snapshot, souAdmin, online, offlineOk, pendentes, ultimaSync, erro, sair } = useTrip()
+  const { snapshot, papel, online, offlineOk, pendentes, ultimaSync, erro, sair } = useTrip()
   const [montado, setMontado] = useState(false)
 
   const temCruzeiro = (snapshot?.cruzeiros?.length ?? 0) > 0
   const visiveis = ABAS.filter((a) => {
-    if (a.id === 'financeiro' || a.id === 'dados') return souAdmin
+    // Financeiro reflete o que o servidor manda: nulo pra visualizador, então
+    // esconder a aba aqui é conveniência, não a proteção real.
+    if (a.id === 'financeiro') return snapshot?.financeiro != null
+    // "Dados" gerencia participantes e configurações — só o dono da viagem.
+    if (a.id === 'dados') return papel === 'proprietario'
     if (a.id === 'cruzeiro') return temCruzeiro
     return true
   })
@@ -107,6 +113,12 @@ export function Shell({
       {/* barra lateral — desktop */}
       <aside className="sem-impressao fixed top-0 left-0 hidden h-dvh w-60 flex-col border-r border-[--color-borda] bg-[--color-cartao] md:flex">
         <div className="px-5 py-5">
+          <Link
+            href="/viagens"
+            className="toque -ml-1 mb-2 inline-flex items-center gap-1.5 rounded-lg px-1 text-[13px] text-[--color-tinta-3] hover:text-[--color-tinta-2]"
+          >
+            <ArrowLeft size={14} /> Minhas viagens
+          </Link>
           <p className="text-[11px] font-semibold tracking-[0.08em] text-[--color-tinta-3] uppercase">
             Viagem
           </p>

@@ -62,6 +62,9 @@ create table if not exists travelers (
               check (papel in ('proprietario', 'editor', 'visualizador')),
   telefone    text,
   passaporte  text,
+  -- CPF ou RG, documento nacional -- diferente de `passaporte` (documento de viagem internacional)
+  documento   text,
+  nascimento  date,
   ordem       integer not null default 0,
   updated_at  timestamptz not null default now()
 );
@@ -327,6 +330,8 @@ alter table trips     add column if not exists arquivada  boolean not null defau
 
 alter table travelers add column if not exists user_id    text references users(id) on delete set null;
 alter table travelers add column if not exists email      text;
+alter table travelers add column if not exists documento  text;
+alter table travelers add column if not exists nascimento date;
 
 alter table flights   add column if not exists terminal   text;
 alter table flights   add column if not exists portao     text;

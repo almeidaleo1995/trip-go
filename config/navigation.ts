@@ -3,21 +3,7 @@
 // `sempre: false` some quando a viagem não tem o dado (cruzeiro sem navio não
 // vira aba vazia). `minimo` é o papel mínimo para ver o item — a barreira real
 // está no servidor; isto é conveniência de interface.
-import {
-  Home,
-  Map,
-  Luggage,
-  BedDouble,
-  Plane,
-  Ship,
-  Globe,
-  Wallet,
-  FileText,
-  ClipboardCheck,
-  MessageSquare,
-  Settings,
-  type LucideIcon,
-} from 'lucide-react'
+import { Home, Luggage, type LucideIcon } from 'lucide-react'
 
 export type Papel = 'proprietario' | 'editor' | 'visualizador'
 
@@ -32,36 +18,16 @@ export type ItemMenu = {
   celular?: boolean
 }
 
+// O conteúdo de cada viagem (roteiro, voos, financeiro...) não tem rota própria
+// aqui: vive dentro de /viagens/:id, como abas do Shell — este menu só cobre as
+// duas telas que existem fora de uma viagem especifica.
 export const navegacao: ItemMenu[] = [
   { href: '/dashboard', nome: 'Início', icone: Home, sempre: true, celular: true },
-  { href: '/roteiros', nome: 'Roteiros', icone: Map, sempre: true, celular: true },
   { href: '/viagens', nome: 'Viagens', icone: Luggage, sempre: true, celular: true },
-  { href: '/reservas', nome: 'Reservas', icone: BedDouble, sempre: true },
-  { href: '/voos', nome: 'Voos', icone: Plane, sempre: true, celular: true },
-  { href: '/cruzeiros', nome: 'Cruzeiros', icone: Ship, sempre: false },
-  { href: '/cidades', nome: 'Cidades', icone: Globe, sempre: true },
-  { href: '/despesas', nome: 'Despesas', icone: Wallet, sempre: true, minimo: 'editor' },
-  { href: '/documentos', nome: 'Documentos', icone: FileText, sempre: true },
-  { href: '/checklists', nome: 'Checklists', icone: ClipboardCheck, sempre: true },
-  { href: '/mensagens', nome: 'Mensagens', icone: MessageSquare, sempre: true },
-  { href: '/configuracoes', nome: 'Configurações', icone: Settings, sempre: true },
 ]
 
 /** Rotas que exigem sessão. Lidas pelo proxy.ts e pelo guarda do servidor. */
-export const rotasPrivadas = [
-  '/dashboard',
-  '/roteiros',
-  '/viagens',
-  '/reservas',
-  '/voos',
-  '/cruzeiros',
-  '/cidades',
-  '/despesas',
-  '/documentos',
-  '/checklists',
-  '/mensagens',
-  '/configuracoes',
-]
+export const rotasPrivadas = ['/dashboard', '/viagens']
 
 /** Rotas de autenticação: quem já entrou é mandado para o dashboard. */
 export const rotasPublicas = ['/login', '/register', '/esqueci-senha']

@@ -377,12 +377,12 @@ export function Cruzeiro() {
 
 export function Hospedagem() {
   const { snapshot } = useTrip()
-  const estadias = (snapshot?.hospedagens ?? []) as any[]
+  const estadias = ((snapshot?.reservas ?? []) as any[]).filter((r) => r.tipo === 'hospedagem')
 
   if (estadias.length === 0) {
     return (
       <>
-        <Titulo acao={<AdminAcoes entidade="hospedagem">+ Estadia</AdminAcoes>}>Hospedagem</Titulo>
+        <Titulo acao={<AdminAcoes entidade="reserva">+ Estadia</AdminAcoes>}>Hospedagem</Titulo>
         <Vazio
           titulo="Nenhuma estadia cadastrada"
           texto="Hotéis e apartamentos aparecem aqui, com as noites calculadas."
@@ -393,10 +393,10 @@ export function Hospedagem() {
 
   return (
     <>
-      <Titulo acao={<AdminAcoes entidade="hospedagem">+ Estadia</AdminAcoes>}>Hospedagem</Titulo>
+      <Titulo acao={<AdminAcoes entidade="reserva">+ Estadia</AdminAcoes>}>Hospedagem</Titulo>
       <div className="space-y-3">
         {estadias.map((h) => {
-          const n = noites(h.checkin, h.checkout)
+          const n = noites(h.inicio_em, h.fim_em)
           return (
             <Cartao key={String(h.id)}>
               <div className="flex items-start justify-between gap-3">
@@ -410,18 +410,18 @@ export function Hospedagem() {
                       <Moon size={11} /> {n} {n === 1 ? 'noite' : 'noites'}
                     </span>
                   )}
-                  <AdminAcoes entidade="hospedagem" registro={h} />
+                  <AdminAcoes entidade="reserva" registro={h} />
                 </div>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[--color-borda] pt-3">
                 <div>
                   <Rotulo>Check-in</Rotulo>
-                  <p className="tab-num mt-0.5 font-medium">{formatarData(h.checkin) || '—'}</p>
+                  <p className="tab-num mt-0.5 font-medium">{formatarData(h.inicio_em) || '—'}</p>
                 </div>
                 <div>
                   <Rotulo>Check-out</Rotulo>
-                  <p className="tab-num mt-0.5 font-medium">{formatarData(h.checkout) || '—'}</p>
+                  <p className="tab-num mt-0.5 font-medium">{formatarData(h.fim_em) || '—'}</p>
                 </div>
               </div>
 

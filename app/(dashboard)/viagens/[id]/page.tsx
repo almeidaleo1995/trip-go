@@ -1,73 +1,83 @@
 'use client'
 
+// Página da viagem: casca de abas (Shell) + estado (TripProvider) + o conteúdo
+// de cada aba. É a mesma composição do antigo app de viagem única, agora presa
+// a um :id da URL em vez de "a viagem atual" implícita.
 import { useEffect, useState, use } from 'react'
-import { DashboardLayout } from '@/components/DashboardLayout'
+import { useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
+import { TripProvider, useTrip } from '@/components/TripProvider.tsx'
+import { Shell, type AbaId } from '@/components/Shell.tsx'
+import { PdfBolso } from '@/components/PdfBolso.tsx'
+import { Inicio } from '@/components/tabs/Inicio.tsx'
+import { Roteiro, Voos, Cruzeiro, Hospedagem, Lugares, Documentos } from '@/components/tabs/Conteudo.tsx'
+import { Emergencia, Checklist, Financeiro } from '@/components/tabs/Interativas.tsx'
+import { Dados } from '@/components/tabs/Dados.tsx'
 
-export default function ViagemDetail({ params }: { params: Promise<{ id: string }> }) {
+export default function ViagemPagina({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const [viagem, setViagem] = useState<any>(null)
-  const [carregando, setCarregando] = useState(true)
+  const router = useRouter()
 
+  // Registra o service worker uma vez por visita à área da viagem. Falhar aqui
+  // só custa o modo offline, nunca a tela.
   useEffect(() => {
-    fetch(`/api/snapshot?trip=${id}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setViagem(d.viagem)
-        setCarregando(false)
-      })
-      .catch(() => setCarregando(false))
-  }, [id])
-
-  if (carregando) return <div className="p-8">Carregando...</div>
-  if (!viagem) return <div className="p-8">Viagem não encontrada</div>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+  }, [])
 
   return (
-    <DashboardLayout>
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2 text-[#0f172a]">{viagem.nome}</h1>
-          {viagem.subtitulo && <p className="text-[#64748b]">{viagem.subtitulo}</p>}
-        </div>
+    <TripProvider tripId={id} aoSair={() => router.push('/login')}>
+      <App />
+    </TripProvider>
+  )
+}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]">
-            <p className="text-sm text-[#64748b] mb-2">Período</p>
-            <p className="font-bold text-[#0f172a]">
-              {viagem.data_partida} → {viagem.data_retorno}
-            </p>
-          </div>
-          <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]">
-            <p className="text-sm text-[#64748b] mb-2">Moeda</p>
-            <p className="font-bold text-[#0f172a]">{viagem.moeda}</p>
-          </div>
-          <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]">
-            <p className="text-sm text-[#64748b] mb-2">Cor</p>
-            <div
-              className="w-12 h-12 rounded-lg border border-[#e2e8f0]"
-              style={{ backgroundColor: viagem.cor_destaque }}
-            />
-          </div>
-        </div>
+function App() {
+  const [aba, setAba] = useState<AbaId>('inicio')
+  const { snapshot, carregando } = useTrip()
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <nav className="space-y-2">
-            {[
-              { href: 'roteiros', nome: '📅 Roteiro' },
-              { href: 'voos', nome: '✈️ Voos' },
-              { href: 'reservas', nome: '🏨 Reservas' },
-              { href: 'despesas', nome: '💰 Despesas' },
-            ].map((item) => (
-              <a
-                key={item.href}
-                href={`/viagens/${id}/${item.href}`}
-                className="block bg-white rounded-xl p-4 border border-[#e2e8f0] hover:shadow-lg transition"
-              >
-                {item.nome}
-              </a>
-            ))}
-          </nav>
+  if (carregando && !snapshot) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <Loader2 className="animate-spin text-[--color-tinta-3]" size={24} />
+      </div>
+    )
+  }
+
+  if (!snapshot?.viagem) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center p-6 text-center">
+        <div className="max-w-sm">
+          <h1 className="text-lg font-semibold">Não deu para abrir esta viagem</h1>
+          <p className="mt-2 text-sm text-[--color-tinta-2]">
+            Ou ela não existe, ou sua conta não participa dela. Se já abriu uma vez com internet,
+            os últimos dados sincronizados aparecem em modo avião.
+          </p>
         </div>
       </div>
-    </DashboardLayout>
+    )
+  }
+
+  return (
+    <>
+      <div className="sem-impressao">
+        <Shell aba={aba} setAba={setAba}>
+          {aba === 'inicio' && <Inicio irPara={setAba} />}
+          {aba === 'roteiro' && <Roteiro />}
+          {aba === 'voos' && <Voos />}
+          {aba === 'cruzeiro' && <Cruzeiro />}
+          {aba === 'hospedagem' && <Hospedagem />}
+          {aba === 'lugares' && <Lugares />}
+          {aba === 'checklist' && <Checklist />}
+          {aba === 'documentos' && <Documentos />}
+          {aba === 'emergencia' && <Emergencia />}
+          {aba === 'financeiro' && <Financeiro />}
+          {aba === 'dados' && <Dados />}
+        </Shell>
+      </div>
+      {/* Fora da casca: aparece só na impressão, de qualquer aba. */}
+      <PdfBolso />
+    </>
   )
 }

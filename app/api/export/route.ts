@@ -38,13 +38,14 @@ function formatar(v: unknown, comHora: boolean): string | undefined {
 const quando = (v: unknown) => formatar(v, true)
 const dia = (v: unknown) => formatar(v, false)
 
-export const GET = rota(async () => {
+export const GET = rota(async (req) => {
   const u = await exigirUsuario()
-  const viagem = await viagemPadrao(u.id)
-  if (!viagem) throw new ErroHttp(404, 'Nenhuma viagem cadastrada ainda.')
+  const pedido = new URL(req.url).searchParams.get('trip')
+  const tripId = pedido ?? (await viagemPadrao(u.id))?.id
+  if (!tripId) throw new ErroHttp(404, 'Nenhuma viagem cadastrada ainda.')
 
-  const acesso = await exigirViagem(u.id, viagem.id)
-  const s = await getSnapshot(viagem.id, acesso.papel)
+  const acesso = await exigirViagem(u.id, tripId)
+  const s = await getSnapshot(tripId, acesso.papel)
   const v = s.viagem as Record<string, unknown>
   const catPorId = new Map(
     (s.financeiro?.categorias ?? []).map((c) => [String(c.id), String(c.nome)]),
@@ -66,6 +67,8 @@ export const GET = rota(async () => {
       papel: t.papel as 'proprietario' | 'editor' | 'visualizador',
       telefone: texto(t.telefone),
       passaporte: texto(t.passaporte),
+      documento: texto(t.documento),
+      nascimento: dia(t.nascimento),
       ordem: Number(t.ordem ?? 0),
     })),
     roteiro: s.roteiro.map((e) => ({

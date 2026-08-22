@@ -2,6 +2,7 @@
 
 // Aba Dados (só admin): importar viagem, exportar backup, imprimir PDF de bolso.
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Upload, Download, Printer, AlertTriangle } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import { Cartao, Rotulo, Titulo, Botao } from '../ui.tsx'
@@ -9,9 +10,15 @@ import { AdminAcoes } from '../EditorSheet.tsx'
 
 type Resumo = Record<string, number>
 
+const NOME_PAPEL: Record<string, string> = {
+  proprietario: 'Dono da viagem',
+  editor: 'Editor',
+  visualizador: 'Visualizador',
+}
+
 export function Dados() {
-  const { souAdmin, recarregar, snapshot } = useTrip()
-  if (!souAdmin || !snapshot) return null
+  const { posso, recarregar, snapshot } = useTrip()
+  if (!posso('proprietario') || !snapshot) return null
 
   return (
     <>
@@ -34,15 +41,15 @@ export function Dados() {
 
         <Cartao>
           <div className="mb-2 flex items-center justify-between">
-            <Rotulo>Viajantes</Rotulo>
-            <AdminAcoes entidade="viajante">+ Viajante</AdminAcoes>
+            <Rotulo>Participantes</Rotulo>
+            <AdminAcoes entidade="participante">+ Participante</AdminAcoes>
           </div>
           <p className="mb-3 text-[12px] text-[--color-tinta-3]">
-            O PIN aparece em texto puro só no momento em que você define. Depois disso fica guardado
-            como hash e nem eu consigo lê-lo — para trocar, defina um novo.
+            Informar o e-mail de uma conta existente liga o participante a ela; sem conta, fica
+            só um nome na lista — uma criança, por exemplo, ou quem não quer usar o app.
           </p>
           <ul className="divide-y divide-[--color-borda]">
-            {snapshot.viajantes.map((t) => (
+            {snapshot.participantes.map((t) => (
               <li key={String(t.id)} className="flex items-center gap-3 py-2.5">
                 <span
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
@@ -58,10 +65,10 @@ export function Dados() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{String(t.nome)}</span>
                   <span className="text-[12px] text-[--color-tinta-3]">
-                    {t.papel === 'admin' ? 'Dono da viagem' : 'Viajante'}
+                    {NOME_PAPEL[String(t.papel)] ?? String(t.papel)}
                   </span>
                 </span>
-                <AdminAcoes entidade="viajante" registro={t} />
+                <AdminAcoes entidade="participante" registro={t} />
               </li>
             ))}
           </ul>
@@ -83,11 +90,13 @@ export function Dados() {
         <Cartao>
           <Rotulo>Exportar backup</Rotulo>
           <p className="mt-1 text-sm text-[--color-tinta-2]">
-            Baixa um JSON com a viagem inteira, no mesmo formato que a importação aceita. Os PINs
-            <strong> não</strong> vão no arquivo — quem restaurar precisa defini-los de novo.
+            Baixa um JSON com a viagem inteira, no mesmo formato que a importação aceita.
           </p>
           <div className="mt-3">
-            <Botao variante="secundario" onClick={() => (window.location.href = '/api/export')}>
+            <Botao
+              variante="secundario"
+              onClick={() => (window.location.href = `/api/export?trip=${snapshot.viagem?.id}`)}
+            >
               <Download size={16} /> Baixar JSON
             </Botao>
           </div>
@@ -100,6 +109,7 @@ export function Dados() {
 }
 
 function Importar({ aoConcluir }: { aoConcluir: () => Promise<void> }) {
+  const router = useRouter()
   const [arquivo, setArquivo] = useState<{ nome: string; texto: string } | null>(null)
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [nomeViagem, setNomeViagem] = useState('')
@@ -144,6 +154,7 @@ function Importar({ aoConcluir }: { aoConcluir: () => Promise<void> }) {
       setArquivo(null)
       setResumo(null)
       await aoConcluir()
+      router.push(`/viagens/${d.id}`)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Falhou.')
     } finally {
@@ -153,9 +164,10 @@ function Importar({ aoConcluir }: { aoConcluir: () => Promise<void> }) {
 
   return (
     <Cartao>
-      <Rotulo>Importar viagem</Rotulo>
+      <Rotulo>Importar como nova viagem</Rotulo>
       <p className="mt-1 text-sm text-[--color-tinta-2]">
-        Sobe um JSON no formato do app. A viagem atual é arquivada e a nova vira a ativa.
+        Sobe um JSON no formato do app. Cria uma viagem nova na sua conta — esta aqui não é
+        alterada nem arquivada.
       </p>
 
       <div className="mt-3">
@@ -186,8 +198,8 @@ function Importar({ aoConcluir }: { aoConcluir: () => Promise<void> }) {
           <div className="mb-2 flex items-start gap-2">
             <AlertTriangle size={16} className="mt-0.5 shrink-0 text-[--color-alerta-ink]" />
             <p className="text-sm">
-              Vai importar <strong>{nomeViagem}</strong> e arquivar a viagem atual. Isso não pode
-              ser desfeito pelo app — exporte um backup antes se quiser voltar atrás.
+              Vai criar <strong>{nomeViagem}</strong> como uma nova viagem e abrir nela. Esta viagem
+              continua exatamente como está.
             </p>
           </div>
           <ul className="tab-num mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">

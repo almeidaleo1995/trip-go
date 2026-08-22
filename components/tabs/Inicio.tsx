@@ -30,7 +30,7 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
 
   const meus = Object.fromEntries(
     snapshot.checklist_state
-      .filter((e) => e.traveler_id === snapshot.sessao.travelerId)
+      .filter((e) => e.traveler_id === snapshot.eu.participanteId)
       .map((e) => [e.item_id, Boolean(e.feito)]),
   )
   const progresso = progressoChecklist(snapshot.checklist as { id: string }[], meus)

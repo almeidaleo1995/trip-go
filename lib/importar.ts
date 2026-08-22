@@ -67,15 +67,17 @@ export async function importarViagem(
       papel: 'proprietario',
       telefone: null,
       passaporte: null,
+      documento: null,
+      nascimento: null,
       ordem: -1,
     })
   }
 
   for (const p of participantes) {
     q.push(sql`
-      insert into travelers (id, trip_id, user_id, nome, email, papel, telefone, passaporte, ordem)
+      insert into travelers (id, trip_id, user_id, nome, email, papel, telefone, passaporte, documento, nascimento, ordem)
       values (${p.id}, ${tripId}, ${p.user_id}, ${p.nome}, ${p.email}, ${p.papel},
-              ${p.telefone ?? null}, ${p.passaporte ?? null}, ${p.ordem})
+              ${p.telefone ?? null}, ${p.passaporte ?? null}, ${p.documento ?? null}, ${p.nascimento ?? null}, ${p.ordem})
     `)
   }
 

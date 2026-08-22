@@ -75,7 +75,7 @@ export function Checklist() {
   if (!snapshot) return null
 
   const itens = snapshot.checklist as any[]
-  const meuId = snapshot.sessao.travelerId
+  const meuId = snapshot.eu.participanteId
 
   const meus = Object.fromEntries(
     snapshot.checklist_state
@@ -90,7 +90,7 @@ export function Checklist() {
 
   const globais = itens.filter((i) => i.escopo === 'global')
   const pessoais = itens.filter((i) => i.escopo === 'pessoal')
-  const total = snapshot.viajantes.length
+  const total = snapshot.participantes.length
 
   const alternar = (item: any) =>
     mutate({
@@ -245,12 +245,12 @@ function ItemChecklist({
 // ---------------------------------------------------------------- Financeiro
 
 export function Financeiro() {
-  const { snapshot, mutate, souAdmin } = useTrip()
+  const { snapshot, mutate } = useTrip()
   const [novo, setNovo] = useState(false)
 
-  // Defesa em profundidade: a aba não é montada para viajante, e mesmo assim o
-  // snapshot dele não traz financeiro. Duas travas, nenhuma delas decorativa.
-  if (!souAdmin || !snapshot?.financeiro) return null
+  // Defesa em profundidade: a aba não é montada para visualizador, e mesmo assim
+  // o snapshot dele não traz financeiro. Duas travas, nenhuma delas decorativa.
+  if (!snapshot?.financeiro) return null
 
   const { categorias, custos } = snapshot.financeiro
   const moeda = String(snapshot.viagem?.moeda ?? 'BRL')

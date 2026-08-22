@@ -5,7 +5,7 @@
 // last-write-wins. As três no servidor, porque o cliente offline não é fonte
 // confiável de nenhuma delas.
 import { randomUUID } from 'node:crypto'
-import { sql, getSnapshot, registrarAlteracao, avisarParticipantes } from '@/lib/db.ts'
+import { sql, getSnapshot, registrarAlteracao, avisarParticipantes, usuarioPorId } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem, type Acesso } from '@/lib/auth.ts'
 import { ErroHttp } from '@/lib/session.ts'
 import { MutationBatchSchema, validarCampos, formatarErroZod, type Entidade } from '@/lib/schema.ts'
@@ -73,7 +73,17 @@ export const POST = rota(async (req) => {
   return {
     aplicadas: aplicadas.length,
     rejeitadas,
-    snapshot: await getSnapshot(acesso.tripId, acesso.papel),
+    // Mesmo envelope de /api/snapshot: sem `eu`, o cliente perde o papel e o
+    // participanteId depois de QUALQUER escrita, não só na carga inicial.
+    snapshot: {
+      ...(await getSnapshot(acesso.tripId, acesso.papel)),
+      eu: {
+        userId: acesso.userId,
+        usuario: await usuarioPorId(acesso.userId),
+        participanteId: acesso.participanteId,
+        papel: acesso.papel,
+      },
+    },
   }
 })
 
@@ -215,8 +225,10 @@ async function aplicar(
     if (!op.id) throw new Error('id obrigatório para remover')
     if (op.entidade === 'viagem') throw new ErroHttp(400, 'Use a tela de viagens para excluir.')
 
-    const rec = recorte(op.entidade, tripId, 2)
-    await sql.query(`delete from ${meta.nome} where id = $1 ${rec.sql}`, [op.id, ...rec.params])
+    // Registra ANTES de apagar: se a entidade removida for o próprio participante
+    // que assina o histórico (saiu da viagem, ou o dono se removeu depois de
+    // promover outro), logar depois do delete violaria a FK — a linha de quem
+    // registrou já não existiria mais.
     await registrarAlteracao(
       tripId,
       acesso.participanteId,
@@ -226,6 +238,8 @@ async function aplicar(
       'existia',
       'removido',
     )
+    const rec = recorte(op.entidade, tripId, 2)
+    await sql.query(`delete from ${meta.nome} where id = $1 ${rec.sql}`, [op.id, ...rec.params])
     return true
   }
 

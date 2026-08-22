@@ -104,6 +104,16 @@ export async function atualizarPerfil(userId: string, nome: string, avatarUrl: s
   `
 }
 
+/**
+ * Liga a conta recém-criada a participantes que já existiam só como nome (o
+ * dono cadastrou "Leonardo" antes de Leonardo ter conta). Sem isto, quem se
+ * cadastra com o mesmo e-mail de um convite fica de fora até alguém reabrir e
+ * salvar aquele participante de novo pela tela.
+ */
+export async function vincularParticipantesPorEmail(userId: string, email: string) {
+  await sql`update travelers set user_id = ${userId} where email = ${email} and user_id is null`
+}
+
 // ---------------------------------------------------------------- viagens da conta
 
 /**
