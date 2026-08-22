@@ -90,9 +90,18 @@ export const CadastroSchema = z
     path: ['confirmacao'],
   })
 
+/** Moedas que o app sabe formatar. Fora da lista, `formatarDinheiro` cairia
+    num símbolo genérico — melhor barrar na entrada do que exibir errado. */
+export const MOEDAS = ['BRL', 'EUR', 'USD', 'GBP', 'ARS', 'CLP'] as const
+
 export const PerfilSchema = z.object({
   nome: Texto.max(120),
   avatar_url: Url,
+  // Telefone fica livre de propósito: o app é usado em sete países e qualquer
+  // máscara que eu inventasse recusaria um número legítimo lá fora.
+  telefone: z.string().trim().max(40).nullish(),
+  moeda_preferida: z.enum(MOEDAS).default('BRL'),
+  notificacoes: z.boolean().default(true),
 })
 
 export const TrocaSenhaSchema = z

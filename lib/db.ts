@@ -23,6 +23,9 @@ export type Usuario = {
   nome: string
   email: string
   avatar_url: string | null
+  telefone: string | null
+  moeda_preferida: string
+  notificacoes: boolean
 }
 
 export type ViagemResumo = {
@@ -61,16 +64,27 @@ export type Snapshot = {
 
 // ---------------------------------------------------------------- contas
 
-/** Uso interno do login: precisa do hash. Nunca vai para a resposta. */
+/** Uso interno do login e da troca de senha: precisa do hash. Nunca vai na resposta. */
 export async function usuarioPorEmail(email: string) {
   const r = await sql`
-    select id, nome, email, senha_hash, avatar_url from users where email = ${email}
+    select id, nome, email, senha_hash, avatar_url, telefone, moeda_preferida, notificacoes
+    from users where email = ${email}
   `
   return (r[0] as (Usuario & { senha_hash: string }) | undefined) ?? null
 }
 
+/** Idem, por id. Existe separada de `usuarioPorId` para que o hash só saia
+    do banco onde ele é de fato necessário — trocar senha, e nada mais. */
+export async function hashDoUsuario(id: string): Promise<string | null> {
+  const r = await sql`select senha_hash from users where id = ${id}`
+  return (r[0] as { senha_hash: string } | undefined)?.senha_hash ?? null
+}
+
 export async function usuarioPorId(id: string): Promise<Usuario | null> {
-  const r = await sql`select id, nome, email, avatar_url from users where id = ${id}`
+  const r = await sql`
+    select id, nome, email, avatar_url, telefone, moeda_preferida, notificacoes
+    from users where id = ${id}
+  `
   return (r[0] as Usuario | undefined) ?? null
 }
 
@@ -88,7 +102,7 @@ export async function criarUsuario(
   const r = await sql`
     insert into users (nome, email, senha_hash) values (${nome}, ${email}, ${senhaHash})
     on conflict (email) do nothing
-    returning id, nome, email, avatar_url
+    returning id, nome, email, avatar_url, telefone, moeda_preferida, notificacoes
   `
   return (r[0] as Usuario | undefined) ?? null
 }
@@ -97,11 +111,36 @@ export async function trocarSenha(userId: string, senhaHash: string) {
   await sql`update users set senha_hash = ${senhaHash}, updated_at = now() where id = ${userId}`
 }
 
-export async function atualizarPerfil(userId: string, nome: string, avatarUrl: string | null) {
-  await sql`
-    update users set nome = ${nome}, avatar_url = ${avatarUrl}, updated_at = now()
+/**
+ * Grava o perfil e devolve o registro já atualizado — quem chamou não precisa
+ * de um segundo select para pintar a tela com o que acabou de salvar.
+ *
+ * O e-mail NÃO está aqui de propósito: ele identifica a conta no login e liga
+ * participantes convidados; trocá-lo é outra operação, com sua própria checagem
+ * de unicidade e de senha.
+ */
+export async function atualizarPerfil(
+  userId: string,
+  dados: {
+    nome: string
+    avatar_url: string | null
+    telefone: string | null
+    moeda_preferida: string
+    notificacoes: boolean
+  },
+): Promise<Usuario | null> {
+  const r = await sql`
+    update users set
+      nome = ${dados.nome},
+      avatar_url = ${dados.avatar_url},
+      telefone = ${dados.telefone},
+      moeda_preferida = ${dados.moeda_preferida},
+      notificacoes = ${dados.notificacoes},
+      updated_at = now()
     where id = ${userId}
+    returning id, nome, email, avatar_url, telefone, moeda_preferida, notificacoes
   `
+  return (r[0] as Usuario | undefined) ?? null
 }
 
 /**

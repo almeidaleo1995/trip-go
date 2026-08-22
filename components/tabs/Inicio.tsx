@@ -13,11 +13,12 @@ import {
   ClipboardCheck,
   Wallet,
   ChevronRight,
-  AlertTriangle,
+  History,
+  Users,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import { MapaRota } from '../MapaRota.tsx'
-import { Cartao, Rotulo, Badge, Progresso, CartaoEstatistica } from '../ui.tsx'
+import { Cartao, Rotulo, Badge, Progresso } from '../ui.tsx'
 import type { AbaId } from '../Shell.tsx'
 import {
   faseDaViagem,
@@ -29,6 +30,40 @@ import {
   formatarHora,
   parseData,
 } from '@/lib/derive.ts'
+
+/** Uma célula do resumo. Vira botão só quando existe uma aba para onde ir. */
+function Estatistica({
+  icone: Icone,
+  numero,
+  rotulo,
+  aoClicar,
+}: {
+  icone: React.ElementType
+  numero: React.ReactNode
+  rotulo: string
+  aoClicar?: () => void
+}) {
+  const conteudo = (
+    <>
+      <dt className="flex items-center justify-center gap-1.5 text-[12px] text-(--color-tinta-3)">
+        <Icone size={14} strokeWidth={1.75} />
+        {rotulo}
+      </dt>
+      <dd className="tab-num mt-1 text-2xl leading-none font-bold">{numero}</dd>
+    </>
+  )
+
+  if (!aoClicar) return <div className="px-2 py-4 text-center">{conteudo}</div>
+
+  return (
+    <button
+      onClick={aoClicar}
+      className="cursor-pointer px-2 py-4 text-center transition-colors hover:bg-(--color-superficie-2)"
+    >
+      {conteudo}
+    </button>
+  )
+}
 
 export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
   const { snapshot } = useTrip()
@@ -116,36 +151,17 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
 
   return (
     <div className="space-y-4">
-      {/* saudação */}
+      {/* Quem sou eu, qual viagem é esta e quando ela é — nesta ordem. O nome da
+          viagem vale mais que a saudação, então é ele que vira o título. */}
       <div>
-        <h1 className="text-[22px] leading-tight font-semibold">Olá, {primeiroNome}! 👋</h1>
-        <p className="text-sm text-[--color-tinta-2]">Sua próxima aventura começa aqui.</p>
+        <p className="t-aux">Olá, {primeiroNome}</p>
+        <h1 className="t-pagina mt-0.5">{String(v.nome ?? 'Sua viagem')}</h1>
+        <p className="tab-num t-aux mt-1">
+          {formatarData(v.data_partida, { day: '2-digit', month: 'short' })} →{' '}
+          {formatarData(v.data_retorno, { day: '2-digit', month: 'short', year: 'numeric' })}
+          {v.subtitulo ? ` · ${String(v.subtitulo)}` : ''}
+        </p>
       </div>
-
-      {recentes.length > 0 && (
-        <Cartao className="!border-[--color-alerta-bg] !bg-[--color-alerta-bg]">
-          <div className="flex items-start gap-2.5">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[--color-alerta-ink]" />
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[--color-alerta-ink]">
-                {recentes.length === 1
-                  ? '1 alteração recente'
-                  : `${recentes.length} alterações recentes`}
-              </p>
-              <ul className="mt-1.5 space-y-1">
-                {recentes.slice(0, 3).map((a) => (
-                  <li key={String(a.id)} className="text-[13px] text-[--color-alerta-ink]">
-                    <span className="font-medium">{String(a.entidade)}</span>
-                    {a.campo && a.campo !== '(registro)' ? ` · ${a.campo}: ` : ' · '}
-                    {a.para ? String(a.para).slice(0, 48) : '—'}
-                    <span className="opacity-70"> · {a.autor ? String(a.autor) : 'alguém'}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </Cartao>
-      )}
 
       {/* herói: contagem + mapa + próximo compromisso */}
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
@@ -157,13 +173,12 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
                 background: 'linear-gradient(135deg, var(--destaque), var(--color-destaque-escuro))',
               }}
             >
-              <p className="text-[11px] font-semibold tracking-[0.08em] uppercase opacity-80">
-                {v.subtitulo ? String(v.subtitulo) : String(v.nome ?? 'Sua viagem')}
-              </p>
               {fase.fase === 'antes' && (
                 <>
-                  <p className="mt-3 text-sm opacity-90">Faltam</p>
-                  <p className="tab-num text-[56px] leading-none font-bold">
+                  <p className="text-[11px] font-semibold tracking-[0.08em] uppercase opacity-80">
+                    Faltam
+                  </p>
+                  <p className="tab-num mt-2 text-[56px] leading-none font-bold">
                     {fase.diasRestantes}
                     <span className="ml-2 text-xl font-medium opacity-90">
                       {fase.diasRestantes === 1 ? 'dia' : 'dias'}
@@ -173,8 +188,10 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
               )}
               {fase.fase === 'durante' && (
                 <>
-                  <p className="mt-3 text-sm opacity-90">Viagem em andamento</p>
-                  <p className="tab-num text-[44px] leading-none font-bold">
+                  <p className="text-[11px] font-semibold tracking-[0.08em] uppercase opacity-80">
+                    Viagem em andamento
+                  </p>
+                  <p className="tab-num mt-2 text-[44px] leading-none font-bold">
                     Dia {fase.diaAtual}
                     <span className="ml-2 text-xl font-medium opacity-90">de {fase.totalDias}</span>
                   </p>
@@ -200,75 +217,78 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
               <Rotulo>Próximo compromisso</Rotulo>
               {proximo ? (
                 <>
-                  <p className="mt-1.5 truncate text-lg font-semibold">{String(proximo.titulo)}</p>
-                  <p className="tab-num mt-1 text-sm text-[--color-tinta-2]">
+                  <p className="t-secao mt-2 truncate">{String(proximo.titulo)}</p>
+                  <p className="tab-num mt-1.5 text-sm font-medium text-(--color-tinta-2)">
                     {formatarData(proximo.ocorre_em)} · {formatarHora(proximo.ocorre_em)}
-                    {proximo.cidade ? ` · ${proximo.cidade}` : ''}
                   </p>
+                  {proximo.cidade && (
+                    <p className="mt-1 flex items-center gap-1.5 text-[13px] text-(--color-tinta-3)">
+                      <MapPin size={13} className="shrink-0" />
+                      {String(proximo.cidade)}
+                    </p>
+                  )}
                 </>
               ) : (
-                <p className="mt-1.5 text-[--color-tinta-2]">Sem compromissos futuros</p>
+                <p className="t-aux mt-2">Sem compromissos futuros</p>
               )}
             </div>
-            <ChevronRight size={20} className="shrink-0 text-[--color-tinta-3]" />
+            <ChevronRight size={20} className="shrink-0 text-(--color-tinta-3)" />
           </div>
         </Cartao>
       </div>
 
-      {/* resumo da viagem */}
-      <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
-        <CartaoEstatistica icone={CalendarDays} numero={fase.totalDias} rotulo="dias" />
-        <CartaoEstatistica
-          icone={Globe}
-          numero={paises}
-          rotulo={paises === 1 ? 'país' : 'países'}
-        />
-        <CartaoEstatistica
-          icone={MapPin}
-          numero={cidades}
-          rotulo={cidades === 1 ? 'cidade' : 'cidades'}
-        />
-        <CartaoEstatistica
-          icone={Plane}
-          numero={voos.length}
-          rotulo={voos.length === 1 ? 'voo' : 'voos'}
-          onClick={() => irPara('voos')}
-        />
-        <CartaoEstatistica
-          icone={Building2}
-          numero={hospedagens.length}
-          rotulo="hospedagens"
-          onClick={() => irPara('hospedagem')}
-        />
-        <CartaoEstatistica
-          icone={FileText}
-          numero={documentos.length}
-          rotulo="documentos"
-          onClick={() => irPara('documentos')}
-        />
-      </div>
+      {/* Resumo da viagem. Um cartão com divisórias, não seis caixas: são seis
+          números do mesmo assunto, e seis molduras separadas só somam ruído. */}
+      <Cartao className="!p-0 overflow-hidden">
+        <dl className="grid grid-cols-3 divide-x divide-y divide-(--color-borda) md:grid-cols-6 md:divide-y-0">
+          <Estatistica icone={CalendarDays} numero={fase.totalDias} rotulo="dias" />
+          <Estatistica icone={Users} numero={snapshot.participantes.length} rotulo="viajantes" />
+          <Estatistica icone={Globe} numero={paises} rotulo={paises === 1 ? 'país' : 'países'} />
+          <Estatistica
+            icone={MapPin}
+            numero={cidades}
+            rotulo={cidades === 1 ? 'cidade' : 'cidades'}
+            aoClicar={() => irPara('lugares')}
+          />
+          <Estatistica
+            icone={Plane}
+            numero={voos.length}
+            rotulo={voos.length === 1 ? 'voo' : 'voos'}
+            aoClicar={() => irPara('voos')}
+          />
+          <Estatistica
+            icone={Building2}
+            numero={hospedagens.length}
+            rotulo="hospedagens"
+            aoClicar={() => irPara('hospedagem')}
+          />
+        </dl>
+      </Cartao>
 
       {/* pendências + progresso */}
       {(pendencias.length > 0 || barras.length > 0) && (
         <div className="grid gap-4 md:grid-cols-2">
           {pendencias.length > 0 && (
             <Cartao>
-              <Rotulo>Pendências importantes</Rotulo>
-              <div className="mt-2 divide-y divide-[--color-borda]">
+              <Rotulo>O que falta fazer</Rotulo>
+              <div className="mt-2 divide-y divide-(--color-borda)">
                 {pendencias.map((p, i) => (
                   <button
                     key={i}
                     onClick={() => irPara(p.aba)}
-                    className="toque flex w-full cursor-pointer items-center gap-3 py-2.5 text-left"
+                    className="toque -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-(--color-superficie-2)"
                   >
                     <span
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                      style={{ background: 'var(--color-alerta-bg)', color: 'var(--color-alerta-ink)' }}
+                      style={{
+                        background: 'var(--color-atencao-bg)',
+                        color: 'var(--color-atencao-ink)',
+                      }}
                     >
                       <p.icone size={15} />
                     </span>
                     <span className="flex-1 text-sm font-medium">{p.rotulo}</span>
-                    <ChevronRight size={16} className="shrink-0 text-[--color-tinta-3]" />
+                    <ChevronRight size={16} className="shrink-0 text-(--color-tinta-3)" />
                   </button>
                 ))}
               </div>
@@ -283,7 +303,7 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
                   <div key={b.rotulo}>
                     <div className="mb-1 flex items-baseline justify-between text-sm">
                       <span className="font-medium">{b.rotulo}</span>
-                      <span className="tab-num text-[--color-tinta-3]">{b.pct}%</span>
+                      <span className="tab-num text-(--color-tinta-3)">{b.pct}%</span>
                     </div>
                     <Progresso pct={b.pct} />
                   </div>
@@ -307,25 +327,53 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
               Ver tudo →
             </button>
           </div>
-          <ul className="divide-y divide-[--color-borda]">
+          <ul className="divide-y divide-(--color-borda)">
             {proximosDias.map((e) => (
               <li key={String(e.id)} className="flex items-center gap-3 py-2.5">
                 <div className="w-11 shrink-0 text-center">
                   <p className="tab-num text-[15px] leading-none font-bold">
                     {formatarData(e.ocorre_em, { day: '2-digit' })}
                   </p>
-                  <p className="mt-0.5 text-[10px] tracking-wide text-[--color-tinta-3] uppercase">
+                  <p className="mt-0.5 text-[10px] tracking-wide text-(--color-tinta-3) uppercase">
                     {formatarData(e.ocorre_em, { month: 'short' }).replace('.', '')}
                   </p>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{String(e.titulo)}</p>
-                  <p className="tab-num truncate text-[13px] text-[--color-tinta-3]">
+                  <p className="tab-num truncate text-[13px] text-(--color-tinta-3)">
                     {formatarHora(e.ocorre_em)}
                     {e.cidade ? ` · ${e.cidade}` : ''}
                   </p>
                 </div>
                 <Badge tipo={String(e.tipo)} />
+              </li>
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
+      {/* O que mudou. Fica no fim e em tom informativo: é notícia do grupo, não
+          alarme — vermelho no topo da tela fazia toda visita parecer um problema. */}
+      {recentes.length > 0 && (
+        <Cartao>
+          <div className="mb-2 flex items-center gap-2">
+            <History size={15} className="shrink-0 text-(--color-tinta-3)" />
+            <Rotulo>
+              {recentes.length === 1
+                ? '1 alteração nas últimas 48h'
+                : `${recentes.length} alterações nas últimas 48h`}
+            </Rotulo>
+          </div>
+          <ul className="space-y-1.5">
+            {recentes.slice(0, 3).map((a) => (
+              <li key={String(a.id)} className="text-[13px] text-(--color-tinta-2)">
+                <span className="font-medium capitalize">{String(a.entidade)}</span>
+                {a.campo && a.campo !== '(registro)' ? ` · ${a.campo}: ` : ' · '}
+                {a.para ? String(a.para).slice(0, 48) : '—'}
+                <span className="text-(--color-tinta-3)">
+                  {' '}
+                  · {a.autor ? String(a.autor) : 'alguém'}
+                </span>
               </li>
             ))}
           </ul>

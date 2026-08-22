@@ -1,12 +1,25 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { CartaoViagem, type ViagemResumo } from '@/components/CartaoViagem'
-import { Carregando, Vazio, Botao } from '@/components/ui'
-import { Plus, Trash2, Copy, X, Luggage } from 'lucide-react'
+import { DashboardLayout } from '@/components/DashboardLayout.tsx'
+import { CartaoViagem, type ViagemResumo } from '@/components/CartaoViagem.tsx'
+import {
+  AppModal,
+  Botao,
+  BotaoIcone,
+  Campo,
+  Carregando,
+  ConfirmarDialogo,
+  Titulo,
+  Vazio,
+  CLASSE_CAMPO,
+  useAviso,
+} from '@/components/ui.tsx'
+import { MOEDAS } from '@/lib/schema.ts'
+import { Plus, Trash2, Copy } from 'lucide-react'
 
 export default function Viagens() {
+  const avisar = useAviso()
   const [viagens, setViagens] = useState<ViagemResumo[]>([])
   const [carregando, setCarregando] = useState(true)
   const [formAberto, setFormAberto] = useState(false)
@@ -27,15 +40,23 @@ export default function Viagens() {
       .finally(() => setCarregando(false))
   }, [])
 
-  async function criar(e: React.FormEvent) {
-    e.preventDefault()
+  async function criar() {
+    if (!nome.trim()) return setErro('Dê um nome para a viagem.')
+    if (!dataPartida || !dataRetorno) return setErro('Informe as datas de partida e retorno.')
+    if (dataRetorno < dataPartida) return setErro('O retorno não pode ser antes da partida.')
+
     setSalvando(true)
     setErro(null)
     try {
       const r = await fetch('/api/viagens', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ nome, data_partida: dataPartida, data_retorno: dataRetorno, moeda }),
+        body: JSON.stringify({
+          nome: nome.trim(),
+          data_partida: dataPartida,
+          data_retorno: dataRetorno,
+          moeda,
+        }),
       })
       const d = await r.json()
       if (!r.ok) {
@@ -47,6 +68,7 @@ export default function Viagens() {
       setDataPartida('')
       setDataRetorno('')
       setFormAberto(false)
+      avisar('sucesso', 'Viagem criada.')
     } catch {
       setErro('Sem conexão. Tente de novo quando a internet voltar.')
     } finally {
@@ -71,6 +93,7 @@ export default function Viagens() {
       // Recarrega a lista: a cópia traz contagens próprias que o cliente não sabe montar.
       const lista = await fetch('/api/viagens').then((x) => x.json())
       setViagens(lista.viagens || [])
+      avisar('sucesso', 'Viagem duplicada.')
     } catch {
       setErro('Sem conexão. Tente de novo quando a internet voltar.')
     } finally {
@@ -94,6 +117,7 @@ export default function Viagens() {
       }
       setViagens((a) => a.filter((x) => x.id !== v.id))
       setARemover(null)
+      avisar('sucesso', 'Viagem removida.')
     } catch {
       setErro('Sem conexão. Tente de novo quando a internet voltar.')
     } finally {
@@ -106,57 +130,24 @@ export default function Viagens() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-[26px] leading-tight font-semibold">Minhas viagens</h1>
-            <p className="mt-1 text-sm text-[--color-tinta-2]">
-              Cada viagem tem seu roteiro, seu grupo e suas contas.
-            </p>
-          </div>
-          <Botao onClick={() => setFormAberto((a) => !a)}>
-            {formAberto ? <X size={16} /> : <Plus size={16} />}
-            {formAberto ? 'Cancelar' : 'Nova viagem'}
-          </Botao>
-        </div>
+        <Titulo
+          descricao="Cada viagem tem seu roteiro, seu grupo e suas contas."
+          acao={
+            <Botao onClick={() => setFormAberto(true)}>
+              <Plus size={16} /> Nova viagem
+            </Botao>
+          }
+        >
+          Minhas viagens
+        </Titulo>
 
-        {erro && (
+        {erro && !formAberto && (
           <p
             role="alert"
-            className="mb-4 rounded-xl bg-[--color-alerta-bg] px-3 py-2.5 text-sm text-[--color-alerta-ink]"
+            className="mb-4 rounded-xl bg-(--color-perigo-bg) px-3 py-2.5 text-sm text-(--color-perigo-ink)"
           >
             {erro}
           </p>
-        )}
-
-        {formAberto && (
-          <form
-            onSubmit={criar}
-            className="mb-6 rounded-2xl border border-[--color-borda] bg-[--color-cartao] p-5 shadow-[0_1px_3px_rgb(0_0_0/0.06)]"
-          >
-            <h2 className="mb-3 font-semibold">Nova viagem</h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Campo rotulo="Nome" tipo="text" valor={nome} aoMudar={setNome} />
-              <Campo rotulo="Partida" tipo="date" valor={dataPartida} aoMudar={setDataPartida} />
-              <Campo rotulo="Retorno" tipo="date" valor={dataRetorno} aoMudar={setDataRetorno} />
-              <label className="block">
-                <span className="text-[11px] font-semibold tracking-[0.06em] text-[--color-tinta-3] uppercase">
-                  Moeda
-                </span>
-                <select
-                  value={moeda}
-                  onChange={(e) => setMoeda(e.target.value)}
-                  className="toque mt-1 w-full rounded-xl border border-[--color-borda] bg-[--color-cartao] px-3 py-2.5 text-[15px] outline-none focus:border-[--destaque] focus:ring-2 focus:ring-[--color-destaque-fraco]"
-                >
-                  <option value="BRL">BRL</option>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                </select>
-              </label>
-            </div>
-            <div className="mt-4">
-              <Botao tipo="submit">{salvando ? 'Criando…' : 'Criar viagem'}</Botao>
-            </div>
-          </form>
         )}
 
         {viagens.length === 0 ? (
@@ -178,6 +169,7 @@ export default function Viagens() {
                 acoes={
                   <>
                     <BotaoIcone
+                      tom="sobre-cor"
                       rotulo={`Duplicar ${v.nome}`}
                       onClick={() => duplicar(v)}
                       desabilitado={ocupado === v.id}
@@ -185,6 +177,7 @@ export default function Viagens() {
                       <Copy size={15} />
                     </BotaoIcone>
                     <BotaoIcone
+                      tom="sobre-cor"
                       rotulo={`Remover ${v.nome}`}
                       onClick={() => setARemover(v)}
                       desabilitado={ocupado === v.id}
@@ -199,88 +192,79 @@ export default function Viagens() {
         )}
       </div>
 
-      {/* Confirmação diz O QUE some junto — não só "tem certeza?" */}
-      {aRemover && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-          onClick={() => setARemover(null)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-3xl border border-[--color-borda] bg-[--color-cartao] p-6 shadow-2xl"
-          >
-            <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-[--color-alerta-bg] text-[--color-alerta-ink]">
-              <Luggage size={20} />
-            </span>
-            <h2 className="text-lg font-semibold">Remover “{aRemover.nome}”?</h2>
-            <p className="mt-2 text-sm text-[--color-tinta-2]">
-              O roteiro, as reservas, o checklist e as despesas desta viagem saem junto. Não dá para
-              desfazer pelo app.
-            </p>
-            <div className="mt-5 flex gap-2">
-              <Botao variante="perigo" onClick={() => remover(aRemover)}>
-                {ocupado === aRemover.id ? 'Removendo…' : 'Remover viagem'}
-              </Botao>
-              <Botao variante="secundario" onClick={() => setARemover(null)}>
+      {formAberto && (
+        <AppModal
+          titulo="Nova viagem"
+          descricao="Você pode mudar tudo isso depois."
+          tamanho="medio"
+          aoFechar={() => setFormAberto(false)}
+          acoes={
+            <>
+              <Botao variante="secundario" onClick={() => setFormAberto(false)}>
                 Cancelar
               </Botao>
+              <Botao onClick={criar} carregando={salvando}>
+                Criar viagem
+              </Botao>
+            </>
+          }
+        >
+          <div className="space-y-4 pb-2">
+            <Campo rotulo="Nome" valor={nome} aoMudar={setNome} obrigatorio />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Campo
+                rotulo="Partida"
+                tipo="date"
+                valor={dataPartida}
+                aoMudar={setDataPartida}
+                obrigatorio
+              />
+              <Campo
+                rotulo="Retorno"
+                tipo="date"
+                valor={dataRetorno}
+                aoMudar={setDataRetorno}
+                obrigatorio
+              />
             </div>
+            <label className="block">
+              <span className="block text-[13px] font-medium text-(--color-tinta-2)">Moeda</span>
+              <select
+                value={moeda}
+                onChange={(e) => setMoeda(e.target.value)}
+                className={`toque mt-1 max-w-40 ${CLASSE_CAMPO}`}
+              >
+                {MOEDAS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {erro && (
+              <p
+                role="alert"
+                className="rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-sm text-(--color-perigo-ink)"
+              >
+                {erro}
+              </p>
+            )}
           </div>
-        </div>
+        </AppModal>
+      )}
+
+      {/* Confirmação diz O QUE some junto — não só "tem certeza?" */}
+      {aRemover && (
+        <ConfirmarDialogo
+          titulo={`Remover “${aRemover.nome}”?`}
+          descricao="O roteiro, as reservas, o checklist e as despesas desta viagem saem junto. Não dá para desfazer pelo app."
+          rotuloConfirmar="Remover viagem"
+          carregando={ocupado === aRemover.id}
+          aoCancelar={() => setARemover(null)}
+          aoConfirmar={() => void remover(aRemover)}
+        />
       )}
     </DashboardLayout>
-  )
-}
-
-function BotaoIcone({
-  children,
-  rotulo,
-  onClick,
-  desabilitado,
-}: {
-  children: React.ReactNode
-  rotulo: string
-  onClick: () => void
-  desabilitado?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={rotulo}
-      disabled={desabilitado}
-      onClick={onClick}
-      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/20 text-white backdrop-blur transition-colors hover:bg-white/35 disabled:opacity-50"
-    >
-      {children}
-    </button>
-  )
-}
-
-function Campo({
-  rotulo,
-  tipo,
-  valor,
-  aoMudar,
-}: {
-  rotulo: string
-  tipo: string
-  valor: string
-  aoMudar: (v: string) => void
-}) {
-  return (
-    <label className="block">
-      <span className="text-[11px] font-semibold tracking-[0.06em] text-[--color-tinta-3] uppercase">
-        {rotulo}
-      </span>
-      <input
-        type={tipo}
-        value={valor}
-        onChange={(e) => aoMudar(e.target.value)}
-        required
-        className="toque mt-1 w-full rounded-xl border border-[--color-borda] bg-[--color-cartao] px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-[--destaque] focus:ring-2 focus:ring-[--color-destaque-fraco]"
-      />
-    </label>
   )
 }

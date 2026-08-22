@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { MapPinned } from 'lucide-react'
-import { CadastroSchema } from '@/lib/schema'
+import { CadastroSchema, SENHA_MINIMA } from '@/lib/schema.ts'
+import { Botao, Campo } from '@/components/ui.tsx'
 
 export default function Register() {
   const [nome, setNome] = useState('')
@@ -91,7 +92,7 @@ export default function Register() {
         </svg>
       </div>
 
-      <div className="flex items-center justify-center bg-[--color-fundo] p-6">
+      <div className="flex items-center justify-center bg-(--color-fundo) p-6">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
             <span
@@ -103,8 +104,8 @@ export default function Register() {
             <span className="text-xl font-bold tracking-tight">TripGo</span>
           </div>
 
-          <h1 className="text-[26px] leading-tight font-semibold">Criar conta</h1>
-          <p className="mt-1 text-sm text-[--color-tinta-2]">Leva menos de um minuto.</p>
+          <h1 className="t-pagina">Criar conta</h1>
+          <p className="t-aux mt-1">Leva menos de um minuto.</p>
 
           <form onSubmit={criar} className="mt-6 space-y-4">
             <Campo
@@ -113,6 +114,7 @@ export default function Register() {
               valor={nome}
               aoMudar={setNome}
               autoComplete="name"
+              obrigatorio
             />
             <Campo
               rotulo="E-mail"
@@ -120,6 +122,7 @@ export default function Register() {
               valor={email}
               aoMudar={setEmail}
               autoComplete="email"
+              obrigatorio
             />
             <Campo
               rotulo="Senha"
@@ -127,6 +130,8 @@ export default function Register() {
               valor={senha}
               aoMudar={setSenha}
               autoComplete="new-password"
+              obrigatorio
+              dica={`mínimo ${SENHA_MINIMA} caracteres`}
             />
             <Campo
               rotulo="Confirmar senha"
@@ -134,28 +139,25 @@ export default function Register() {
               valor={confirmacao}
               aoMudar={setConfirmacao}
               autoComplete="new-password"
+              obrigatorio
+              erro={confirmacao && senha !== confirmacao ? 'As senhas não são iguais.' : null}
             />
 
             {erro && (
               <p
                 role="alert"
-                className="rounded-xl bg-[--color-alerta-bg] px-3 py-2.5 text-sm text-[--color-alerta-ink]"
+                className="rounded-xl bg-(--color-perigo-bg) px-3 py-2.5 text-sm text-(--color-perigo-ink)"
               >
                 {erro}
               </p>
             )}
 
-            <button
-              type="submit"
-              disabled={carregando}
-              style={{ background: 'var(--destaque)' }}
-              className="toque w-full cursor-pointer rounded-2xl text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90 active:scale-[0.99] disabled:opacity-50"
-            >
-              {carregando ? 'Criando…' : 'Criar conta'}
-            </button>
+            <Botao tipo="submit" carregando={carregando} className="w-full">
+              Criar conta
+            </Botao>
           </form>
 
-          <p className="mt-6 text-center text-sm text-[--color-tinta-2]">
+          <p className="mt-6 text-center text-sm text-(--color-tinta-2)">
             Já tem conta?{' '}
             <a
               href="/login"
@@ -168,35 +170,5 @@ export default function Register() {
         </div>
       </div>
     </div>
-  )
-}
-
-function Campo({
-  rotulo,
-  tipo,
-  valor,
-  aoMudar,
-  autoComplete,
-}: {
-  rotulo: string
-  tipo: string
-  valor: string
-  aoMudar: (v: string) => void
-  autoComplete?: string
-}) {
-  return (
-    <label className="block">
-      <span className="text-[11px] font-semibold tracking-[0.06em] text-[--color-tinta-3] uppercase">
-        {rotulo}
-      </span>
-      <input
-        type={tipo}
-        value={valor}
-        onChange={(e) => aoMudar(e.target.value)}
-        autoComplete={autoComplete}
-        required
-        className="toque mt-1 w-full rounded-xl border border-[--color-borda] bg-[--color-cartao] px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-[--destaque] focus:ring-2 focus:ring-[--color-destaque-fraco]"
-      />
-    </label>
   )
 }

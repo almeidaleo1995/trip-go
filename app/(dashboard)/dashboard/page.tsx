@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { Plus, Plane, CalendarClock } from 'lucide-react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { CartaoViagem, type ViagemResumo } from '@/components/CartaoViagem'
-import { Carregando, Vazio, Botao, Cartao, Rotulo } from '@/components/ui'
-import { faseDaViagem, formatarData } from '@/lib/derive'
+import { DashboardLayout } from '@/components/DashboardLayout.tsx'
+import { CartaoViagem, type ViagemResumo } from '@/components/CartaoViagem.tsx'
+import { Carregando, Vazio, Botao, Cartao, Rotulo } from '@/components/ui.tsx'
+import { faseDaViagem, formatarData } from '@/lib/derive.ts'
 
 export default function Dashboard() {
   const [viagens, setViagens] = useState<ViagemResumo[]>([])
@@ -39,7 +39,7 @@ export default function Dashboard() {
           <h1 className="text-[26px] leading-tight font-semibold">
             {nome ? `Olá, ${nome}! 👋` : 'Olá! 👋'}
           </h1>
-          <p className="mt-1 text-sm text-[--color-tinta-2]">
+          <p className="mt-1 text-sm text-(--color-tinta-2)">
             Sua próxima aventura começa aqui.
           </p>
         </div>
@@ -95,12 +95,12 @@ export default function Dashboard() {
                       <p className="tab-num mt-1 text-4xl leading-none font-bold">
                         {emFoco.f.fase === 'durante' ? emFoco.f.diaAtual : emFoco.f.diasRestantes}
                       </p>
-                      <p className="mt-1 text-xs text-[--color-tinta-3]">
+                      <p className="mt-1 text-xs text-(--color-tinta-3)">
                         {emFoco.f.fase === 'durante' ? `de ${emFoco.f.totalDias}` : 'dias'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-[--color-tinta-2]">
-                      <CalendarClock size={15} className="text-[--color-tinta-3]" />
+                    <div className="flex items-center gap-2 text-sm text-(--color-tinta-2)">
+                      <CalendarClock size={15} className="text-(--color-tinta-3)" />
                       {emFoco.f.totalDias} dias de viagem
                     </div>
                   </div>

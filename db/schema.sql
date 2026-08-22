@@ -27,6 +27,10 @@ create table if not exists users (
   email       text not null unique,
   senha_hash  text not null,
   avatar_url  text,
+  telefone    text,
+  -- preferencias da pessoa, validas em qualquer viagem
+  moeda_preferida text not null default 'BRL',
+  notificacoes    boolean not null default true,
   criado_em   timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -327,6 +331,12 @@ alter table trips     add column if not exists owner_id   text references users(
 alter table trips     add column if not exists descricao  text;
 alter table trips     add column if not exists capa_url   text;
 alter table trips     add column if not exists arquivada  boolean not null default false;
+
+-- Preferências da conta. Ficam em `users`, não em `travelers`: são da pessoa,
+-- não do vínculo com uma viagem — a moeda preferida vale em todas elas.
+alter table users     add column if not exists telefone         text;
+alter table users     add column if not exists moeda_preferida  text not null default 'BRL';
+alter table users     add column if not exists notificacoes     boolean not null default true;
 
 alter table travelers add column if not exists user_id    text references users(id) on delete set null;
 alter table travelers add column if not exists email      text;

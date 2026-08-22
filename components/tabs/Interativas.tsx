@@ -2,9 +2,23 @@
 
 // Abas que escrevem: Emergência (leitura, mas crítica), Checklist e Financeiro.
 import { useState } from 'react'
-import { Phone, Plus, Trash2, Check } from 'lucide-react'
+import { Phone, Plus, Trash2, Check, AlertTriangle } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
-import { Cartao, Vazio, Rotulo, Titulo, Progresso, Botao } from '../ui.tsx'
+import {
+  AppModal,
+  Badge,
+  Botao,
+  BotaoIcone,
+  Campo,
+  Cartao,
+  ConfirmarDialogo,
+  Progresso,
+  Rotulo,
+  Titulo,
+  Vazio,
+  CLASSE_CAMPO,
+  useAviso,
+} from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
 import {
   progressoChecklist,
@@ -26,8 +40,8 @@ export function Emergencia() {
   // estresse, às vezes por outra pessoa segurando o celular.
   return (
     <div className="text-[17px]">
-      <Titulo acao={<AdminAcoes entidade="emergencia">+ Contato</AdminAcoes>}>Emergência</Titulo>
-      <p className="-mt-2 mb-4 text-sm text-[--color-tinta-2]">
+      <Titulo acao={<AdminAcoes entidade="emergencia">Contato</AdminAcoes>}>Emergência</Titulo>
+      <p className="-mt-2 mb-4 text-sm text-(--color-tinta-2)">
         Funciona sem internet. Toque no número para ligar.
       </p>
 
@@ -45,7 +59,7 @@ export function Emergencia() {
                 <AdminAcoes entidade="emergencia" registro={c} />
               </div>
               {c.detalhe && (
-                <p className="mt-1 text-[15px] text-[--color-tinta-2]">{String(c.detalhe)}</p>
+                <p className="mt-1 text-[15px] text-(--color-tinta-2)">{String(c.detalhe)}</p>
               )}
               {c.telefone ? (
                 <a
@@ -56,7 +70,7 @@ export function Emergencia() {
                   <Phone size={18} /> {String(c.telefone)}
                 </a>
               ) : (
-                <p className="mt-2 inline-block rounded-full bg-[--color-alerta-bg] px-3 py-1 text-[13px] font-semibold text-[--color-alerta-ink]">
+                <p className="mt-2 inline-block rounded-full bg-(--color-alerta-bg) px-3 py-1 text-[13px] font-semibold text-(--color-alerta-ink)">
                   A preencher
                 </p>
               )}
@@ -103,7 +117,7 @@ export function Checklist() {
   if (itens.length === 0) {
     return (
       <>
-        <Titulo acao={<AdminAcoes entidade="checklist_item">+ Item</AdminAcoes>}>Checklist</Titulo>
+        <Titulo acao={<AdminAcoes entidade="checklist_item">Item</AdminAcoes>}>Checklist</Titulo>
         <div className="mb-4">
           <Progresso pct={0} />
         </div>
@@ -117,7 +131,7 @@ export function Checklist() {
 
   return (
     <>
-      <Titulo acao={<AdminAcoes entidade="checklist_item">+ Item</AdminAcoes>}>Checklist</Titulo>
+      <Titulo acao={<AdminAcoes entidade="checklist_item">Item</AdminAcoes>}>Checklist</Titulo>
       <Cartao className="mb-4">
         <div className="mb-2 flex items-baseline justify-between">
           <Rotulo>Seu progresso</Rotulo>
@@ -126,7 +140,7 @@ export function Checklist() {
           </span>
         </div>
         <Progresso pct={progresso.pct} />
-        <p className="mt-2.5 text-[12px] text-[--color-tinta-3]">
+        <p className="mt-2.5 text-[12px] text-(--color-tinta-3)">
           Suas marcações sincronizam entre os aparelhos quando há internet. Sem rede, ficam salvas
           aqui e sobem sozinhas depois.
         </p>
@@ -189,50 +203,60 @@ function ItemChecklist({
   return (
     <button
       onClick={onToggle}
-      className="quebra-evitar flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-[--color-borda] bg-[--color-cartao] p-3.5 text-left transition-colors"
+      className="quebra-evitar flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-3.5 text-left transition-colors"
       aria-pressed={feito}
     >
       <span
-        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors"
+        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2"
         style={{
-          borderColor: feito ? 'var(--destaque)' : 'var(--color-borda)',
+          borderColor: feito ? 'var(--destaque)' : 'var(--color-borda-forte)',
           background: feito ? 'var(--destaque)' : 'transparent',
+          transition: 'all var(--transicao)',
         }}
       >
-        {feito && <Check size={15} className="text-white" strokeWidth={3} />}
+        {/* O check cresce ao entrar: é o único sinal de que a marcação pegou,
+            já que a escrita é otimista e não há espera pela rede. */}
+        {feito && (
+          <Check size={15} className="anim-subir text-white" strokeWidth={3} />
+        )}
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className={`block font-medium ${feito ? 'text-[--color-tinta-3] line-through' : ''}`}>
+        <span className={`block font-medium ${feito ? 'text-(--color-tinta-3) line-through' : ''}`}>
           {String(item.titulo)}
         </span>
         {item.detalhe && (
-          <span className="mt-1 block text-[13px] text-[--color-tinta-2]">
+          <span className="mt-1 block text-[13px] text-(--color-tinta-2)">
             {String(item.detalhe)}
           </span>
         )}
         <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
           {item.categoria && (
-            <span className="rounded-full bg-[--color-fundo] px-2 py-0.5 text-[--color-tinta-3]">
+            <span className="rounded-full bg-(--color-fundo) px-2 py-0.5 text-(--color-tinta-3)">
               {String(item.categoria)}
             </span>
           )}
           {item.prazo_ideal && (
-            <span className="tab-num text-[--color-tinta-3]">
+            <span className="tab-num text-(--color-tinta-3)">
               ideal até {formatarData(item.prazo_ideal)}
             </span>
           )}
-          {item.prazo_maximo && (
-            <span
-              className="tab-num font-semibold"
-              style={{ color: vencido ? 'var(--color-alerta-ink)' : 'var(--color-tinta-3)' }}
-            >
-              limite {formatarData(item.prazo_maximo)}
-              {vencido ? ' · vencido' : ''}
-            </span>
-          )}
+          {item.prazo_maximo &&
+            (vencido ? (
+              // Vencido é etiqueta com ícone, não só texto vermelho: cor sozinha
+              // não é informação para quem não a distingue.
+              <Badge
+                tipo="perigo"
+                icone={<AlertTriangle size={11} />}
+                texto={`Vencido · ${formatarData(item.prazo_maximo)}`}
+              />
+            ) : (
+              <span className="tab-num font-semibold text-(--color-tinta-3)">
+                limite {formatarData(item.prazo_maximo)}
+              </span>
+            ))}
           {grupo && (
-            <span className="tab-num rounded-full bg-[--color-destaque-fraco] px-2 py-0.5 font-semibold text-[--color-voo-ink]">
+            <span className="tab-num rounded-full bg-(--color-destaque-fraco) px-2 py-0.5 font-semibold text-(--color-voo-ink)">
               {grupo} do grupo
             </span>
           )}
@@ -246,6 +270,7 @@ function ItemChecklist({
 
 export function Financeiro() {
   const { snapshot, mutate } = useTrip()
+  const avisar = useAviso()
   const [novo, setNovo] = useState(false)
 
   // Defesa em profundidade: a aba não é montada para visualizador, e mesmo assim
@@ -282,7 +307,7 @@ export function Financeiro() {
           categorias={categorias as any[]}
           aoFechar={() => setNovo(false)}
           aoSalvar={(campos) => {
-            mutate({
+            void mutate({
               op: 'criar',
               entidade: 'custo',
               id: crypto.randomUUID(),
@@ -290,6 +315,7 @@ export function Financeiro() {
               client_ts: agora(),
             })
             setNovo(false)
+            avisar('sucesso', 'Despesa adicionada.')
           }}
         />
       )}
@@ -353,10 +379,7 @@ function Resumo({
   destaque?: boolean
 }) {
   return (
-    <Cartao
-      className={destaque ? '!border-transparent' : ''}
-      {...(destaque ? { style: { background: 'var(--color-destaque-fraco)' } } : {})}
-    >
+    <Cartao tom={destaque ? 'destaque' : 'padrao'}>
       <Rotulo>{rotulo}</Rotulo>
       <p className="tab-num mt-1 text-base leading-tight font-bold">{valor}</p>
     </Cartao>
@@ -372,6 +395,7 @@ function LinhaCusto({
   moeda: string
   mutate: (op: any) => Promise<void>
 }) {
+  const avisar = useAviso()
   const [confirmando, setConfirmando] = useState(false)
   const porPessoa = Number(custo.valor_centavos)
   const pessoas = Number(custo.pessoas)
@@ -382,70 +406,74 @@ function LinhaCusto({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-medium">{String(custo.descricao)}</p>
-          <p className="tab-num mt-0.5 text-[13px] text-[--color-tinta-3]">
+          <p className="tab-num mt-0.5 text-[13px] text-(--color-tinta-3)">
             {formatarDinheiro(porPessoa, moeda)} × {pessoas}
-            {custo.estimado ? ' · estimativa' : ''}
-            {custo.pago ? ' · pago' : ''}
           </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {custo.pago ? (
+              <Badge tipo="sucesso" icone={<Check size={11} />} texto="Pago" />
+            ) : (
+              <Badge tipo="neutro" texto="A pagar" />
+            )}
+            {custo.estimado ? <Badge tipo="atencao" texto="Estimado" /> : null}
+          </div>
           {custo.nota && (
-            <p className="mt-1.5 text-[13px] text-[--color-tinta-2]">{String(custo.nota)}</p>
+            <p className="mt-1.5 text-[13px] text-(--color-tinta-2)">{String(custo.nota)}</p>
           )}
         </div>
         <div className="shrink-0 text-right">
           <p className="tab-num font-semibold">{formatarDinheiro(total, moeda)}</p>
-          <div className="mt-1.5 flex justify-end gap-1">
-            <button
-              onClick={() =>
-                mutate({
+          <div className="mt-1.5 flex items-center justify-end gap-1">
+            <Botao
+              variante="fantasma"
+              tamanho="pequeno"
+              onClick={() => {
+                void mutate({
                   op: 'editar',
                   entidade: 'custo',
                   id: custo.id,
                   campos: { pago: !custo.pago },
                   client_ts: agora(),
                 })
-              }
-              className="cursor-pointer rounded-lg px-2 py-1 text-[12px] font-medium hover:bg-[--color-fundo]"
-              style={{ color: custo.pago ? 'var(--destaque)' : 'var(--color-tinta-3)' }}
+                avisar('sucesso', custo.pago ? 'Marcado como a pagar.' : 'Marcado como pago.')
+              }}
             >
-              {custo.pago ? 'Pago' : 'Marcar pago'}
-            </button>
-            <button
+              {custo.pago ? 'Desmarcar' : 'Marcar pago'}
+            </Botao>
+            <BotaoIcone
+              rotulo={`Remover ${custo.descricao}`}
+              tom="perigo"
               onClick={() => setConfirmando(true)}
-              aria-label={`Remover ${custo.descricao}`}
-              className="cursor-pointer rounded-lg p-1.5 text-[--color-tinta-3] hover:bg-[--color-alerta-bg] hover:text-[--color-alerta-ink]"
             >
               <Trash2 size={14} />
-            </button>
+            </BotaoIcone>
           </div>
         </div>
       </div>
 
       {confirmando && (
-        <div className="mt-3 rounded-xl bg-[--color-alerta-bg] p-3">
-          <p className="text-sm text-[--color-alerta-ink]">
-            Remover <strong>{String(custo.descricao)}</strong> ({formatarDinheiro(total, moeda)})?
-          </p>
-          <div className="mt-2.5 flex gap-2">
-            <Botao
-              variante="perigo"
-              onClick={() => {
-                mutate({
-                  op: 'remover',
-                  entidade: 'custo',
-                  id: custo.id,
-                  campos: {},
-                  client_ts: agora(),
-                })
-                setConfirmando(false)
-              }}
-            >
-              Remover
-            </Botao>
-            <Botao variante="secundario" onClick={() => setConfirmando(false)}>
-              Cancelar
-            </Botao>
-          </div>
-        </div>
+        <ConfirmarDialogo
+          titulo="Excluir despesa?"
+          descricao={
+            <>
+              <strong className="text-(--color-tinta)">{String(custo.descricao)}</strong> (
+              {formatarDinheiro(total, moeda)}) sai do financeiro. Essa ação não poderá ser desfeita.
+            </>
+          }
+          rotuloConfirmar="Excluir"
+          aoCancelar={() => setConfirmando(false)}
+          aoConfirmar={() => {
+            void mutate({
+              op: 'remover',
+              entidade: 'custo',
+              id: custo.id,
+              campos: {},
+              client_ts: agora(),
+            })
+            setConfirmando(false)
+            avisar('sucesso', 'Despesa removida.')
+          }}
+        />
       )}
     </Cartao>
   )
@@ -466,24 +494,56 @@ function FormularioCusto({
   const [categoria, setCategoria] = useState(categorias[0]?.id ?? '')
   const [erro, setErro] = useState<string | null>(null)
 
+  function salvar() {
+    // Vírgula decimal é o que a pessoa digita em pt-BR.
+    const n = Number(valor.replace(/\./g, '').replace(',', '.'))
+    const p = Number(pessoas)
+    if (!descricao.trim()) return setErro('Escreva uma descrição.')
+    if (!Number.isFinite(n) || n < 0) return setErro('Valor inválido.')
+    if (!Number.isInteger(p) || p < 1) return setErro('Pessoas precisa ser 1 ou mais.')
+    aoSalvar({
+      descricao: descricao.trim(),
+      valor_centavos: Math.round(n * 100),
+      pessoas: p,
+      categoria_id: categoria || null,
+      estimado: true,
+      pago: false,
+    })
+  }
+
   return (
-    <Cartao className="mb-4">
-      <Rotulo>Novo custo</Rotulo>
-      <div className="mt-3 space-y-2.5">
-        <Campo rotulo="Descrição" valor={descricao} aoMudar={setDescricao} />
-        <div className="grid grid-cols-2 gap-2.5">
-          <Campo rotulo="Valor por pessoa" valor={valor} aoMudar={setValor} inputMode="decimal" />
+    <AppModal
+      titulo="Nova despesa"
+      tamanho="medio"
+      aoFechar={aoFechar}
+      acoes={
+        <>
+          <Botao variante="secundario" onClick={aoFechar}>
+            Cancelar
+          </Botao>
+          <Botao onClick={salvar}>Salvar</Botao>
+        </>
+      }
+    >
+      <div className="space-y-4 pb-2">
+        <Campo rotulo="Descrição" valor={descricao} aoMudar={setDescricao} obrigatorio />
+        <div className="grid grid-cols-2 gap-3">
+          <Campo
+            rotulo="Valor por pessoa"
+            valor={valor}
+            aoMudar={setValor}
+            inputMode="decimal"
+            obrigatorio
+          />
           <Campo rotulo="Pessoas" valor={pessoas} aoMudar={setPessoas} inputMode="numeric" />
         </div>
         {categorias.length > 0 && (
           <label className="block">
-            <span className="text-[11px] font-semibold tracking-[0.06em] text-[--color-tinta-3] uppercase">
-              Categoria
-            </span>
+            <span className="block text-[13px] font-medium text-(--color-tinta-2)">Categoria</span>
             <select
               value={categoria}
               onChange={(e) => setCategoria(e.target.value)}
-              className="toque mt-1 w-full rounded-xl border border-[--color-borda] bg-[--color-cartao] px-3"
+              className={`toque mt-1 ${CLASSE_CAMPO}`}
             >
               {categorias.map((c) => (
                 <option key={String(c.id)} value={String(c.id)}>
@@ -494,62 +554,14 @@ function FormularioCusto({
           </label>
         )}
         {erro && (
-          <p className="rounded-xl bg-[--color-alerta-bg] px-3 py-2 text-sm text-[--color-alerta-ink]">
+          <p
+            role="alert"
+            className="rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-sm text-(--color-perigo-ink)"
+          >
             {erro}
           </p>
         )}
-        <div className="flex gap-2 pt-1">
-          <Botao
-            onClick={() => {
-              // Vírgula decimal é o que a pessoa digita em pt-BR.
-              const n = Number(valor.replace(/\./g, '').replace(',', '.'))
-              const p = Number(pessoas)
-              if (!descricao.trim()) return setErro('Escreva uma descrição.')
-              if (!Number.isFinite(n) || n < 0) return setErro('Valor inválido.')
-              if (!Number.isInteger(p) || p < 1) return setErro('Pessoas precisa ser 1 ou mais.')
-              aoSalvar({
-                descricao: descricao.trim(),
-                valor_centavos: Math.round(n * 100),
-                pessoas: p,
-                categoria_id: categoria || null,
-                estimado: true,
-                pago: false,
-              })
-            }}
-          >
-            Salvar
-          </Botao>
-          <Botao variante="secundario" onClick={aoFechar}>
-            Cancelar
-          </Botao>
-        </div>
       </div>
-    </Cartao>
-  )
-}
-
-function Campo({
-  rotulo,
-  valor,
-  aoMudar,
-  inputMode,
-}: {
-  rotulo: string
-  valor: string
-  aoMudar: (v: string) => void
-  inputMode?: 'text' | 'numeric' | 'decimal'
-}) {
-  return (
-    <label className="block">
-      <span className="text-[11px] font-semibold tracking-[0.06em] text-[--color-tinta-3] uppercase">
-        {rotulo}
-      </span>
-      <input
-        value={valor}
-        inputMode={inputMode}
-        onChange={(e) => aoMudar(e.target.value)}
-        className="toque mt-1 w-full rounded-xl border border-[--color-borda] bg-[--color-cartao] px-3"
-      />
-    </label>
+    </AppModal>
   )
 }

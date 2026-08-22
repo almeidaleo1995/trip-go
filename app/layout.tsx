@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { ProvedorAvisos } from '@/components/ui.tsx'
 
 // next/font auto-hospeda a fonte no build: zero requisicao a fonts.googleapis.com
 // em tempo de uso, que e requisito do modo offline.
@@ -23,7 +24,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className={inter.variable} suppressHydrationWarning>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {/* Fica na raiz para que qualquer tela consiga avisar sem montar o seu próprio. */}
+        <ProvedorAvisos>{children}</ProvedorAvisos>
+      </body>
     </html>
   )
 }

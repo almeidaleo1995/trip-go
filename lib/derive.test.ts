@@ -20,6 +20,7 @@ import {
   mesclarLWW,
   formatarDuracao,
   formatarDinheiro,
+  formatarData,
 } from './derive.ts'
 
 const PARTIDA = '2026-12-30'
@@ -351,4 +352,13 @@ test('formatarDinheiro converte centavos e usa a moeda da viagem', () => {
 
 test('formatarDinheiro trata valor invalido como zero em vez de NaN', () => {
   assert.match(formatarDinheiro(NaN as number, 'BRL'), /0,00/)
+})
+
+// `opcoes` substitui o formato padrao. Sem isto, pedir so o mes devolvia
+// "30 de dez." e o cartao do roteiro imprimia a data duas vezes.
+test('formatarData: opcoes substituem o padrao em vez de somar', () => {
+  assert.equal(formatarData('2027-12-30T08:30'), '30/12')
+  assert.equal(formatarData('2027-12-30T08:30', { month: 'short' }), 'dez.')
+  assert.equal(formatarData('2027-12-30T08:30', { day: '2-digit' }), '30')
+  assert.equal(formatarData('2027-12-30T08:30', { weekday: 'long' }), 'quinta-feira')
 })

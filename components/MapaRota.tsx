@@ -126,7 +126,7 @@ export function MapaRota({ lugares }: { lugares: Lugar[] }) {
             </g>
           ))}
         </svg>
-        <span className="absolute right-1 bottom-0.5 rounded bg-white/75 px-1 text-[9px] text-[--color-tinta-3]">
+        <span className="absolute right-1 bottom-0.5 rounded bg-white/75 px-1 text-[9px] text-(--color-tinta-3)">
           © OpenStreetMap
         </span>
       </>
@@ -138,7 +138,7 @@ export function MapaRota({ lugares }: { lugares: Lugar[] }) {
       ref={caixa}
       role="img"
       aria-label={`Mapa da rota: ${pontos.map((p) => p.cidade).filter(Boolean).join(', ')}`}
-      className="relative h-full min-h-[220px] w-full overflow-hidden rounded-2xl bg-[--color-fundo]"
+      className="relative h-full min-h-[220px] w-full overflow-hidden rounded-2xl bg-(--color-fundo)"
     >
       {conteudo}
     </div>

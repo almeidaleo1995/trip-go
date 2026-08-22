@@ -298,15 +298,18 @@ export function mesclarLWW<T extends { updated_at?: string | null }>(local: T, r
 
 const TZ = { timeZone: undefined } as const
 
+/**
+ * Data em pt-BR. Sem `opcoes` sai "30/12".
+ *
+ * `opcoes` SUBSTITUI o formato padrao, nao se soma a ele: pedir `{ month:
+ * 'short' }` tem que devolver "dez.", nao "30 de dez.". Mesclar com o padrao
+ * fazia com que ninguem conseguisse pedir so o mes ou so o dia da semana.
+ */
 export function formatarData(valor: string | null, opcoes?: Intl.DateTimeFormatOptions): string {
   const d = parseData(valor)
   if (!d) return ''
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    ...TZ,
-    ...opcoes,
-  }).format(d)
+  const formato = opcoes ?? { day: '2-digit', month: '2-digit' }
+  return new Intl.DateTimeFormat('pt-BR', { ...formato, ...TZ }).format(d)
 }
 
 export function formatarHora(valor: string | null): string {

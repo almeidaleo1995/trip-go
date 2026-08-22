@@ -16,16 +16,28 @@ export const theme = {
     destaque: '#0F766E',
     destaqueEscuro: '#115E59',
     destaqueFraco: '#CCFBF1',
+    destaqueTenue: '#EDFBF8',
     /** Teal profundo do painel de entrada. Base da arte, não da interface. */
     oceano: '#0B3B39',
 
-    fundo: '#F7FAFA',
+    fundo: '#F6FAF9',
     cartao: '#FFFFFF',
-    borda: '#E2E8F0',
+    /** Superfície rebaixada: linhas agrupadas, painéis internos, notas. */
+    superficie2: '#EFF5F4',
+    borda: '#E3EAE9',
+    bordaForte: '#CBD8D6',
 
     tinta: '#0F172A',
-    tinta2: '#475569', // 7.22:1
-    tinta3: '#64748B', // 4.53:1 — piso; nada mais claro em texto
+    tinta2: '#47575A', // 7.4:1
+    tinta3: '#64757A', // 4.6:1 — piso; nada mais claro em texto
+  },
+
+  /** Semânticas. Cada uma em par ink/bg; a tinta passa AA sobre o próprio fundo. */
+  estados: {
+    sucesso: { ink: '#15803D', bg: '#DCFCE7' },
+    atencao: { ink: '#A1590A', bg: '#FEF3C7' },
+    perigo: { ink: '#BE123C', bg: '#FFE4E6' },
+    info: { ink: '#1E40AF', bg: '#DBEAFE' },
   },
 
   /** Badge por tipo de evento. Tinta escura sobre pastel, todos acima de 4.5:1. */
@@ -34,8 +46,8 @@ export const theme = {
     hospedagem: { ink: '#9A3412', bg: '#FFEDD5', nome: 'Hospedagem' },
     cruzeiro: { ink: '#1E40AF', bg: '#DBEAFE', nome: 'Cruzeiro' },
     passeio: { ink: '#6B21A8', bg: '#F3E8FF', nome: 'Passeio' },
-    traslado: { ink: '#475569', bg: '#E2E8F0', nome: 'Traslado' },
-    documento: { ink: '#9F1239', bg: '#FFE4E6', nome: 'Documento' },
+    traslado: { ink: '#47575A', bg: '#EFF5F4', nome: 'Traslado' },
+    documento: { ink: '#BE123C', bg: '#FFE4E6', nome: 'Documento' },
     refeicao: { ink: '#9A3412', bg: '#FFEDD5', nome: 'Refeição' },
   },
 
@@ -50,3 +62,4 @@ export const theme = {
 } as const
 
 export type Tipo = keyof typeof theme.tipos
+export type Estado = keyof typeof theme.estados

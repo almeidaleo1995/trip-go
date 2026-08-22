@@ -3,7 +3,7 @@
 // `sempre: false` some quando a viagem não tem o dado (cruzeiro sem navio não
 // vira aba vazia). `minimo` é o papel mínimo para ver o item — a barreira real
 // está no servidor; isto é conveniência de interface.
-import { Home, Luggage, type LucideIcon } from 'lucide-react'
+import { Home, Luggage, UserRound, type LucideIcon } from 'lucide-react'
 
 export type Papel = 'proprietario' | 'editor' | 'visualizador'
 
@@ -24,10 +24,11 @@ export type ItemMenu = {
 export const navegacao: ItemMenu[] = [
   { href: '/dashboard', nome: 'Início', icone: Home, sempre: true, celular: true },
   { href: '/viagens', nome: 'Viagens', icone: Luggage, sempre: true, celular: true },
+  { href: '/perfil', nome: 'Perfil', icone: UserRound, sempre: true, celular: true },
 ]
 
 /** Rotas que exigem sessão. Lidas pelo proxy.ts e pelo guarda do servidor. */
-export const rotasPrivadas = ['/dashboard', '/viagens']
+export const rotasPrivadas = ['/dashboard', '/viagens', '/perfil']
 
 /** Rotas de autenticação: quem já entrou é mandado para o dashboard. */
 export const rotasPublicas = ['/login', '/register', '/esqueci-senha']

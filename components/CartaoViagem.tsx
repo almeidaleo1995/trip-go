@@ -41,7 +41,7 @@ export function CartaoViagem({ viagem, acoes }: { viagem: ViagemResumo; acoes?: 
   const fase = faseDaViagem(new Date(), viagem.data_partida, viagem.data_retorno)
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-[--color-borda] bg-[--color-cartao] shadow-[0_1px_3px_rgb(0_0_0/0.06)] transition-shadow hover:shadow-[0_4px_16px_rgb(0_0_0/0.08)]">
+    <div className="group relative overflow-hidden rounded-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[0_1px_3px_rgb(0_0_0/0.06)] transition-shadow hover:shadow-[0_4px_16px_rgb(0_0_0/0.08)]">
       <a href={`/viagens/${viagem.id}`} className="block">
         {/* faixa colorida — dá identidade ao cartão sem precisar de foto */}
         <div
@@ -66,9 +66,9 @@ export function CartaoViagem({ viagem, acoes }: { viagem: ViagemResumo; acoes?: 
             {s.texto}
           </span>
 
-          <div className="mt-3 space-y-1.5 text-sm text-[--color-tinta-2]">
+          <div className="mt-3 space-y-1.5 text-sm text-(--color-tinta-2)">
             <p className="tab-num flex items-center gap-2">
-              <CalendarDays size={14} className="shrink-0 text-[--color-tinta-3]" />
+              <CalendarDays size={14} className="shrink-0 text-(--color-tinta-3)" />
               {formatarData(viagem.data_partida, { day: '2-digit', month: 'short' })} —{' '}
               {formatarData(viagem.data_retorno, {
                 day: '2-digit',
@@ -77,7 +77,7 @@ export function CartaoViagem({ viagem, acoes }: { viagem: ViagemResumo; acoes?: 
               })}
             </p>
             <p className="flex items-center gap-2">
-              <Users size={14} className="shrink-0 text-[--color-tinta-3]" />
+              <Users size={14} className="shrink-0 text-(--color-tinta-3)" />
               {viagem.participantes}{' '}
               {viagem.participantes === 1 ? 'participante' : 'participantes'}
               {fase.totalDias > 0 ? ` · ${fase.totalDias} dias` : ''}
