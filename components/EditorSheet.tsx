@@ -144,7 +144,12 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
       { chave: 'embarque_em', rotulo: 'Embarque', tipo: 'datahora', grupo: DATAS },
       { chave: 'desembarque_em', rotulo: 'Desembarque', tipo: 'datahora', grupo: DATAS },
       { chave: 'porto_embarque', rotulo: 'Porto de embarque', tipo: 'texto', grupo: 'Portos' },
-      { chave: 'porto_desembarque', rotulo: 'Porto de desembarque', tipo: 'texto', grupo: 'Portos' },
+      {
+        chave: 'porto_desembarque',
+        rotulo: 'Porto de desembarque',
+        tipo: 'texto',
+        grupo: 'Portos',
+      },
       { chave: 'terminal', rotulo: 'Terminal', tipo: 'texto', grupo: 'Portos' },
       { chave: 'cabine', rotulo: 'Cabine', tipo: 'texto', grupo: RESERVA },
       { chave: 'localizador', rotulo: 'Reserva', tipo: 'texto', grupo: RESERVA },
@@ -211,7 +216,12 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
       },
       { chave: 'prazo_ideal', rotulo: 'Prazo ideal', tipo: 'data', grupo: DATAS },
       { chave: 'prazo_maximo', rotulo: 'Prazo máximo', tipo: 'data', grupo: DATAS },
-      { chave: 'valor_estimado_centavos', rotulo: 'Custo estimado', tipo: 'dinheiro', grupo: DATAS },
+      {
+        chave: 'valor_estimado_centavos',
+        rotulo: 'Custo estimado',
+        tipo: 'dinheiro',
+        grupo: DATAS,
+      },
       { chave: 'detalhe', rotulo: 'Detalhe', tipo: 'area', grupo: OBS },
     ],
   },
@@ -463,7 +473,10 @@ function CampoEditor({
   const idErro = `erro-${campo.chave}`
   const classe = `toque mt-1 ${CLASSE_CAMPO}`
   const estiloErro = erro ? { borderColor: 'var(--color-perigo-ink)' } : undefined
-  const aria = { 'aria-invalid': erro ? true : undefined, 'aria-describedby': erro ? idErro : undefined }
+  const aria = {
+    'aria-invalid': erro ? true : undefined,
+    'aria-describedby': erro ? idErro : undefined,
+  }
 
   if (campo.tipo === 'bool') {
     return (

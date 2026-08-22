@@ -84,13 +84,7 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
   )
 }
 
-function ItemNav({
-  item,
-  ativo,
-}: {
-  item: (typeof navegacao)[number]
-  ativo: boolean
-}) {
+function ItemNav({ item, ativo }: { item: (typeof navegacao)[number]; ativo: boolean }) {
   return (
     <a
       href={item.href}

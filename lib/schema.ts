@@ -105,7 +105,11 @@ export const PerfilSchema = z.object({
 })
 
 export const TrocaSenhaSchema = z
-  .object({ atual: z.string().min(1, 'informe a senha atual'), nova: Senha, confirmacao: z.string() })
+  .object({
+    atual: z.string().min(1, 'informe a senha atual'),
+    nova: Senha,
+    confirmacao: z.string(),
+  })
   .refine((d) => d.nova === d.confirmacao, {
     message: 'as senhas nao sao iguais',
     path: ['confirmacao'],

@@ -51,6 +51,20 @@ export const theme = {
     refeicao: { ink: '#9A3412', bg: '#FFEDD5', nome: 'Refeição' },
   },
 
+  /**
+   * Cores que uma viagem pode vestir (trips.cor_destaque). Cada uma já é usada
+   * como tinta em algum par acima, então todas passam AA com branco em cima —
+   * o que importa, porque esta cor vira fundo de botão dentro da viagem.
+   */
+  paletaViagens: [
+    { valor: '#0F766E', nome: 'Teal' },
+    { valor: '#1E40AF', nome: 'Azul' },
+    { valor: '#6B21A8', nome: 'Roxo' },
+    { valor: '#15803D', nome: 'Verde' },
+    { valor: '#BE123C', nome: 'Vermelho' },
+    { valor: '#9A3412', nome: 'Terra' },
+  ],
+
   fontes: {
     /** Títulos. Grotesca de largura óptica variável — carrega a personalidade. */
     display: 'var(--fonte-display)',

@@ -37,6 +37,7 @@ import Link from 'next/link'
 import { useTrip } from './TripProvider.tsx'
 import { AppModal, Avatar } from './ui.tsx'
 import { formatarHora } from '@/lib/derive.ts'
+import { registrarRecente } from '@/lib/recentes.ts'
 
 export type AbaId =
   | 'inicio'
@@ -100,11 +101,17 @@ export function Shell({
 
   // Restaura a aba escolhida (UI-06). Só depois de montar, para não divergir do
   // HTML renderizado no servidor.
+  //
+  // `?aba=` na URL ganha da aba salva: quem clicou em "Checklist de documentos"
+  // no Início pediu aquela aba, não a que ele abriu por último. Lido de
+  // window.location e não de useSearchParams para não exigir <Suspense> aqui.
   useEffect(() => {
     setMontado(true)
     try {
+      const pedida = new URLSearchParams(window.location.search).get('aba') as AbaId | null
       const salva = sessionStorage.getItem(CHAVE_ABA) as AbaId | null
-      if (salva && ABAS.some((a) => a.id === salva)) setAba(salva)
+      const alvo = [pedida, salva].find((a) => a && ABAS.some((x) => x.id === a))
+      if (alvo) setAba(alvo as AbaId)
     } catch {
       /* sessionStorage bloqueado: começa no Início, sem drama */
     }
@@ -127,6 +134,15 @@ export function Shell({
   const destaque = snapshot?.viagem?.cor_destaque ?? '#0F766E'
   const eu = snapshot?.eu?.usuario
   const atual = visiveis.find((a) => a.id === aba)
+
+  // Anota onde a pessoa esteve, para o Início oferecer o caminho de volta.
+  const viagemId = String(snapshot?.viagem?.id ?? '')
+  const viagemNome = String(snapshot?.viagem?.nome ?? '')
+  const abaNome = atual?.nome ?? ''
+  useEffect(() => {
+    if (!montado || !viagemId || !abaNome) return
+    registrarRecente({ viagemId, viagem: viagemNome, aba, nome: abaNome })
+  }, [montado, viagemId, viagemNome, aba, abaNome])
 
   const naBarra = visiveis.filter((a) => NO_CELULAR.includes(a.id))
   const emMais = visiveis.filter((a) => !NO_CELULAR.includes(a.id))

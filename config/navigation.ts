@@ -23,7 +23,7 @@ export type ItemMenu = {
 // duas telas que existem fora de uma viagem especifica.
 export const navegacao: ItemMenu[] = [
   { href: '/dashboard', nome: 'Início', icone: Home, sempre: true, celular: true },
-  { href: '/viagens', nome: 'Viagens', icone: Luggage, sempre: true, celular: true },
+  { href: '/viagens', nome: 'Minhas viagens', icone: Luggage, sempre: true, celular: true },
   { href: '/perfil', nome: 'Perfil', icone: UserRound, sempre: true, celular: true },
 ]
 

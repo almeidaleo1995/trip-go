@@ -41,6 +41,19 @@ export type ViagemResumo = {
   arquivada: boolean
   papel: Papel
   participantes: number
+  /** Contagens reais da viagem. A tela de Inicio nao inventa numero nenhum. */
+  cidades: number
+  paises: number
+  compromissos: number
+  reservas: number
+  tarefas: number
+  /** Itens do checklist que ESTA conta marcou. Base da barra de preparacao. */
+  tarefas_feitas: number
+  /** Ultima alteracao registrada na viagem, para "atualizada ontem". */
+  atualizada_em: string
+  /** Cidades e paises concatenados. Existe so para a busca de Minhas viagens
+      encontrar "Roma" numa viagem chamada "Europa 2027". Nao vai para a tela. */
+  destinos: string | null
 }
 
 export type Snapshot = {
@@ -177,10 +190,36 @@ export async function participanteDoUsuario(userId: string, tripId: string) {
   return (r[0] as { id: string; papel: Papel } | undefined) ?? null
 }
 
+/**
+ * As viagens da conta, ja com os numeros que a tela de Inicio mostra.
+ *
+ * As contagens vem em subselect na MESMA consulta de proposito: a alternativa e
+ * o cliente pedir o snapshot inteiro de cada viagem so para contar cidades, o
+ * que traz megabytes para imprimir cinco numeros. Uma conta tem um punhado de
+ * viagens, entao o custo dos subselects e irrelevante perto disso.
+ *
+ * `cidades` conta o par (cidade, pais) e nao so a cidade — duas Santiagos em
+ * paises diferentes sao dois lugares. Mesma regra de `contarLugares` em derive.ts.
+ */
 export async function viagensDoUsuario(userId: string): Promise<ViagemResumo[]> {
   const r = await sql`
     select t.*, eu.papel,
-           (select count(*)::int from travelers x where x.trip_id = t.id) as participantes
+           (select count(*)::int from travelers x where x.trip_id = t.id) as participantes,
+           (select count(distinct (lower(l.cidade), lower(coalesce(l.pais, ''))))::int
+              from places l where l.trip_id = t.id and l.cidade <> '') as cidades,
+           (select count(distinct lower(l.pais))::int
+              from places l where l.trip_id = t.id and coalesce(l.pais, '') <> '') as paises,
+           (select count(*)::int from itinerary_events e where e.trip_id = t.id) as compromissos,
+           (select count(*)::int from reservations rv where rv.trip_id = t.id) as reservas,
+           (select count(*)::int from checklist_items c where c.trip_id = t.id) as tarefas,
+           (select count(*)::int from checklist_items c
+              join checklist_state s on s.item_id = c.id and s.traveler_id = eu.id
+              where c.trip_id = t.id and s.feito) as tarefas_feitas,
+           (select string_agg(distinct l.cidade || ' ' || coalesce(l.pais, ''), ' ')
+              from places l where l.trip_id = t.id) as destinos,
+           greatest(t.updated_at,
+                    coalesce((select max(g.criado_em) from change_log g where g.trip_id = t.id),
+                             t.updated_at)) as atualizada_em
     from trips t
     join travelers eu on eu.trip_id = t.id and eu.user_id = ${userId}
     order by t.arquivada, t.data_partida

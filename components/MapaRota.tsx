@@ -137,7 +137,10 @@ export function MapaRota({ lugares }: { lugares: Lugar[] }) {
     <div
       ref={caixa}
       role="img"
-      aria-label={`Mapa da rota: ${pontos.map((p) => p.cidade).filter(Boolean).join(', ')}`}
+      aria-label={`Mapa da rota: ${pontos
+        .map((p) => p.cidade)
+        .filter(Boolean)
+        .join(', ')}`}
       className="relative h-full min-h-[220px] w-full overflow-hidden rounded-2xl bg-(--color-fundo)"
     >
       {conteudo}

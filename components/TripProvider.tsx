@@ -241,7 +241,9 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
   if (op.entidade === 'checklist_state') {
     const itemId = String(op.campos.item_id)
     const meuId = s.eu.participanteId
-    const outros = s.checklist_state.filter((e) => !(e.item_id === itemId && e.traveler_id === meuId))
+    const outros = s.checklist_state.filter(
+      (e) => !(e.item_id === itemId && e.traveler_id === meuId),
+    )
     novo.checklist_state = [
       ...outros,
       { item_id: itemId, traveler_id: meuId, feito: Boolean(op.campos.feito) },

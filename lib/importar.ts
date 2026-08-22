@@ -19,10 +19,7 @@ export type ResultadoImportacao = { tripId: string; participantes: Record<string
  * `ownerId` vira proprietario. Participantes cujo `email` bate com uma conta
  * existente sao vinculados a ela; os demais ficam como nome na lista.
  */
-export async function importarViagem(
-  d: TripImport,
-  ownerId: string,
-): Promise<ResultadoImportacao> {
+export async function importarViagem(d: TripImport, ownerId: string): Promise<ResultadoImportacao> {
   const tripId = randomUUID()
 
   // As contas sao resolvidas ANTES da transacao: a transacao HTTP do Neon e
@@ -39,7 +36,12 @@ export async function importarViagem(
 
   const participantes = d.participantes.map((p) => {
     const email = p.email?.trim().toLowerCase() ?? null
-    return { ...p, id: randomUUID(), email, user_id: email ? (idPorEmail.get(email) ?? null) : null }
+    return {
+      ...p,
+      id: randomUUID(),
+      email,
+      user_id: email ? (idPorEmail.get(email) ?? null) : null,
+    }
   })
 
   // Quem importou precisa aparecer na lista, senao a viagem nao abre para ele.

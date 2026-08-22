@@ -13,9 +13,43 @@ export const siteConfig = {
   manifesto: ['Planeje. Organize.', 'Viva experiências inesquecíveis.'],
   submanifesto: 'Sua próxima aventura começa aqui.',
 
-  /** Saudação do dashboard. `{nome}` recebe o primeiro nome de quem entrou. */
-  saudacao: 'Bem-vindo de volta, {nome}',
-  subsaudacao: 'Aqui está um resumo da sua próxima aventura.',
+  /** Saudação do Início. `{nome}` recebe o primeiro nome de quem entrou. */
+  saudacao: 'Olá, {nome}!',
+  subsaudacao: 'Que bom ter você por aqui. Vamos planejar a próxima aventura?',
+
+  /**
+   * "Dica do TripGo". Uma por dia, escolhida pela data — todo mundo vê a mesma
+   * dica no mesmo dia, e ninguém precisa de servidor para isso.
+   *
+   * `aba` liga a dica à seção onde ela se resolve; sem `aba` a dica só informa.
+   */
+  dicas: [
+    {
+      texto: 'Baixe a viagem com internet antes de embarcar. Depois disso ela abre em modo avião.',
+      acao: 'Ver documentos',
+      aba: 'documentos',
+    },
+    {
+      texto: 'Guarde o número do passaporte nos documentos: consulado e check-in pedem sempre.',
+      acao: 'Ver documentos',
+      aba: 'documentos',
+    },
+    {
+      texto: 'Marque no checklist o que já resolveu. Cada pessoa tem a sua lista.',
+      acao: 'Abrir checklist',
+      aba: 'checklist',
+    },
+    {
+      texto: 'Contatos de emergência funcionam sem sinal — preencha antes de viajar.',
+      acao: 'Ver emergência',
+      aba: 'emergencia',
+    },
+    {
+      texto: 'Anote o localizador de cada voo. É o que a companhia pede quando algo muda.',
+      acao: 'Ver voos',
+      aba: 'voos',
+    },
+  ],
 
   contato: {
     email: 'ola@tripgo.app',

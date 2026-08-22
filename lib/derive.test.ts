@@ -21,6 +21,8 @@ import {
   formatarDuracao,
   formatarDinheiro,
   formatarData,
+  statusViagem,
+  formatarRelativo,
 } from './derive.ts'
 
 const PARTIDA = '2026-12-30'
@@ -361,4 +363,41 @@ test('formatarData: opcoes substituem o padrao em vez de somar', () => {
   assert.equal(formatarData('2027-12-30T08:30', { month: 'short' }), 'dez.')
   assert.equal(formatarData('2027-12-30T08:30', { day: '2-digit' }), '30')
   assert.equal(formatarData('2027-12-30T08:30', { weekday: 'long' }), 'quinta-feira')
+})
+
+// ---------------------------------------------------------------- statusViagem
+
+test('statusViagem deriva o estado das datas, sem campo digitado', () => {
+  assert.equal(statusViagem('2026-06-01', PARTIDA, RETORNO), 'planejando')
+  assert.equal(statusViagem('2026-12-01', PARTIDA, RETORNO), 'proxima')
+  assert.equal(statusViagem('2027-01-05', PARTIDA, RETORNO), 'andamento')
+  assert.equal(statusViagem('2027-02-01', PARTIDA, RETORNO), 'concluida')
+})
+
+// A borda da janela: 60 dias antes ainda e "proxima", 61 ainda e "planejando".
+test('statusViagem: a janela de "proxima" fecha exatamente em JANELA_PROXIMA', () => {
+  assert.equal(statusViagem('2026-10-31', PARTIDA, RETORNO), 'proxima') // 60 dias
+  assert.equal(statusViagem('2026-10-30', PARTIDA, RETORNO), 'planejando') // 61 dias
+})
+
+// Arquivada ganha de tudo: uma viagem em andamento que foi arquivada nao volta
+// para o topo da tela de Inicio so porque a data diz que ela esta acontecendo.
+test('statusViagem: arquivada ganha da fase derivada das datas', () => {
+  assert.equal(statusViagem('2027-01-05', PARTIDA, RETORNO, true), 'arquivada')
+})
+
+test('statusViagem sem datas nao explode', () => {
+  assert.equal(statusViagem('2026-06-01', null, null), 'proxima')
+})
+
+// ---------------------------------------------------------------- formatarRelativo
+
+test('formatarRelativo escreve a distancia em pt-BR', () => {
+  const agora = new Date(2026, 7, 22)
+  assert.equal(formatarRelativo('2026-08-22T10:00', agora), 'hoje')
+  assert.equal(formatarRelativo('2026-08-21T10:00', agora), 'ontem')
+  assert.equal(formatarRelativo('2026-08-19T10:00', agora), 'há 3 dias')
+  assert.equal(formatarRelativo('2026-06-22T10:00', agora), 'há 2 meses')
+  assert.equal(formatarRelativo('2024-06-22T10:00', agora), 'há 2 anos')
+  assert.equal(formatarRelativo(null, agora), '')
 })

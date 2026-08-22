@@ -121,6 +121,54 @@ export function faseDaViagem(
   }
 }
 
+/** Dias antes da partida em que a viagem deixa de ser "planejando" e vira "proxima". */
+export const JANELA_PROXIMA = 60
+
+export type StatusViagem = 'planejando' | 'proxima' | 'andamento' | 'concluida' | 'arquivada'
+
+/**
+ * Status mostrado no cartao e usado pelos filtros de Minhas viagens.
+ *
+ * Derivado das datas, nunca digitado: uma viagem nao pode ficar marcada como
+ * "proxima" tres anos depois de acontecer so porque ninguem voltou para corrigir.
+ * Arquivada e a unica marca manual, e ela ganha de todas as outras.
+ */
+export function statusViagem(
+  agora: Date | string,
+  partida: string | null,
+  retorno: string | null,
+  arquivada = false,
+): StatusViagem {
+  if (arquivada) return 'arquivada'
+  const f = faseDaViagem(agora, partida, retorno)
+  if (f.fase === 'durante') return 'andamento'
+  if (f.fase === 'depois') return 'concluida'
+  return f.diasRestantes <= JANELA_PROXIMA ? 'proxima' : 'planejando'
+}
+
+/**
+ * "hoje" / "ontem" / "ha 3 dias" / "ha 2 meses". Usado em "ultima atualizacao".
+ *
+ * Le a hora como local: um timestamp em UTC pode cair no dia anterior perto da
+ * meia-noite. Para um rotulo de "quando mexeram nisso" isso e irrelevante, e
+ * evita ter que carregar fuso para uma frase de tres palavras.
+ */
+export function formatarRelativo(
+  valor: string | null | undefined,
+  agora: Date = new Date(),
+): string {
+  const d = parseData(valor ?? null)
+  if (!d) return ''
+  const dias = diasAte(d, agora)
+  if (dias === 0) return 'hoje'
+  if (dias === 1) return 'ontem'
+  if (dias < 30) return `há ${dias} dias`
+  const meses = Math.floor(dias / 30)
+  if (meses < 12) return `há ${meses} ${meses === 1 ? 'mês' : 'meses'}`
+  const anos = Math.floor(dias / 365)
+  return `há ${anos} ${anos === 1 ? 'ano' : 'anos'}`
+}
+
 // ---------------------------------------------------------------- roteiro
 
 /**
