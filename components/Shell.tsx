@@ -22,6 +22,7 @@ import {
   LogOut,
   WifiOff,
   RefreshCw,
+  MapPinned,
 } from 'lucide-react'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -111,8 +112,17 @@ export function Shell({
   return (
     <div style={{ ['--destaque' as string]: destaque }} className="min-h-dvh">
       {/* barra lateral — desktop */}
-      <aside className="sem-impressao fixed top-0 left-0 hidden h-dvh w-60 flex-col border-r border-[--color-borda] bg-[--color-cartao] md:flex">
-        <div className="px-5 py-5">
+      <aside className="sem-impressao fixed top-0 left-0 hidden h-dvh w-64 flex-col border-r border-[--color-borda] bg-[--color-cartao] md:flex">
+        <div className="flex items-center gap-2 border-b border-[--color-borda] px-5 py-5">
+          <span
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white"
+            style={{ background: 'var(--destaque)' }}
+          >
+            <MapPinned size={17} strokeWidth={2} />
+          </span>
+          <span className="text-lg font-bold tracking-tight">TripGo</span>
+        </div>
+        <div className="px-5 pt-4 pb-1">
           <Link
             href="/viagens"
             className="toque -ml-1 mb-2 inline-flex items-center gap-1.5 rounded-lg px-1 text-[13px] text-[--color-tinta-3] hover:text-[--color-tinta-2]"
@@ -122,9 +132,11 @@ export function Shell({
           <p className="text-[11px] font-semibold tracking-[0.08em] text-[--color-tinta-3] uppercase">
             Viagem
           </p>
-          <p className="mt-1 leading-tight font-semibold">{snapshot?.viagem?.nome ?? '—'}</p>
+          <p className="mt-1 truncate leading-tight font-semibold">
+            {snapshot?.viagem?.nome ?? '—'}
+          </p>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3">
           {visiveis.map((a) => (
             <ItemLateral key={a.id} aba={a} ativo={a.id === aba} onClick={() => setAba(a.id)} />
           ))}
@@ -137,7 +149,7 @@ export function Shell({
         </button>
       </aside>
 
-      <div className="md:pl-60">
+      <div className="md:pl-64">
         <Avisos
           online={online}
           offlineOk={offlineOk}
@@ -162,9 +174,15 @@ export function Shell({
                 key={a.id}
                 onClick={() => setAba(a.id)}
                 aria-current={ativo ? 'page' : undefined}
-                className="toque flex shrink-0 cursor-pointer flex-col items-center gap-1 px-4 py-2"
+                className="toque relative flex shrink-0 cursor-pointer flex-col items-center gap-1 px-4 py-2"
                 style={{ color: ativo ? 'var(--destaque)' : 'var(--color-tinta-3)' }}
               >
+                {ativo && (
+                  <span
+                    className="absolute top-0 h-0.5 w-6 rounded-full"
+                    style={{ background: 'var(--destaque)' }}
+                  />
+                )}
                 <Icone size={20} strokeWidth={ativo ? 2.25 : 1.75} />
                 <span className={`text-[10px] ${ativo ? 'font-semibold' : ''}`}>{a.nome}</span>
               </button>
@@ -191,10 +209,21 @@ function ItemLateral({
       onClick={onClick}
       aria-current={ativo ? 'page' : undefined}
       className="toque flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm transition-colors"
-      style={{
-        background: ativo ? 'var(--color-destaque-fraco)' : 'transparent',
-        color: ativo ? 'var(--destaque)' : 'var(--color-tinta-2)',
-        fontWeight: ativo ? 600 : 400,
+      style={
+        ativo
+          ? {
+              background: 'var(--destaque)',
+              color: '#fff',
+              fontWeight: 600,
+              boxShadow: '0 1px 2px rgb(0 0 0 / 0.12)',
+            }
+          : { background: 'transparent', color: 'var(--color-tinta-2)', fontWeight: 400 }
+      }
+      onMouseEnter={(e) => {
+        if (!ativo) e.currentTarget.style.background = 'var(--color-fundo)'
+      }}
+      onMouseLeave={(e) => {
+        if (!ativo) e.currentTarget.style.background = 'transparent'
       }}
     >
       <Icone size={18} strokeWidth={ativo ? 2.25 : 1.75} />

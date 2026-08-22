@@ -8,7 +8,7 @@
 //
 // Só o campo mínimo é obrigatório. Todo o resto aceita vazio, porque imprevisto
 // em viagem raramente chega com a informação completa (EDIT-03).
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { X, Trash2 } from 'lucide-react'
 import { Botao, Rotulo } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
@@ -259,6 +259,21 @@ export function EditorSheet({
   const [erro, setErro] = useState<string | null>(null)
   const [confirmando, setConfirmando] = useState(false)
 
+  // Trava o scroll de fundo e fecha no Esc — sem isso a página por baixo rola
+  // junto e some visualmente atrás da folha.
+  useEffect(() => {
+    const anterior = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') aoFechar()
+    }
+    window.addEventListener('keydown', aoTeclar)
+    return () => {
+      document.body.style.overflow = anterior
+      window.removeEventListener('keydown', aoTeclar)
+    }
+  }, [aoFechar])
+
   function salvar() {
     const campos: Record<string, unknown> = {}
     for (const c of def.campos) {
@@ -298,83 +313,110 @@ export function EditorSheet({
     aoFechar()
   }
 
+  // Campos curtos (data, número, dinheiro) ficam dois por linha no desktop —
+  // é o que transforma um formulário de 11 campos empilhados (Voo) em algo que
+  // não exige rolar a tela inteira para achar o botão Salvar.
+  const MEIA_LARGURA = new Set<TipoCampo>(['numero', 'dinheiro', 'data', 'datahora'])
+
   return (
-    <div className="sem-impressao fixed inset-0 z-50 flex items-end justify-center bg-black/40 md:items-center">
-      <div className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-[--color-cartao] p-5 md:rounded-3xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            {criando ? `Novo · ${def.nome}` : `Editar · ${def.nome}`}
-          </h2>
-          <button
-            onClick={aoFechar}
-            aria-label="Fechar"
-            className="toque cursor-pointer rounded-xl p-2 hover:bg-[--color-fundo]"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          {def.campos.map((c) => (
-            <CampoEditor
-              key={c.chave}
-              campo={c}
-              valor={valores[c.chave]}
-              aoMudar={(v) => setValores((a) => ({ ...a, [c.chave]: v }))}
-            />
-          ))}
-        </div>
-
-        {erro && (
-          <p className="mt-3 rounded-xl bg-[--color-alerta-bg] px-3 py-2 text-sm text-[--color-alerta-ink]">
-            {erro}
-          </p>
-        )}
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Botao onClick={salvar}>Salvar</Botao>
-          <Botao variante="secundario" onClick={aoFechar}>
-            Cancelar
-          </Botao>
-          {!criando && (
+    <div
+      className="sem-impressao fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm md:items-center md:p-4"
+      onClick={aoFechar}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="editor-sheet-titulo"
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-[--color-borda] bg-[--color-cartao] shadow-2xl md:rounded-3xl"
+      >
+        {/* cabeçalho fixo — some com a rolagem, não o título */}
+        <div className="shrink-0 border-b border-[--color-borda] px-5 pt-4 pb-4">
+          <div className="mb-2 flex justify-center md:hidden">
+            <span className="h-1.5 w-10 rounded-full bg-[--color-borda]" />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <h2 id="editor-sheet-titulo" className="text-lg font-semibold">
+              {criando ? `Novo · ${def.nome}` : `Editar · ${def.nome}`}
+            </h2>
             <button
-              onClick={() => setConfirmando(true)}
-              className="toque ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 text-sm text-[--color-tinta-3] hover:bg-[--color-alerta-bg] hover:text-[--color-alerta-ink]"
+              onClick={aoFechar}
+              aria-label="Fechar"
+              className="toque flex shrink-0 cursor-pointer items-center justify-center rounded-full text-[--color-tinta-2] hover:bg-[--color-fundo]"
             >
-              <Trash2 size={15} /> Remover
+              <X size={18} />
             </button>
+          </div>
+        </div>
+
+        {/* corpo rolável — só os campos rolam, cabeçalho e rodapé ficam parados */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
+            {def.campos.map((c) => (
+              <div key={c.chave} className={MEIA_LARGURA.has(c.tipo) ? '' : 'sm:col-span-2'}>
+                <CampoEditor
+                  campo={c}
+                  valor={valores[c.chave]}
+                  aoMudar={(v) => setValores((a) => ({ ...a, [c.chave]: v }))}
+                />
+              </div>
+            ))}
+          </div>
+
+          {erro && (
+            <p className="mt-3 rounded-xl bg-[--color-alerta-bg] px-3 py-2 text-sm text-[--color-alerta-ink]">
+              {erro}
+            </p>
           )}
         </div>
 
-        {confirmando && (
-          <div className="mt-4 rounded-xl bg-[--color-alerta-bg] p-3">
-            {/* Confirmação mostra O QUE será removido, não só "tem certeza?" */}
-            <p className="text-sm text-[--color-alerta-ink]">
-              Remover <strong>{String(registro?.titulo ?? registro?.nome ?? def.nome)}</strong>? Não
-              dá para desfazer pelo app.
-            </p>
-            <div className="mt-2.5 flex gap-2">
-              <Botao
-                variante="perigo"
-                onClick={() => {
-                  void mutate({
-                    op: 'remover',
-                    entidade,
-                    id: String(registro!.id),
-                    campos: {},
-                    client_ts: new Date().toISOString(),
-                  })
-                  aoFechar()
-                }}
+        {/* rodapé fixo — Salvar/Cancelar sempre visíveis, sem precisar rolar até o fim */}
+        <div className="shrink-0 border-t border-[--color-borda] px-5 py-4">
+          <div className="flex flex-wrap gap-2">
+            <Botao onClick={salvar}>Salvar</Botao>
+            <Botao variante="secundario" onClick={aoFechar}>
+              Cancelar
+            </Botao>
+            {!criando && (
+              <button
+                onClick={() => setConfirmando(true)}
+                className="toque ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-2xl px-3 text-sm text-[--color-tinta-3] hover:bg-[--color-alerta-bg] hover:text-[--color-alerta-ink]"
               >
-                Remover
-              </Botao>
-              <Botao variante="secundario" onClick={() => setConfirmando(false)}>
-                Cancelar
-              </Botao>
-            </div>
+                <Trash2 size={15} /> Remover
+              </button>
+            )}
           </div>
-        )}
+
+          {confirmando && (
+            <div className="mt-3 rounded-xl bg-[--color-alerta-bg] p-3">
+              {/* Confirmação mostra O QUE será removido, não só "tem certeza?" */}
+              <p className="text-sm text-[--color-alerta-ink]">
+                Remover <strong>{String(registro?.titulo ?? registro?.nome ?? def.nome)}</strong>?
+                Não dá para desfazer pelo app.
+              </p>
+              <div className="mt-2.5 flex gap-2">
+                <Botao
+                  variante="perigo"
+                  onClick={() => {
+                    void mutate({
+                      op: 'remover',
+                      entidade,
+                      id: String(registro!.id),
+                      campos: {},
+                      client_ts: new Date().toISOString(),
+                    })
+                    aoFechar()
+                  }}
+                >
+                  Remover
+                </Botao>
+                <Botao variante="secundario" onClick={() => setConfirmando(false)}>
+                  Cancelar
+                </Botao>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -390,11 +432,11 @@ function CampoEditor({
   aoMudar: (v: string | boolean) => void
 }) {
   const classe =
-    'toque mt-1 w-full rounded-xl border border-[--color-borda] bg-[--color-cartao] px-3 py-2'
+    'toque mt-1 w-full rounded-xl border border-[--color-borda] bg-[--color-cartao] px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-[--destaque] focus:ring-2 focus:ring-[--color-destaque-fraco]'
 
   if (campo.tipo === 'bool') {
     return (
-      <label className="toque flex cursor-pointer items-center gap-3 rounded-xl border border-[--color-borda] px-3">
+      <label className="toque flex cursor-pointer items-center gap-3 rounded-xl border border-[--color-borda] px-3 transition-colors hover:bg-[--color-fundo]">
         <input
           type="checkbox"
           checked={Boolean(valor)}

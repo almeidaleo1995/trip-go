@@ -64,7 +64,14 @@ export function Dados() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{String(t.nome)}</span>
-                  <span className="text-[12px] text-[--color-tinta-3]">
+                  <span
+                    className="mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={
+                      t.papel === 'proprietario'
+                        ? { background: 'var(--color-destaque-fraco)', color: 'var(--destaque)' }
+                        : { background: 'var(--color-borda)', color: 'var(--color-tinta-2)' }
+                    }
+                  >
                     {NOME_PAPEL[String(t.papel)] ?? String(t.papel)}
                   </span>
                 </span>

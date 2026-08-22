@@ -1,12 +1,13 @@
 'use client'
 
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { navegacao } from '@/config/navigation'
-import { LogOut, Menu, X } from 'lucide-react'
-import { useState } from 'react'
+import { LogOut, Menu, X, MapPinned } from 'lucide-react'
 
 export function DashboardLayout({ children }: { children: ReactNode }) {
-  const [sidebarAberto, setSidebarAberto] = useState(false)
+  const [menuAberto, setMenuAberto] = useState(false)
+  const caminho = usePathname()
 
   async function sair() {
     await fetch('/api/sessao', { method: 'DELETE' })
@@ -14,72 +15,95 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7fafa]">
+    <div className="min-h-dvh bg-[--color-fundo]">
       {/* Sidebar desktop */}
-      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:w-60 md:flex md:flex-col md:border-r md:border-[#e2e8f0] md:bg-white">
-        <div className="p-6 border-b border-[#e2e8f0]">
-          <h1 className="text-2xl font-bold text-[#0F766E]">TripGo</h1>
+      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:flex md:w-64 md:flex-col md:border-r md:border-[--color-borda] md:bg-[--color-cartao]">
+        <div className="flex items-center gap-2.5 border-b border-[--color-borda] px-5 py-5">
+          <span
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white"
+            style={{ background: 'var(--destaque)' }}
+          >
+            <MapPinned size={17} strokeWidth={2} />
+          </span>
+          <span className="text-lg font-bold tracking-tight">TripGo</span>
         </div>
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
           {navegacao.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-3 px-4 py-2 text-sm font-medium rounded-lg hover:bg-[#f7fafa] text-[#475569]"
-            >
-              <item.icone size={18} />
-              {item.nome}
-            </a>
+            <ItemNav key={item.href} item={item} ativo={caminho === item.href} />
           ))}
         </nav>
-        <div className="p-4 border-t border-[#e2e8f0]">
-          <button
-            onClick={sair}
-            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg"
-          >
-            <LogOut size={18} />
-            Sair
-          </button>
-        </div>
+        <button
+          onClick={sair}
+          className="toque m-3 flex cursor-pointer items-center gap-3 rounded-xl px-3 text-sm text-[--color-tinta-2] transition-colors hover:bg-[--color-fundo]"
+        >
+          <LogOut size={18} strokeWidth={1.75} />
+          Sair
+        </button>
       </aside>
 
-      {/* Mobile header */}
-      <div className="md:hidden sticky top-0 z-40 bg-white border-b border-[#e2e8f0]">
-        <div className="flex items-center justify-between p-4">
-          <h1 className="font-bold text-[#0F766E]">TripGo</h1>
+      {/* Cabeçalho celular */}
+      <div className="sticky top-0 z-40 border-b border-[--color-borda] bg-[--color-cartao] md:hidden">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-white"
+              style={{ background: 'var(--destaque)' }}
+            >
+              <MapPinned size={17} strokeWidth={2} />
+            </span>
+            <span className="font-bold tracking-tight">TripGo</span>
+          </div>
           <button
-            onClick={() => setSidebarAberto(!sidebarAberto)}
-            className="p-2 hover:bg-[#f7fafa] rounded-lg"
+            onClick={() => setMenuAberto((a) => !a)}
+            aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
+            aria-expanded={menuAberto}
+            className="toque flex cursor-pointer items-center justify-center rounded-xl hover:bg-[--color-fundo]"
           >
-            {sidebarAberto ? <X size={20} /> : <Menu size={20} />}
+            {menuAberto ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
 
-        {sidebarAberto && (
-          <nav className="px-4 py-2 space-y-1 border-t border-[#e2e8f0]">
+        {menuAberto && (
+          <nav className="space-y-1 border-t border-[--color-borda] px-3 py-3">
             {navegacao.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg hover:bg-[#f7fafa]"
-              >
-                <item.icone size={16} />
-                {item.nome}
-              </a>
+              <ItemNav key={item.href} item={item} ativo={caminho === item.href} />
             ))}
             <button
               onClick={sair}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg mt-4"
+              className="toque mt-2 flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm text-[--color-tinta-2] hover:bg-[--color-fundo]"
             >
-              <LogOut size={16} />
+              <LogOut size={18} />
               Sair
             </button>
           </nav>
         )}
       </div>
 
-      {/* Main content */}
-      <main className="md:ml-60 p-4 md:p-8">{children}</main>
+      <main className="p-4 md:ml-64 md:p-8">{children}</main>
     </div>
+  )
+}
+
+function ItemNav({
+  item,
+  ativo,
+}: {
+  item: (typeof navegacao)[number]
+  ativo: boolean
+}) {
+  return (
+    <a
+      href={item.href}
+      aria-current={ativo ? 'page' : undefined}
+      className="toque flex items-center gap-3 rounded-xl px-3 text-sm transition-colors"
+      style={
+        ativo
+          ? { background: 'var(--destaque)', color: '#fff', fontWeight: 600 }
+          : { color: 'var(--color-tinta-2)' }
+      }
+    >
+      <item.icone size={18} strokeWidth={ativo ? 2.25 : 1.75} />
+      {item.nome}
+    </a>
   )
 }

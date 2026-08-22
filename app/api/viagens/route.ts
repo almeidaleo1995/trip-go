@@ -11,9 +11,11 @@ import { rota, lerJson } from '@/lib/api.ts'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// `eu` vai junto para a tela de Início poder saudar pelo nome sem uma segunda
+// requisição (nem puxar um snapshot inteiro de viagem só por causa disso).
 export const GET = rota(async () => {
   const u = await exigirUsuario()
-  return { viagens: await viagensDoUsuario(u.id) }
+  return { viagens: await viagensDoUsuario(u.id), eu: u }
 })
 
 export const POST = rota(async (req) => {

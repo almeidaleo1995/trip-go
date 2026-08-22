@@ -3,7 +3,47 @@
 // Primitivos usados pelas dez abas. Existem para que "estado vazio" e "cartão"
 // sejam decididos UMA vez — não dez vezes com dez aparências levemente diferentes.
 import { useState, type ReactNode } from 'react'
-import { Check, Copy, Inbox } from 'lucide-react'
+import { Check, Copy, Inbox, MapPinned } from 'lucide-react'
+
+/** Tela de carregamento. Um avião percorrendo a rota — não um spinner genérico. */
+export function Carregando({ texto = 'Preparando sua viagem…' }: { texto?: string }) {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-[--color-fundo] p-6">
+      <div className="flex items-center gap-2.5">
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-white"
+          style={{ background: 'var(--destaque)' }}
+        >
+          <MapPinned size={19} strokeWidth={2} />
+        </span>
+        <span className="text-xl font-bold tracking-tight">TripGo</span>
+      </div>
+
+      <svg viewBox="0 0 240 60" className="h-14 w-60" role="img" aria-label={texto}>
+        <path
+          id="rota-carregando"
+          d="M16 46 Q 80 4 120 30 T 224 14"
+          fill="none"
+          stroke="var(--color-borda)"
+          strokeWidth="2"
+          strokeDasharray="5 4"
+          strokeLinecap="round"
+        />
+        <circle cx="16" cy="46" r="4" fill="var(--destaque)" />
+        <circle cx="224" cy="14" r="4" fill="var(--destaque)" opacity="0.35" />
+        <g>
+          <circle r="5" fill="var(--destaque)">
+            <animateMotion dur="1.8s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#rota-carregando" />
+            </animateMotion>
+          </circle>
+        </g>
+      </svg>
+
+      <p className="text-sm text-[--color-tinta-2]">{texto}</p>
+    </div>
+  )
+}
 
 export function Titulo({ children, acao }: { children: ReactNode; acao?: ReactNode }) {
   return (
@@ -133,7 +173,12 @@ export function Botao({
   tipo?: 'button' | 'submit'
 }) {
   const estilos = {
-    principal: { background: 'var(--destaque)', color: '#fff', border: '1px solid transparent' },
+    principal: {
+      background: 'var(--destaque)',
+      color: '#fff',
+      border: '1px solid transparent',
+      boxShadow: '0 1px 2px rgb(0 0 0 / 0.08)',
+    },
     secundario: {
       background: 'var(--color-cartao)',
       color: 'var(--color-tinta)',
@@ -150,10 +195,36 @@ export function Botao({
       type={tipo ?? 'button'}
       onClick={onClick}
       style={estilos}
-      className="toque inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium transition-opacity hover:opacity-90"
+      className="toque inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 text-sm font-medium transition-all hover:opacity-90 active:scale-[0.97]"
     >
       {children}
     </button>
+  )
+}
+
+/** Bloco de estatística com ícone, usado no Início e em outras telas de resumo. */
+export function CartaoEstatistica({
+  icone: Icone,
+  numero,
+  rotulo,
+  onClick,
+}: {
+  icone: React.ElementType
+  numero: ReactNode
+  rotulo: string
+  onClick?: () => void
+}) {
+  return (
+    <Cartao onClick={onClick} className="text-center">
+      <div
+        className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-xl"
+        style={{ background: 'var(--color-destaque-fraco)', color: 'var(--destaque)' }}
+      >
+        <Icone size={18} strokeWidth={1.75} />
+      </div>
+      <p className="tab-num text-2xl leading-none font-bold">{numero}</p>
+      <p className="mt-1 text-xs text-[--color-tinta-3]">{rotulo}</p>
+    </Cartao>
   )
 }
 

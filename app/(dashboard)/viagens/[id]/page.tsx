@@ -5,7 +5,8 @@
 // a um :id da URL em vez de "a viagem atual" implícita.
 import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2 } from 'lucide-react'
+import { MapPinOff } from 'lucide-react'
+import { Carregando } from '@/components/ui.tsx'
 import { TripProvider, useTrip } from '@/components/TripProvider.tsx'
 import { Shell, type AbaId } from '@/components/Shell.tsx'
 import { PdfBolso } from '@/components/PdfBolso.tsx'
@@ -37,23 +38,27 @@ function App() {
   const [aba, setAba] = useState<AbaId>('inicio')
   const { snapshot, carregando } = useTrip()
 
-  if (carregando && !snapshot) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center">
-        <Loader2 className="animate-spin text-[--color-tinta-3]" size={24} />
-      </div>
-    )
-  }
+  if (carregando && !snapshot) return <Carregando />
 
   if (!snapshot?.viagem) {
     return (
-      <div className="flex min-h-dvh items-center justify-center p-6 text-center">
-        <div className="max-w-sm">
+      <div className="flex min-h-dvh items-center justify-center bg-[--color-fundo] p-6">
+        <div className="max-w-sm rounded-2xl border border-[--color-borda] bg-[--color-cartao] p-8 text-center shadow-[0_1px_3px_rgb(0_0_0/0.06)]">
+          <span className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-[--color-alerta-bg] text-[--color-alerta-ink]">
+            <MapPinOff size={20} />
+          </span>
           <h1 className="text-lg font-semibold">Não deu para abrir esta viagem</h1>
           <p className="mt-2 text-sm text-[--color-tinta-2]">
-            Ou ela não existe, ou sua conta não participa dela. Se já abriu uma vez com internet,
-            os últimos dados sincronizados aparecem em modo avião.
+            Ou ela não existe, ou sua conta não participa dela. Se já abriu uma vez com internet, os
+            últimos dados sincronizados aparecem em modo avião.
           </p>
+          <a
+            href="/viagens"
+            className="toque mt-5 inline-flex items-center justify-center rounded-2xl px-4 text-sm font-semibold text-white"
+            style={{ background: 'var(--destaque)' }}
+          >
+            Ver minhas viagens
+          </a>
         </div>
       </div>
     )

@@ -5,7 +5,7 @@
 // Ficam num arquivo só porque compartilham a mesma forma — ler do snapshot,
 // ordenar, renderizar cartão, tratar vazio. Separá-las em seis arquivos daria
 // seis cabeçalhos de import iguais e nada mais.
-import { ExternalLink, Phone, Anchor, Waves, MapPin, Moon } from 'lucide-react'
+import { ExternalLink, Phone, Anchor, Waves, MapPin, Moon, Plane } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import { Cartao, Vazio, Rotulo, Badge, Copiar, Titulo, Linha } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
@@ -119,11 +119,74 @@ export function Voos() {
     )
   }
 
+  const ordenados = [...voos].sort((a, b) => {
+    const ta = parseData(a.parte_em)?.getTime() ?? Infinity
+    const tb = parseData(b.parte_em)?.getTime() ?? Infinity
+    return ta - tb
+  })
+
   return (
     <>
-      <Titulo acao={<AdminAcoes entidade="voo">+ Voo</AdminAcoes>}>Voos</Titulo>
-      <div className="space-y-3">
-        {voos.map((v) => {
+      <Titulo acao={<AdminAcoes entidade="voo">+ Voo</AdminAcoes>}>Voos e transportes</Titulo>
+
+      {/* tabela — só no desktop, onde as colunas cabem sem rolagem horizontal */}
+      <div className="mb-3 hidden overflow-hidden rounded-2xl border border-[--color-borda] bg-[--color-cartao] shadow-[0_1px_3px_rgb(0_0_0/0.06)] lg:block">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[--color-borda] bg-[--color-fundo] text-left">
+              {['Data', 'Origem → Destino', 'Voo', 'Horário', 'Duração', 'Localizador'].map((h) => (
+                <th
+                  key={h}
+                  className="px-4 py-2.5 text-[11px] font-semibold tracking-[0.06em] text-[--color-tinta-3] uppercase"
+                >
+                  {h}
+                </th>
+              ))}
+              <th className="px-4 py-2.5" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[--color-borda]">
+            {ordenados.map((v) => (
+              <tr key={String(v.id)} className="transition-colors hover:bg-[--color-fundo]">
+                <td className="tab-num px-4 py-3 whitespace-nowrap">
+                  {formatarData(v.parte_em) || '—'}
+                </td>
+                <td className="px-4 py-3">
+                  <span className="flex items-center gap-2 font-medium">
+                    <Plane size={14} className="shrink-0" style={{ color: 'var(--destaque)' }} />
+                    {v.origem_cidade ?? v.origem_iata ?? '—'}
+                    <span className="text-[--color-tinta-3]">→</span>
+                    {v.destino_cidade ?? v.destino_iata ?? '—'}
+                  </span>
+                </td>
+                <td className="tab-num px-4 py-3 whitespace-nowrap">
+                  <span className="block">{String(v.companhia ?? '')}</span>
+                  {v.numero && (
+                    <span className="text-[12px] text-[--color-tinta-3]">{String(v.numero)}</span>
+                  )}
+                </td>
+                <td className="tab-num px-4 py-3 whitespace-nowrap">
+                  {formatarHora(v.parte_em) || '—'}
+                  {v.chega_em ? ` – ${formatarHora(v.chega_em)}` : ''}
+                </td>
+                <td className="tab-num px-4 py-3 whitespace-nowrap text-[--color-tinta-2]">
+                  {v.duracao_min ? formatarDuracao(Number(v.duracao_min)) : '—'}
+                </td>
+                <td className="px-4 py-3">
+                  {v.localizador ? <Copiar valor={String(v.localizador)} /> : '—'}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <AdminAcoes entidade="voo" registro={v} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* cartões — celular e tablet */}
+      <div className="space-y-3 lg:hidden">
+        {ordenados.map((v) => {
           const escalas = (v.escalas ?? []) as any[]
           return (
             <Cartao key={String(v.id)}>
