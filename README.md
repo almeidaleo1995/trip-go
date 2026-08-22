@@ -1,115 +1,714 @@
-# Planejador de Viagens em Grupo
+# TripGo
 
-App de viagem para 5 pessoas: roteiro, voos, cruzeiro, hospedagem, checklist, documentos, emergência e financeiro. Funciona offline, sincroniza entre os aparelhos quando há rede.
+**A multi-user, offline-first trip planner.** Itinerary, flights, cruises, lodging, cities, checklists, documents, emergency contacts and budget — for one traveller or a group of twenty. It opens in airplane mode, accepts edits with no network, and syncs when connectivity returns.
 
-Next.js (App Router) + Neon Postgres, feito para rodar na Vercel.
+Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 
----
-
-## ⚠️ Antes de qualquer outra coisa
-
-**Rotacione a senha do Neon.** A connection string usada no desenvolvimento passou por uma conversa de chat e está no histórico dela. Leva 10 segundos:
-
-1. Console do Neon → seu projeto → **Roles** → `neondb_owner` → **Reset password**
-2. Copie a nova connection string
-3. Atualize `.env.local` (local) e a variável de ambiente na Vercel (produção)
-
-Enquanto isso não for feito, considere que qualquer pessoa com acesso àquele histórico tem acesso total ao banco.
+> **Language note.** The product, the UI copy and the identifiers in the source are all **pt-BR** (`viagem`, `roteiro`, `participante`). This document is in English; the code it describes is not. Names in tables below are the real identifiers.
 
 ---
 
-## Rodar localmente
+## Table of contents
+
+- [At a glance](#at-a-glance)
+- [Architecture](#architecture)
+- [Design decisions — and why](#design-decisions--and-why)
+- [Data model](#data-model)
+- [Request lifecycles](#request-lifecycles)
+- [Authorization](#authorization)
+- [Offline engine](#offline-engine)
+- [Project layout](#project-layout)
+- [Getting started](#getting-started)
+- [Deploying](#deploying)
+- [Loading a trip](#loading-a-trip)
+- [Commands](#commands)
+- [Testing](#testing)
+- [Shipping a new update](#shipping-a-new-update)
+- [Known limitations](#known-limitations)
+- [Security checklist](#security-checklist)
+
+---
+
+## At a glance
+
+| | |
+| --- | --- |
+| **Framework** | Next.js 16.3.2, App Router, React 19.2, Node runtime |
+| **Database** | Neon serverless Postgres — 19 tables, one idempotent `schema.sql` |
+| **Auth** | Email + password, scrypt hashes, HMAC-signed httpOnly cookie, 90 days |
+| **Runtime deps** | 4 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react` |
+| **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
+| **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
+| **Tests** | 88 unit tests, `node --test`, zero test frameworks |
+| **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
+
+Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
+
+---
+
+## Architecture
+
+Three tiers, one rule: **the browser never speaks to Postgres.** The connection string exists only in the server process; the client knows nothing but `/api/*`.
+
+```mermaid
+flowchart TB
+    subgraph BROWSER["🖥️ Browser"]
+        direction TB
+        UI["React UI<br/>5 pages + 11 trip tabs"]
+        TP["TripProvider<br/>single source of client state"]
+        IDB[("IndexedDB<br/>snapshot cache<br/>+ write queue")]
+        SW["Service Worker<br/>app shell only — never /api/**"]
+        UI <--> TP
+        TP <--> IDB
+    end
+
+    subgraph EDGE["⚡ Next.js"]
+        direction TB
+        PROXY["proxy.ts<br/>optimistic cookie check<br/>redirect only"]
+        RSC["Pages<br/>App Router"]
+        API["Route Handlers<br/>9 endpoints, Node runtime"]
+    end
+
+    subgraph SERVER["🔒 Server-only modules"]
+        direction TB
+        AUTH["lib/auth.ts<br/>the real access barrier"]
+        SCHEMA["lib/schema.ts<br/>zod contract"]
+        DB["lib/db.ts<br/>SQL + snapshot assembly"]
+    end
+
+    NEON[("Neon Postgres<br/>19 tables<br/>credential lives only here")]
+
+    TP -->|"fetch"| API
+    SW -.->|"cache miss"| RSC
+    PROXY --> RSC
+    API --> AUTH --> DB --> NEON
+    API --> SCHEMA
+```
+
+**Why this shape.** Any design that puts credentials in the browser cannot protect the Budget tab, and any design without a server cannot sync five devices. Once a server exists, the only question left is how thin it can stay — and the answer was: nine route handlers, three server modules, no ORM.
+
+---
+
+## Design decisions — and why
+
+Each of these was a fork in the road. The rationale matters more than the outcome, because the rationale is what tells you when to reverse it.
+
+### 1. One snapshot per trip, not one endpoint per resource
+
+`GET /api/snapshot?trip=<id>` returns **the whole trip** in a single response: trip, participants, itinerary, flights with nested stops, cruises with nested ports, reservations, places, checklist and its per-person state, documents, emergency contacts, messages, change history, budget, plus the account's trip list and notifications.
+
+A full trip is a few dozen KB. In exchange for that payload:
+
+- **N+1 disappears.** Fifteen queries fire in one `Promise.all`; children are nested in a single JS pass, not one query per parent.
+- **Offline caching becomes trivial.** One object in, one object out. There is no per-endpoint cache invalidation problem because there are no per-endpoint caches.
+- **No client state library.** No React Query, no Redux, no SWR. `TripProvider` holds one object.
+
+The ceiling is real and known: a trip large enough that a few dozen KB becomes a few MB would need pagination. No trip is.
+
+### 2. Optimistic writes through a durable queue
+
+The screen changes **before** the network is consulted. The operation is appended to an IndexedDB queue and flushed when possible. Offline and online run **the same code path** — offline is only the queue taking longer to drain.
+
+This is what makes "works in airplane mode" a property of the architecture rather than a feature that needs testing separately.
+
+### 3. Last-write-wins, with receipts
+
+Every mutable row carries `updated_at timestamptz`. A write carries the client's `client_ts` and only lands if `updated_at < client_ts`. Older writes are dropped and reported back as `rejeitadas`.
+
+CRDTs were the alternative. For a group editing different fields of a shared trip, they buy correctness nobody will observe at a complexity cost everybody pays. The mitigation is `change_log`: **both** versions of every changed field are recorded, so a dropped write is visible, not lost.
+
+### 4. Role lives on the membership, never in the token
+
+The session cookie carries **one thing**: the user id. Role is a property of the `(user, trip)` pair, resolved by query on every request.
+
+The same person is `proprietario` of their own trip and `visualizador` of a friend's. Baking a role into a 90-day token would also mean a promotion or a removal takes 90 days to take effect.
+
+### 5. Two clock conventions, on purpose
+
+| Postgres type | Used for | Why |
+| --- | --- | --- |
+| `timestamp` (no tz) | Flight departures, check-ins, itinerary events | **Local time at the destination**, exactly as printed on the ticket. Converting time zones in an app used offline in transit is how you miss a flight. |
+| `timestamptz` | `updated_at`, `criado_em` | Real server time. This is what last-write-wins compares. |
+
+Money is **always** integer cents. Never float, never `numeric`.
+
+### 6. Config-driven identity
+
+Every brand string, colour and menu entry lives in `config/`. If you find `"TripGo"` written inside a component, that is a bug.
+
+| File | Owns |
+| --- | --- |
+| `config/site.ts` | Name, tagline, manifesto, greetings, footer, demo account, social providers |
+| `config/theme.ts` | Palette, semantic states, per-event-type badges, font roles |
+| `config/navigation.ts` | Menu, private/public route lists, the `Papel` type and `papelAlcanca()` |
+
+Rebranding this app touches three files and no components.
+
+### 7. Schema-driven forms
+
+`lib/schema.ts` is the single contract: the import file format, the mutation format, and the account forms. `EditorSheet.tsx` builds its fields **from the zod schema**, so fifteen entities share one editor instead of fifteen hand-written forms. The server validates against the same schemas before writing.
+
+---
+
+## Data model
+
+19 tables. Everything trip-scoped cascades from `trips`; everything person-scoped cascades from `users`.
+
+```mermaid
+erDiagram
+    users ||--o{ trips : owns
+    users ||--o{ travelers : "is"
+    users ||--o{ notifications : receives
+    trips ||--o{ travelers : has
+    trips ||--o{ itinerary_events : has
+    trips ||--o{ flights : has
+    trips ||--o{ reservations : has
+    trips ||--o{ places : has
+    trips ||--o{ cruises : has
+    trips ||--o{ checklist_items : has
+    trips ||--o{ documents : has
+    trips ||--o{ emergency_contacts : has
+    trips ||--o{ expense_categories : has
+    trips ||--o{ expenses : has
+    trips ||--o{ messages : has
+    trips ||--o{ change_log : records
+    flights ||--o{ flight_stops : "layovers"
+    cruises ||--o{ cruise_ports : "calls at"
+    expense_categories ||--o{ expenses : groups
+    travelers ||--o{ checklist_state : ticks
+    checklist_items ||--o{ checklist_state : "ticked by"
+    travelers ||--o{ documents : "belongs to"
+    travelers ||--o{ change_log : signs
+
+    users {
+        text id PK
+        text email UK "lowercased, unique"
+        text senha_hash "scrypt$N$salt$hash"
+        text moeda_preferida
+    }
+    trips {
+        text id PK
+        text owner_id FK
+        date data_partida
+        date data_retorno
+        boolean arquivada
+    }
+    travelers {
+        text id PK
+        text trip_id FK
+        text user_id FK "null = name-only guest"
+        text papel "proprietario / editor / visualizador"
+    }
+    expenses {
+        text id PK
+        integer valor_centavos "cents, never float"
+        integer pessoas
+        boolean pago
+    }
+```
+
+### The two joins that carry the model
+
+**`travelers` is a membership, not a person.** A row with `user_id` is an account that can sign in and see the trip. A row without one is just a name on the list — a child, or someone who does not want an account. Without this dual nature, "add a participant" would require creating an account for everyone.
+
+**`reservations` is one table for everything you book.** Hotels, restaurants, tours, tickets, cars. Lodging is a reservation that happens to have a check-out; keeping two tables with the same eight columns would duplicate the form, the screen and the query. `tipo` makes the distinction and the UI groups by it.
+
+### Full column reference
+
+`db/schema.sql` is the reference and it is heavily commented. It is **idempotent** — running it twice is a no-op — and split into two halves that must stay in sync:
+
+```mermaid
+flowchart LR
+    A["CREATE TABLE IF NOT EXISTS<br/>final definition"] --> C{{"same end state"}}
+    B["ALTER TABLE ... IF EXISTS<br/>migrations section"] --> C
+    C --> D["npm run db:push"]
+    style C fill:#CCFBF1,stroke:#0F766E,color:#0F766E
+```
+
+A fresh database is born correct from the first half. An old database catches up through the second. **Never edit only the first.**
+
+---
+
+## Request lifecycles
+
+### Reading — first paint from cache, network confirms
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant TP as TripProvider
+    participant IDB as IndexedDB
+    participant API as /api/snapshot
+    participant PG as Neon
+
+    U->>TP: opens /viagens/:id
+    TP->>IDB: lerSnapshot(tripId)
+    IDB-->>TP: cached trip (or null)
+    Note over TP: screen paints here — no network yet
+    TP->>API: GET ?trip=:id
+    API->>API: exigirUsuario → exigirViagem
+    alt role = visualizador
+        Note over API,PG: budget queries never run;<br/>financeiro = null
+    end
+    API->>PG: 15 parallel queries
+    PG-->>API: rows
+    API-->>TP: snapshot + viagens + notificacoes + eu
+    TP->>IDB: gravarSnapshot(tripId, …)
+    TP-->>U: reconciled screen
+```
+
+The cache key is the **trip id**, not the user. Switching trips offline can never surface another trip's data — including its budget — through leftover cache.
+
+### Writing — optimistic, queued, reconciled
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant TP as TripProvider
+    participant IDB as IndexedDB
+    participant API as /api/mutate
+    participant PG as Neon
+
+    U->>TP: edits a field
+    TP->>TP: aplicarLocal() — UI updates now
+    TP->>IDB: enfileirar(op)
+    TP->>API: POST { trip_id, ops[] }
+
+    alt offline / request fails
+        API--xTP: no response
+        Note over IDB: queue preserved, retried on 'online'
+    else online
+        API->>API: zod parse → exigirViagem → autorizar
+        loop each op
+            API->>PG: UPDATE … WHERE updated_at < client_ts
+            alt server row is newer
+                PG-->>API: 0 rows → rejeitadas[]
+            else applied
+                API->>PG: INSERT INTO change_log (de, para)
+            end
+        end
+        API->>PG: rebuild snapshot
+        API-->>TP: { aplicadas, rejeitadas, snapshot }
+        TP->>IDB: limparFila() + gravarSnapshot()
+    end
+```
+
+A deliberate refusal — 403 from authorization, 409 from integrity — **aborts the whole batch**. Swallowing it into a list would let the client see `200` and believe the write landed. Only a data error on a single operation becomes an entry in `rejeitadas`.
+
+### Signing in
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant API as /api/sessao
+    participant RL as rate limiter
+    participant PG as Neon
+
+    U->>API: POST { email, senha }
+    API->>RL: estaBloqueado(ip)?
+    alt blocked
+        RL-->>U: 429 — before any CPU is spent
+    end
+    API->>PG: usuarioPorEmail
+    API->>API: scrypt verify, timing-safe
+    alt wrong password OR unknown email
+        API->>RL: registrarFalha(ip)
+        API-->>U: 401 "E-mail ou senha incorretos."
+        Note over API: identical message for both —<br/>otherwise login is an email enumerator
+    else correct
+        API->>API: criarToken = userId.exp.HMAC
+        API-->>U: Set-Cookie httpOnly, SameSite=Lax, 90d
+    end
+```
+
+Rate limit: 10 failures per 5-minute window, then a 15-minute block.
+
+---
+
+## Authorization
+
+Two layers that must not be confused.
+
+```mermaid
+flowchart TB
+    REQ["Incoming request"] --> P{"proxy.ts<br/>cookie signature valid?"}
+    P -->|"no, private route"| L["302 → /login?proximo=…"]
+    P -->|"yes"| H["Page or Route Handler"]
+    H --> A["exigirUsuario<br/>cookie → real user row"]
+    A --> V["exigirViagem userId, tripId, minimum"]
+    V --> Q[("SELECT papel FROM travelers<br/>WHERE trip_id AND user_id")]
+    Q -->|"no row"| NF["404 — not 403"]
+    Q -->|"role too low"| FB["403 with a specific message"]
+    Q -->|"ok"| OK["Acesso { userId, tripId, papel, participanteId }"]
+
+    style P fill:#FEF3C7,stroke:#A1590A,color:#A1590A
+    style V fill:#CCFBF1,stroke:#0F766E,color:#0F766E
+    style NF fill:#FFE4E6,stroke:#BE123C,color:#BE123C
+```
+
+`proxy.ts` is **optimistic and cosmetic**: it verifies the cookie's HMAC and nothing else, never touching the database. It runs on every route including prefetches, so a query there would turn into load per hovered link. The real barrier is `exigirViagem`, welded to the data source.
+
+**404, not 403, for a trip you do not belong to.** Answering "you lack permission" would confirm the trip exists to anyone guessing ids.
+
+### The three roles
+
+| Capability | `visualizador` | `editor` | `proprietario` |
+| --- | :---: | :---: | :---: |
+| See itinerary, flights, lodging, places, documents, emergency | ✅ | ✅ | ✅ |
+| Tick **their own** checklist row | ✅ | ✅ | ✅ |
+| See the **Budget** tab | ❌ | ✅ | ✅ |
+| Create / edit / delete trip content | ❌ | ✅ | ✅ |
+| Manage participants and roles | ❌ | ❌ | ✅ |
+| Import, export, delete the trip | ❌ | ❌ | ✅ |
+
+The budget is not hidden — it is **absent**. For `visualizador`, `getSnapshot()` never executes the two expense queries and `financeiro` is `null`. That is the difference between hiding a tab and protecting data.
+
+Two invariants enforced server-side regardless of role:
+
+- A `visualizador` writing `checklist_state` for someone else's `traveler_id` → **403**.
+- Removing or demoting the **last** `proprietario` → **409**. A trip cannot become unmanageable.
+
+---
+
+## Offline engine
+
+```mermaid
+stateDiagram-v2
+    [*] --> ColdStart
+    ColdStart --> PaintedFromCache: IndexedDB hit
+    ColdStart --> Loading: no cache
+    Loading --> Synced: network responds
+    PaintedFromCache --> Synced: revalidated
+    PaintedFromCache --> Stale: no network
+
+    Synced --> Pending: user edits
+    Stale --> Pending: user edits
+    Pending --> Synced: queue drained
+    Pending --> Stale: still offline
+
+    Stale --> Synced: 'online' event → recarregar + drenar
+
+    note right of Stale
+        UI shows offline badge
+        + pending write count
+    end note
+```
+
+Three cooperating pieces, each written by hand for a reason:
+
+| Piece | ~Lines | Instead of | Why |
+| --- | ---: | --- | --- |
+| `lib/offline.ts` | 101 | dexie | Two object stores and five operations. |
+| `public/sw.js` | 46 | next-pwa | Caches the **shell only**. `/api/**` is never cached — an owner's cached snapshot would leak the budget to the next person opening the app on that device. |
+| `TripProvider.tsx` | 284 | React Query | One object, one queue, one flush. |
+
+`lib/offline.ts` has one absolute rule: **nothing throws to the caller.** A private window, blocked site data, or an exhausted quota means no offline mode — the app still works online. An exception there would be a white screen.
+
+---
+
+## Project layout
+
+```
+travel-guide/
+├── app/
+│   ├── (auth)/                  # public — proxy redirects logged-in users away
+│   │   ├── login/               # email + password
+│   │   └── register/            # signup, lands signed in
+│   ├── (dashboard)/             # private — proxy redirects anonymous users to /login
+│   │   ├── dashboard/           # greeting + the trip in focus
+│   │   ├── viagens/             # trip list: create, duplicate, delete
+│   │   │   └── [id]/            # ← the trip app: Shell + TripProvider + 11 tabs
+│   │   └── perfil/              # account, password, preferences
+│   ├── api/                     # 9 route handlers, all Node runtime
+│   ├── layout.tsx               # fonts self-hosted at build, toast provider
+│   └── globals.css              # design tokens as CSS custom properties
+│
+├── components/
+│   ├── TripProvider.tsx         # client state: cache → network → optimistic → queue
+│   ├── Shell.tsx                # sidebar on desktop, 4-slot tab bar + "More" on mobile
+│   ├── EditorSheet.tsx          # ONE schema-driven editor for all 15 entities
+│   ├── MapaRota.tsx             # hand-projected SVG route map
+│   ├── PdfBolso.tsx             # print-only pocket sheet — window.print(), no PDF lib
+│   ├── ui.tsx                   # the whole design system
+│   └── tabs/                    # Inicio · Conteudo · Interativas · Dados
+│
+├── lib/
+│   ├── db.ts                    # SQL + snapshot assembly. Credential stops here.
+│   ├── auth.ts                  # exigirUsuario / exigirViagem — the access barrier
+│   ├── session.ts               # scrypt, HMAC token, rate limit, cookies
+│   ├── schema.ts                # zod contract: import format + mutations + forms
+│   ├── importar.ts              # one transactional importer, shared by API and seed
+│   ├── derive.ts                # every pure calculation — the file with real tests
+│   ├── offline.ts               # IndexedDB
+│   └── api.ts                   # route wrapper: exception → HTTP + pt-BR body
+│
+├── config/                      # site.ts · theme.ts · navigation.ts
+├── db/
+│   ├── schema.sql               # 19 tables, idempotent, migrations included
+│   └── europa-2027.json         # a real trip in import format (see Limitations)
+├── scripts/                     # db-push · seed · test-api runner
+├── tests/api.test.mjs           # integration suite (see Testing)
+├── proxy.ts                     # Next 16 middleware — renamed from middleware.ts
+└── .specs/                      # spec, design, tasks, decision log
+```
+
+### API surface
+
+| Endpoint | Methods | Minimum role | Purpose |
+| --- | --- | --- | --- |
+| `/api/usuarios` | `POST` | — | Create account, signs in immediately, links pending invites by email |
+| `/api/sessao` | `POST` `DELETE` | — | Sign in / sign out |
+| `/api/perfil` | `GET` `PATCH` `PUT` | signed in | Read profile · update profile · change password |
+| `/api/viagens` | `GET` `POST` `PUT` `DELETE` | mixed | List · create · set active · delete *(owner)* |
+| `/api/viagens/duplicar` | `POST` | member | Clone a whole trip with a day offset |
+| `/api/snapshot` | `GET` | member | The entire trip in one response |
+| `/api/mutate` | `POST` | per entity | Apply the write queue |
+| `/api/import` | `POST` | signed in | Create a trip from JSON — `dry_run` previews |
+| `/api/export` | `GET` | member | Download in the exact format import accepts |
+
+Trip duplication is worth a look: it runs **entirely in SQL**, never pulling rows into Node. `md5(old_id || new_id)` gives each copied record a deterministic new id, so children rediscover their copied parents without the server holding a mapping table in memory. Deliberately not copied: `checklist_state` (a new trip starts undone), `messages`, `change_log`, and other participants.
+
+---
+
+## Getting started
+
+**Requirements:** Node 22+ (the repo relies on native TypeScript type stripping and `--env-file`), a Neon project.
 
 ```bash
 npm install
-cp .env.example .env.local     # e preencha
-npm run db:push                # cria as 16 tabelas (idempotente)
-npm run dev
+cp .env.example .env.local          # then fill it in
+npm run db:push                     # creates/updates all 19 tables — idempotent
+npm run dev                         # http://localhost:3000
 ```
 
 `.env.local`:
 
+```ini
+DATABASE_URL="postgresql://user:pass@host.neon.tech/neondb?sslmode=require"
+
+# node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+SESSION_SECRET="<64 hex characters>"
+
+# A SEPARATE database — the integration suite truncates tables
+TEST_DATABASE_URL="postgresql://user:pass@host.neon.tech/travelguide_test?sslmode=require"
 ```
-DATABASE_URL="postgresql://...neon.tech/neondb?sslmode=require"
-SESSION_SECRET="<64 hex>"      # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+`.env.local` is gitignored and must never be committed.
+
+**Optional demo data** — creates `demo@tripgo.com` / `123456` plus a sample trip:
+
+```bash
+node --env-file=.env.local scripts/seed.mjs
 ```
 
-`.env.local` está no `.gitignore` e nunca deve ser commitado.
+That account is advertised on the login screen by `siteConfig.demo.mostrar`. Set it to `false` before anything resembling production.
 
-## Deploy na Vercel
+---
 
-1. `vercel` ou importe o repositório em vercel.com
-2. Em **Settings → Environment Variables**, adicione `DATABASE_URL` e `SESSION_SECRET`
-3. Deploy. O `db:push` **não** roda no build — aplique o schema você mesmo (`npm run db:push`) apontando para o mesmo banco
+## Deploying
 
-O free tier do Neon suspende o banco por inatividade: a primeira requisição depois de um tempo parado demora alguns segundos. O cache local cobre isso — o app pinta antes de a rede responder.
+```mermaid
+flowchart LR
+    A["git push"] --> B["Vercel build<br/>next build + typecheck"]
+    B --> C["Set DATABASE_URL<br/>+ SESSION_SECRET"]
+    C --> D["npm run db:push<br/>run manually, pointed at prod"]
+    D --> E["Live"]
+    style D fill:#FEF3C7,stroke:#A1590A,color:#A1590A
+```
 
-## Cadastrar uma viagem
+1. `vercel`, or import the repository at vercel.com.
+2. **Settings → Environment Variables**: add `DATABASE_URL` and `SESSION_SECRET`.
+3. Deploy. `db:push` **does not run during the build** — apply the schema yourself against the same database. This is on purpose: a schema change should be a decision, not a side effect of a push.
 
-**Pela interface** (sem terminal): entre como admin → aba **Dados** → *Importar viagem*. Mostra um resumo por seção e só grava depois que você confirma. Com o banco vazio, a própria tela de login oferece a importação — é o único caminho de bootstrap, já que ainda não existe admin.
+Neon's free tier suspends an idle database, so the first request after a quiet period takes a few seconds. The local cache covers it — the app paints before the network answers.
 
-**A partir de PDFs**: peça a conversão ao Claude Code neste repositório. A skill `viagem-para-json` extrai o texto, mapeia para o formato do app, valida contra o schema real e aponta contradições entre documentos em vez de escolher em silêncio.
+---
+
+## Loading a trip
+
+```mermaid
+flowchart TB
+    subgraph PATHS["Three ways in"]
+        direction TB
+        A["✍️ By hand<br/>Trips → New trip, then<br/>the + button on each tab"]
+        B["📄 From JSON<br/>Data tab → Import<br/>dry_run preview first"]
+        C["📑 From PDFs / vouchers<br/>viagem-para-json skill"]
+    end
+    C --> B
+    B --> D[("Trip in Postgres")]
+    A --> D
+    D --> E["📤 Export<br/>same format, round-trip verified"]
+    E -.->|"restore"| B
+```
+
+**From PDFs.** Ask Claude Code in this repository — the `viagem-para-json` skill extracts the text, maps it to the app's format, validates against the real schema, and **reports contradictions between documents instead of silently picking one**.
 
 ```bash
 node .claude/skills/viagem-para-json/scripts/validar.mjs db/europa-2027.json
 ```
 
-**Do zero, na mão**: crie a viagem e os viajantes pela aba Dados, e cada seção pelo botão de adicionar da própria aba.
+**Import never replaces.** It always creates a *new* trip. With multiple trips per account, overwriting would be silent destruction — you end up with two and choose which to keep.
 
-## Comandos
+**Export is round-trip verified.** The output is assembled from the snapshot and validated against `TripImportSchema` before it is sent, so export → wipe → import reproduces the trip. Passwords are never included: the file travels by email and USB stick.
 
-| Comando | O que faz |
+---
+
+## Commands
+
+| Command | What it does |
 | --- | --- |
-| `npm run dev` | Servidor de desenvolvimento |
-| `npm run build` | Build de produção (inclui typecheck) |
-| `npm run test` | 88 testes unitários (`node --test`, sem framework) |
-| `npm run test:api` | 26 testes de integração — **precisa do `npm run dev` rodando** |
-| `npm run db:push` | Aplica `db/schema.sql` no Neon |
+| `npm run dev` | Development server |
+| `npm run build` | Production build, includes typecheck |
+| `npm run lint` | ESLint |
+| `npm run test` | **88 unit tests**, `node --test`, no framework |
+| `npm run test:api` | Integration suite — see [Testing](#testing) |
+| `npm run db:push` | Applies `db/schema.sql` to `DATABASE_URL` |
+| `node --env-file=.env.local scripts/seed.mjs` | Demo account + sample trip |
 
-## Como funciona
+---
+
+## Testing
+
+### Unit — 88 passing
 
 ```
-navegador
-  ├─ IndexedDB      snapshot + fila de escritas offline
-  ├─ service worker casca do app (nunca /api/**)
-  └─ /api/*         Route Handlers (Node runtime)
-        └─ Neon Postgres   ← a credencial vive só aqui
+lib/derive.test.ts    48 tests   pure calculations: dates, phases, countdowns,
+                                 checklist progress, budget totals, map projection
+lib/schema.test.ts    24 tests   the zod contract: field-precise error messages,
+                                 calendar rollover, currency, roles, per-entity fields
+lib/session.test.ts   16 tests   scrypt round-trip, tampered/expired tokens,
+                                 timing-safe comparison, rate-limit windows
 ```
 
-- **Leitura**: um snapshot inteiro por vez, não recurso a recurso. Elimina N+1 e torna o cache offline trivial.
-- **Escrita**: otimista. A tela muda na hora, a operação vai para uma fila local e sobe quando há rede. Offline e online usam o mesmo caminho de código.
-- **Papéis**: `admin` vê tudo e edita tudo; `viajante` vê tudo menos o Financeiro e só marca o próprio checklist.
+`lib/derive.ts` is where a bug stays invisible until someone misses a flight, which is why it carries the heaviest coverage. One example of what is covered: `new Date("2026-12-30")` is parsed as **UTC** by the JS spec, which lands on the previous day anywhere west of Greenwich — Brazil included. `parseData()` builds the date component by component and rejects silent rollover, so `"2026-13-05"` is an error instead of becoming January 2027 in the flights tab.
 
-## Limitações — leia antes de confiar
+### Integration — currently stale ⚠️
 
-Nada aqui é surpresa escondida; são escolhas deliberadas com teto conhecido.
+`tests/api.test.mjs` holds 26 end-to-end tests written against the **previous** authentication model: name + 4-digit PIN, `admin`/`viajante` roles, and a `/api/viajantes` endpoint that no longer exists. **`npm run test:api` fails wholesale until it is rewritten** for accounts, email/password and the three-role scale.
 
-| Limitação | O que significa na prática |
+What the suite covered, and what a rewrite must preserve:
+
+- A `visualizador` receives `financeiro: null` — verified at the wire, not in the UI
+- 403 on editing content, 403 on ticking someone else's checklist
+- Last-write-wins: a stale timestamp is rejected, the newer write survives
+- `change_log` records both the previous and the new value
+- Removing the last owner is refused
+- Export → import round-trip reproduces the trip
+- Export never carries credentials
+
+The runner (`scripts/test-api.mjs`) is worth keeping as is. The suite runs `truncate trips cascade`, and it once wiped a real trip — so the runner now **refuses to start** if `TEST_DATABASE_URL` is missing or equal to `DATABASE_URL`. It boots its own server on port 3100 against the test database and tears it down afterwards.
+
+---
+
+## Shipping a new update
+
+### Adding a field to an existing entity
+
+1. `db/schema.sql` — add the column to the `create table` block **and** an `alter table … add column if not exists` in the migrations section.
+2. `lib/schema.ts` — add it to that entity's zod schema. The editor sheet picks it up automatically.
+3. `app/api/export/route.ts` + `lib/importar.ts` — include it, or backups quietly drop it.
+4. `npm run db:push` locally, then against production.
+
+### Adding a whole entity
+
+Ten files, in this order. Skipping one produces a specific, predictable failure — noted in the last column.
+
+```mermaid
+flowchart TB
+    S1["1 · db/schema.sql<br/>table + migration + index"] --> S2["2 · lib/schema.ts<br/>zod + ENTIDADES + TripImportSchema"]
+    S2 --> S3["3 · api/mutate TABELA<br/>table name · via · minimum role"]
+    S3 --> S4["4 · lib/db.ts<br/>Snapshot type + query"]
+    S4 --> S5["5 · TripProvider<br/>type + LISTA optimistic entry"]
+    S5 --> S6["6 · components/tabs/<br/>the screen"]
+    S6 --> S7["7 · Shell.tsx<br/>AbaId + ABAS"]
+    S7 --> S8["8 · viagens/:id/page.tsx<br/>render the tab"]
+    S8 --> S9["9 · export + importar.ts<br/>round-trip"]
+    S9 --> S10["10 · duplicar/route.ts<br/>copy on clone"]
+    style S3 fill:#CCFBF1,stroke:#0F766E,color:#0F766E
+    style S9 fill:#FEF3C7,stroke:#A1590A,color:#A1590A
+```
+
+| Step | If you skip it |
 | --- | --- |
-| **PIN de 4 dígitos** | 10.000 combinações. O modelo de ameaça é "meu primo curioso", não invasor determinado. Passar para 6 dígitos é uma linha em `lib/schema.ts`. |
-| **Rate limit por instância** | O contador de tentativas vive na memória do processo. Em serverless, cada instância tem o seu, então um atacante distribuído consegue mais que 10 tentativas por janela. Mitigação: mover o contador para uma tabela no Neon. |
-| **Last-write-wins** | Duas pessoas editando o **mesmo registro** dentro da mesma janela de sync: a escrita mais antiga é descartada. O histórico de alterações guarda as duas, então nada some sem rastro. |
-| **Mapa sem contorno de continente** | O mapa do Início desenha a rota e os pinos sobre um gradiente abstrato. Costa real exige um GeoJSON simplificado (~20–50 KB) de fonte confiável. |
-| **PIN não vai no export** | O backup JSON não carrega PINs. Quem restaurar num banco vazio precisa definir os PINs de novo pela aba Dados. É intencional: o arquivo circula por e-mail e pen drive. |
-| **Importar arquiva a viagem atual** | A viagem anterior fica no banco marcada como inativa, não é apagada — mas o app não tem tela para trazê-la de volta. Exporte antes. |
+| 3 — `TABELA` entry | Every write returns *"Entidade desconhecida"* |
+| 3 — `via` field | The record is reachable across trips by guessing ids — **security bug** |
+| 5 — `LISTA` entry | Edits only appear after the round trip; no optimistic update |
+| 9 — export/import | Backups silently lose the entity |
+| 10 — duplicate | Cloned trips come back missing it |
 
-O Financeiro, ao contrário dos itens acima, **é** protegido de verdade: o endpoint devolve 403 para sessão de viajante e o snapshot dele nem executa as queries de custo. Há teste de integração cobrindo exatamente isso.
+The `via` field is the one to read twice. It is what scopes every operation by the session's `trip_id` rather than by id alone. `'trip'` for direct children, `'flight'` / `'cruise'` for grandchildren, `'self'` only for the trip row itself.
 
-## Estrutura
+### Changing the import format
 
+`SCHEMA_VERSION` in `lib/schema.ts` is the file format version. Files declaring a **newer** version are refused with a clear message; older ones are accepted. Bump it whenever a key is renamed or removed, and keep the ability to read the previous shape — old exports live on people's hard drives.
+
+### Evolving the database safely
+
+```mermaid
+flowchart LR
+    NEW["Fresh database"] --> A["CREATE TABLE IF NOT EXISTS"]
+    OLD["Existing database"] --> B["ALTER TABLE IF EXISTS<br/>+ DO $$ … $$ guards"]
+    A --> SAME{{"identical end state"}}
+    B --> SAME
+    style SAME fill:#CCFBF1,stroke:#0F766E,color:#0F766E
 ```
-app/api/          6 rotas (viajantes, sessao, snapshot, import, mutate, export)
-components/       TripProvider (estado), Shell (navegação), tabs/ (10 abas)
-lib/derive.ts     todo cálculo puro — é o que tem teste unitário de verdade
-lib/schema.ts     contrato zod: formato de importação e das mutações
-lib/session.ts    scrypt, cookie assinado, guardas de papel, rate limit
-db/schema.sql     16 tabelas, idempotente
-.specs/           spec (89 requisitos), design e as 37 tarefas
-.claude/skills/   skill de conversão PDF → JSON
+
+There is no migration tool, on purpose: the schema is idempotent, so "apply the whole file" *is* the correct operation. The migrations section already carries real examples worth copying — `ativo` → `arquivada`, the `admin`/`viajante` → three-role remap, `stays` → `reservations` with a data copy before the drop, and dropping `pin_hash`.
+
+The day a genuinely destructive change arrives — renaming a column in place, changing a type — that is the moment to bring in `drizzle-kit` or similar. Not before.
+
+### Release flow
+
+```bash
+git switch -c feat/<thing>
+npm run test && npm run build       # both must be green
+npm run db:push                     # local database first
+# review, commit in atomic pieces, open a PR
+npm run db:push                     # production database, DATABASE_URL pointed at it
+vercel --prod
 ```
 
-## Dependências
+### A note on `AGENTS.md`
 
-Quatro, além do scaffold do Next: `@neondatabase/serverless`, `zod`, `lucide-react`, `next`.
+`next dev` regenerates the `AGENTS.md` block on every run. It states that this version of Next.js differs from what a model was trained on and that `node_modules/next/dist/docs/` is the authority. Commit it with your work rather than reverting it — reverting only recreates the diff.
 
-Deliberadamente **fora**: nenhuma biblioteca de PDF (`window.print()` + `@media print`), de hash (`node:crypto` scrypt), de auth (cookie assinado com HMAC), de IndexedDB, de datas (`Intl`) ou de service worker.
+---
+
+## Known limitations
+
+Nothing here is a hidden surprise. Each is a deliberate choice with a known ceiling and a known upgrade path.
+
+| Limitation | What it means in practice | Upgrade path |
+| --- | --- | --- |
+| **`db/europa-2027.json` is a v1 file** | It still uses `viajantes` and `hospedagens`. The current schema expects `participantes` and `reservas`, and zod **strips unknown keys** — so importing it today yields a trip with **0 participants and 0 reservations**, silently. | Rename the two keys, map `papel: admin → proprietario`, drop `pin`, set `schemaVersion: 2`. Better still, make `TripImportSchema` `.strict()` so drift becomes an error. |
+| **Integration suite targets the removed PIN API** | `npm run test:api` fails wholesale. | Rewrite the 26 tests against accounts. The list of behaviours to preserve is in [Testing](#testing). |
+| **Rate limit is per instance** | The counter lives in process memory. On serverless each instance keeps its own, so a distributed attacker gets more than 10 attempts per window. Marked with a `ponytail:` comment at the source. | Move the counter into a Neon table. It is a local change in `lib/session.ts`. |
+| **Last-write-wins** | Two people editing the **same record** inside one sync window: the older write is dropped and reported. Nothing vanishes untraceably — `change_log` keeps both. | Per-field merge, or CRDTs if it ever justifies the cost. |
+| **Routes referenced but not built** | `/esqueci-senha` is listed as public, `/configuracoes`, `/privacidade` and `/termos` are linked from `config/site.ts` and from participant notifications. All 404. | Build the pages, or remove the links. Password reset needs an email provider. |
+| **No binary uploads** | Avatars and document files are **URLs**. `documents.arquivo_url` / `arquivo_mime` / `arquivo_bytes` exist in the schema, but nothing writes them. | Neon Object Storage, S3, or Vercel Blob + an upload route. |
+| **Map has no coastline** | The home map projects the route and pins onto an abstract gradient. | A simplified GeoJSON, ~20–50 KB, from a reliable source. |
+| **Export omits credentials** | A restored backup has no passwords. Intentional — the file circulates by email. | None wanted. |
+| **`db:push` is not part of the build** | Deploying does not migrate. | Intentional. Automate only with a real migration tool. |
+| **Social sign-in is inert** | Google and Apple buttons render disabled with a reason, driven by `siteConfig.social`. | Flip `ativo` once a provider is wired. |
+
+---
+
+## Security checklist
+
+- [ ] **Rotate the Neon password.** The development connection string passed through a chat conversation and is in that history. Neon console → project → **Roles** → `neondb_owner` → **Reset password**, then update `.env.local` and the Vercel environment variable. Until that is done, assume anyone with access to that history has full database access.
+- [ ] **Generate a unique `SESSION_SECRET` per environment.** It signs every session token; sharing one across environments means a token minted in staging is valid in production.
+- [ ] **Set `siteConfig.demo.mostrar = false`** before real users arrive — it publishes working credentials on the login screen.
+- [ ] **Point `TEST_DATABASE_URL` at a throwaway database.** The runner refuses to start otherwise, but verify it anyway.
+
+What is already handled: scrypt with a per-password salt, timing-safe comparison everywhere, identical failure messages for unknown-email and wrong-password, httpOnly + `SameSite=Lax` + `Secure`-in-production cookies, request body size caps per route, SQL parameterised throughout — including the dynamic `INSERT`/`UPDATE` builders in `/api/mutate`, where only column names derived from validated zod schemas are ever interpolated.
+
+---
+
+<div align="center">
+
+**Built with intent.** Every dependency not installed here was a decision, and every one of those decisions is written down — in `.specs/`, in the comments, and above.
+
+</div>

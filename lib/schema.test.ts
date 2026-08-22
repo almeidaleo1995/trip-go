@@ -20,7 +20,7 @@ test('aceita importacao so com a viagem, sem nenhuma lista', () => {
   const r = validarImportacao(MINIMA)
   assert.equal(r.sucesso, true)
   if (r.sucesso) {
-    assert.equal(r.dados.viagem.moeda, 'EUR')
+    assert.equal(r.dados.viagem.moeda, 'BRL')
     assert.deepEqual(r.dados.voos, [])
   }
 })
@@ -141,11 +141,10 @@ test('recusa custo com zero pessoas', () => {
   assert.match(r.sucesso === false ? r.erro : '', /pessoas/)
 })
 
-test('recusa PIN que nao tem 4 digitos', () => {
-  for (const pin of ['123', '12345', 'abcd', '12a4']) {
-    const r = validarImportacao({ ...MINIMA, viajantes: [{ nome: 'Leo', pin }] })
-    assert.equal(r.sucesso, false, `deveria recusar PIN ${pin}`)
-  }
+test('recusa papel fora da escala de tres', () => {
+  const r = validarImportacao({ ...MINIMA, participantes: [{ nome: 'Leo', papel: 'admin' }] })
+  assert.equal(r.sucesso, false)
+  assert.match(r.sucesso === false ? r.erro : '', /participantes\[0\]\.papel/)
 })
 
 test('recusa coordenada fora do intervalo valido', () => {
@@ -158,7 +157,7 @@ test('recusa coordenada fora do intervalo valido', () => {
 test('resumirImportacao conta por secao, incluindo portos aninhados', () => {
   const r = validarImportacao({
     ...MINIMA,
-    viajantes: [{ nome: 'Leo' }, { nome: 'Alana' }],
+    participantes: [{ nome: 'Leo' }, { nome: 'Alana' }],
     cruzeiros: [
       {
         navio: 'MSC Preziosa',
@@ -169,7 +168,7 @@ test('resumirImportacao conta por secao, incluindo portos aninhados', () => {
   assert.equal(r.sucesso, true)
   if (!r.sucesso) return
   const resumo = resumirImportacao(r.dados)
-  assert.equal(resumo.viajantes, 2)
+  assert.equal(resumo.participantes, 2)
   assert.equal(resumo.cruzeiros, 1)
   assert.equal(resumo.portos, 3)
   assert.equal(resumo.voos, 0)
