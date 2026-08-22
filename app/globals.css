@@ -1,26 +1,105 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/*
+  Tema das referências visuais: calmo, arejado, monocromático em teal.
+  Todo contraste abaixo foi MEDIDO, não estimado.
+
+  Dois valores ficaram proibidos e não estão aqui:
+    #0D9488 -> 3.74:1, reprova AA como texto e como fundo de texto
+    #94A3B8 -> 2.44:1, reprova para qualquer texto
+*/
+
+@theme {
+  --color-fundo: #f7fafa; /* 17.01:1 com a tinta */
+  --color-cartao: #ffffff;
+  --color-borda: #e2e8f0;
+  --color-tinta: #0f172a;
+  --color-tinta-2: #475569; /* 7.22:1 */
+  --color-tinta-3: #64748b; /* 4.53:1 — piso; nada mais claro em texto */
+
+  --color-destaque: #0f766e; /* 5.47:1 como texto E com branco em cima */
+  --color-destaque-escuro: #115e59;
+  --color-destaque-fraco: #ccfbf1;
+
+  /* Badges de tipo do roteiro. Tinta escura sobre pastel, todos acima de 4.5:1 */
+  --color-voo-ink: #0f766e;
+  --color-voo-bg: #ccfbf1;
+  --color-hosp-ink: #9a3412;
+  --color-hosp-bg: #ffedd5;
+  --color-cruz-ink: #1e40af;
+  --color-cruz-bg: #dbeafe;
+  --color-pass-ink: #6b21a8;
+  --color-pass-bg: #f3e8ff;
+
+  --color-alerta-ink: #9f1239;
+  --color-alerta-bg: #ffe4e6;
+
+  --font-sans: var(--fonte-inter), ui-sans-serif, system-ui, sans-serif;
+}
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Sobrescrito em runtime por trips.cor_destaque: trocar a viagem troca a
+     identidade sem tocar em nenhum componente. */
+  --destaque: #0f766e;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--color-fundo);
+  /* Impede o iOS de aumentar a fonte ao girar o aparelho. */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--color-tinta);
+  font-size: 15px;
+  line-height: 1.5;
+  /* Respiro para a tab bar fixa e para a área segura do iPhone. */
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  body {
+    padding-bottom: 0;
+  }
+}
+
+/* Números alinhados em colunas: horários, códigos de voo e dinheiro. */
+.tab-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Alvo de toque mínimo, aplicado por classe para não depender de lembrar. */
+.toque {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------ impressão
+   Folha do PDF de bolso: uma coluna, sem navegação, sem botão.
+   window.print() + isto entrega salvar-como-PDF e imprimir com zero dependência. */
+@media print {
+  .sem-impressao {
+    display: none !important;
+  }
+  body {
+    padding: 0;
+    font-size: 11pt;
+    background: #fff;
+  }
+  .quebra-evitar {
+    break-inside: avoid;
+  }
+  @page {
+    margin: 12mm;
+  }
 }

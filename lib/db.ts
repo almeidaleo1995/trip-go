@@ -1,0 +1,298 @@
+// Acesso ao Neon e montagem do snapshot.
+//
+// Regra que rege este arquivo: o cliente nunca fala com o Postgres. A connection
+// string vive so aqui, no servidor. O navegador conhece apenas /api/*.
+//
+// Leitura e por snapshot inteiro DE UMA VIAGEM, nao recurso a recurso: uma viagem
+// cheia da algumas dezenas de KB, e buscar tudo de uma vez elimina N+1, deixa o
+// cache offline trivial e dispensa gerenciar estado por endpoint. Trocar de viagem
+// troca o snapshot; a conta pode ter quantas viagens quiser.
+import { neon } from '@neondatabase/serverless'
+import type { Papel } from '../config/navigation.ts'
+
+function conectar() {
+  const url = process.env.DATABASE_URL
+  if (!url) throw new Error('DATABASE_URL nao definida - veja .env.example')
+  return neon(url)
+}
+
+export const sql = conectar()
+
+export type Usuario = {
+  id: string
+  nome: string
+  email: string
+  avatar_url: string | null
+}
+
+export type ViagemResumo = {
+  id: string
+  nome: string
+  subtitulo: string | null
+  descricao: string | null
+  data_partida: string
+  data_retorno: string
+  moeda: string
+  cor_destaque: string
+  capa_url: string | null
+  arquivada: boolean
+  papel: Papel
+  participantes: number
+}
+
+export type Snapshot = {
+  viagem: Record<string, unknown> | null
+  participantes: Record<string, unknown>[]
+  roteiro: Record<string, unknown>[]
+  voos: Record<string, unknown>[]
+  cruzeiros: Record<string, unknown>[]
+  reservas: Record<string, unknown>[]
+  lugares: Record<string, unknown>[]
+  checklist: Record<string, unknown>[]
+  checklist_state: Record<string, unknown>[]
+  documentos: Record<string, unknown>[]
+  emergencia: Record<string, unknown>[]
+  mensagens: Record<string, unknown>[]
+  alteracoes: Record<string, unknown>[]
+  /** null para papel `visualizador`. As queries financeiras nem chegam a rodar. */
+  financeiro: { categorias: Record<string, unknown>[]; custos: Record<string, unknown>[] } | null
+  server_time: string
+}
+
+// ---------------------------------------------------------------- contas
+
+/** Uso interno do login: precisa do hash. Nunca vai para a resposta. */
+export async function usuarioPorEmail(email: string) {
+  const r = await sql`
+    select id, nome, email, senha_hash, avatar_url from users where email = ${email}
+  `
+  return (r[0] as (Usuario & { senha_hash: string }) | undefined) ?? null
+}
+
+export async function usuarioPorId(id: string): Promise<Usuario | null> {
+  const r = await sql`select id, nome, email, avatar_url from users where id = ${id}`
+  return (r[0] as Usuario | undefined) ?? null
+}
+
+/**
+ * Cria a conta. Devolve null quando o e-mail ja existe.
+ *
+ * A checagem e o `on conflict`, nao um select antes: entre o select e o insert
+ * cabe outro cadastro com o mesmo e-mail. O unique do banco e a unica garantia.
+ */
+export async function criarUsuario(
+  nome: string,
+  email: string,
+  senhaHash: string,
+): Promise<Usuario | null> {
+  const r = await sql`
+    insert into users (nome, email, senha_hash) values (${nome}, ${email}, ${senhaHash})
+    on conflict (email) do nothing
+    returning id, nome, email, avatar_url
+  `
+  return (r[0] as Usuario | undefined) ?? null
+}
+
+export async function trocarSenha(userId: string, senhaHash: string) {
+  await sql`update users set senha_hash = ${senhaHash}, updated_at = now() where id = ${userId}`
+}
+
+export async function atualizarPerfil(userId: string, nome: string, avatarUrl: string | null) {
+  await sql`
+    update users set nome = ${nome}, avatar_url = ${avatarUrl}, updated_at = now()
+    where id = ${userId}
+  `
+}
+
+// ---------------------------------------------------------------- viagens da conta
+
+/**
+ * Papel da conta nesta viagem, ou null se ela nao participa.
+ *
+ * Esta funcao e a barreira de acesso entre contas. Toda leitura e toda escrita
+ * passa por aqui antes de tocar em dado de viagem - sem ela, trocar o id na URL
+ * daria acesso a viagem de qualquer pessoa.
+ */
+export async function papelNaViagem(userId: string, tripId: string): Promise<Papel | null> {
+  const r = await sql`
+    select papel from travelers where trip_id = ${tripId} and user_id = ${userId} limit 1
+  `
+  return ((r[0] as { papel: Papel } | undefined)?.papel as Papel) ?? null
+}
+
+/** O registro de participante da conta nesta viagem. Base do checklist pessoal. */
+export async function participanteDoUsuario(userId: string, tripId: string) {
+  const r = await sql`
+    select id, papel from travelers where trip_id = ${tripId} and user_id = ${userId} limit 1
+  `
+  return (r[0] as { id: string; papel: Papel } | undefined) ?? null
+}
+
+export async function viagensDoUsuario(userId: string): Promise<ViagemResumo[]> {
+  const r = await sql`
+    select t.*, eu.papel,
+           (select count(*)::int from travelers x where x.trip_id = t.id) as participantes
+    from trips t
+    join travelers eu on eu.trip_id = t.id and eu.user_id = ${userId}
+    order by t.arquivada, t.data_partida
+  `
+  return r as ViagemResumo[]
+}
+
+/**
+ * A viagem que deve abrir: a preferida, se a conta ainda participa dela; senao a
+ * proxima a acontecer. Nunca devolve viagem de outra conta.
+ */
+export async function viagemPadrao(userId: string, preferida?: string | null) {
+  const viagens = await viagensDoUsuario(userId)
+  const ativas = viagens.filter((v) => !v.arquivada)
+  if (preferida) {
+    const escolhida = viagens.find((v) => v.id === preferida)
+    if (escolhida) return escolhida
+  }
+  const hoje = new Date().toISOString().slice(0, 10)
+  return ativas.find((v) => v.data_retorno >= hoje) ?? ativas[0] ?? viagens[0] ?? null
+}
+
+// ---------------------------------------------------------------- snapshot
+
+/**
+ * Monta o snapshot de uma viagem conforme o papel.
+ *
+ * Para `visualizador`, as duas queries financeiras nao sao executadas e o campo
+ * sai null. Nao e filtro depois de buscar: o dado nao sai do banco. Essa e a
+ * diferenca entre esconder na interface e proteger de verdade.
+ */
+export async function getSnapshot(tripId: string, papel: Papel): Promise<Snapshot> {
+  const [
+    viagem,
+    participantes,
+    roteiro,
+    voos,
+    escalas,
+    cruzeiros,
+    portos,
+    reservas,
+    lugares,
+    checklist,
+    estado,
+    documentos,
+    emergencia,
+    mensagens,
+    alteracoes,
+  ] = await Promise.all([
+    sql`select * from trips where id = ${tripId}`,
+    sql`select p.id, p.trip_id, p.user_id, p.nome, p.email, p.papel, p.telefone,
+               p.passaporte, p.ordem, p.updated_at, u.avatar_url
+        from travelers p left join users u on u.id = p.user_id
+        where p.trip_id = ${tripId} order by p.ordem, p.nome`,
+    sql`select * from itinerary_events where trip_id = ${tripId} order by ocorre_em`,
+    sql`select * from flights where trip_id = ${tripId} order by ordem, parte_em`,
+    sql`select s.* from flight_stops s
+        join flights f on f.id = s.flight_id
+        where f.trip_id = ${tripId} order by s.ordem`,
+    sql`select * from cruises where trip_id = ${tripId}`,
+    sql`select p.* from cruise_ports p
+        join cruises c on c.id = p.cruise_id
+        where c.trip_id = ${tripId} order by p.ordem`,
+    sql`select * from reservations where trip_id = ${tripId} order by inicio_em, ordem`,
+    sql`select * from places where trip_id = ${tripId} order by ordem`,
+    sql`select * from checklist_items where trip_id = ${tripId} order by ordem`,
+    sql`select e.* from checklist_state e
+        join checklist_items i on i.id = e.item_id
+        where i.trip_id = ${tripId}`,
+    sql`select * from documents where trip_id = ${tripId} order by ordem`,
+    sql`select * from emergency_contacts where trip_id = ${tripId} order by ordem`,
+    sql`select m.*, u.nome as autor, u.avatar_url as autor_avatar from messages m
+        left join users u on u.id = m.user_id
+        where m.trip_id = ${tripId} order by m.criado_em desc limit 100`,
+    sql`select l.*, t.nome as autor from change_log l
+        left join travelers t on t.id = l.traveler_id
+        where l.trip_id = ${tripId} order by l.criado_em desc limit 50`,
+  ])
+
+  // Aninha os filhos em uma passada, sem query por pai.
+  const voosComEscalas = voos.map((v) => ({
+    ...v,
+    escalas: escalas.filter((e) => e.flight_id === v.id),
+  }))
+  const cruzeirosComPortos = cruzeiros.map((c) => ({
+    ...c,
+    portos: portos.filter((p) => p.cruise_id === c.id),
+  }))
+
+  let financeiro: Snapshot['financeiro'] = null
+  if (papel !== 'visualizador') {
+    const [categorias, custos] = await Promise.all([
+      sql`select * from expense_categories where trip_id = ${tripId} order by ordem`,
+      sql`select * from expenses where trip_id = ${tripId} order by ordem`,
+    ])
+    financeiro = { categorias, custos }
+  }
+
+  return {
+    viagem: viagem[0] ?? null,
+    participantes,
+    roteiro,
+    voos: voosComEscalas,
+    cruzeiros: cruzeirosComPortos,
+    reservas,
+    lugares,
+    checklist,
+    checklist_state: estado,
+    documentos,
+    emergencia,
+    mensagens: mensagens.reverse(),
+    alteracoes,
+    financeiro,
+    server_time: new Date().toISOString(),
+  }
+}
+
+// ---------------------------------------------------------------- avisos
+
+export async function notificacoesDoUsuario(userId: string) {
+  return sql`
+    select * from notifications where user_id = ${userId}
+    order by lida, criado_em desc limit 30
+  `
+}
+
+export async function marcarNotificacoesLidas(userId: string) {
+  await sql`update notifications set lida = true where user_id = ${userId} and lida = false`
+}
+
+/** Avisa todo mundo da viagem, menos quem causou o aviso. */
+export async function avisarParticipantes(
+  tripId: string,
+  excetoUserId: string,
+  titulo: string,
+  texto: string,
+  href: string,
+) {
+  await sql`
+    insert into notifications (user_id, trip_id, titulo, texto, href)
+    select user_id, ${tripId}, ${titulo}, ${texto}, ${href}
+    from travelers
+    where trip_id = ${tripId} and user_id is not null and user_id <> ${excetoUserId}
+  `
+}
+
+// ---------------------------------------------------------------- historico
+
+/** Registra uma alteracao no historico. Chamado por /api/mutate. */
+export async function registrarAlteracao(
+  tripId: string,
+  travelerId: string | null,
+  entidade: string,
+  entidadeId: string | null,
+  campo: string,
+  de: unknown,
+  para: unknown,
+) {
+  const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))
+  await sql`
+    insert into change_log (trip_id, traveler_id, entidade, entidade_id, campo, de, para)
+    values (${tripId}, ${travelerId}, ${entidade}, ${entidadeId}, ${campo}, ${texto(de)}, ${texto(para)})
+  `
+}
