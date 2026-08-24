@@ -124,7 +124,20 @@ async function autorizar(
   const meta = TABELA[entidade]
   if (!meta) throw new ErroHttp(400, `Entidade desconhecida: ${entidade}`)
 
-  if (!papelAlcanca(acesso.papel, meta.minimo)) {
+  // Item pessoal do checklist: quem está em assigned_to edita/apaga o próprio
+  // mesmo como visualizador (única exceção ao mínimo 'editor' da tabela) — mas
+  // ninguém além do dono ou do proprietário mexe nele, nem um editor comum.
+  let itemChecklist: { escopo: string; assigned_to: string[] } | undefined
+  if (entidade === 'checklist_item' && (op === 'editar' || op === 'remover') && id) {
+    const r = await sql`
+      select escopo, assigned_to from checklist_items where id = ${id} and trip_id = ${acesso.tripId}
+    `
+    itemChecklist = r[0] as { escopo: string; assigned_to: string[] } | undefined
+  }
+  const souDonoDoItem =
+    itemChecklist?.escopo === 'pessoal' && itemChecklist.assigned_to.includes(acesso.participanteId)
+
+  if (!papelAlcanca(acesso.papel, meta.minimo) && !souDonoDoItem) {
     throw new ErroHttp(
       403,
       meta.minimo === 'proprietario'
@@ -146,16 +159,11 @@ async function autorizar(
   if (
     entidade === 'checklist_item' &&
     (op === 'editar' || op === 'remover') &&
-    id &&
-    !papelAlcanca(acesso.papel, 'proprietario')
+    !papelAlcanca(acesso.papel, 'proprietario') &&
+    itemChecklist?.escopo === 'pessoal' &&
+    !souDonoDoItem
   ) {
-    const r = await sql`
-      select escopo, assigned_to from checklist_items where id = ${id} and trip_id = ${acesso.tripId}
-    `
-    const item = r[0] as { escopo: string; assigned_to: string[] } | undefined
-    if (item?.escopo === 'pessoal' && !item.assigned_to.includes(acesso.participanteId)) {
-      throw new ErroHttp(403, 'Este item pessoal é de outro participante.')
-    }
+    throw new ErroHttp(403, 'Este item pessoal é de outro participante.')
   }
 
   // O último proprietário não pode sumir, senão a viagem fica sem quem a gerencie.

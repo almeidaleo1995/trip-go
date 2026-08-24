@@ -370,6 +370,7 @@ export function Checklist() {
                         : undefined
                     }
                     participantes={participantes}
+                    meuId={meuId}
                   />
                 ))}
               </Secao>
@@ -761,12 +762,14 @@ function ItemChecklist({
   onToggle,
   grupo,
   participantes,
+  meuId,
 }: {
   item: ChecklistItem
   feito: boolean
   onToggle: () => void
   grupo?: string
   participantes: Participante[]
+  meuId: string
 }) {
   // Lazy init (não useMemo): mesmo motivo do Dicas() abaixo — não pode chamar
   // Date.now() no corpo puro do render.
@@ -774,83 +777,91 @@ function ItemChecklist({
   // Prazo vencido só é alarme se o item ainda não foi feito.
   const limite = parseData(item.prazo_maximo)
   const vencido = !feito && limite !== null && limite.getTime() < agora
+  // Item pessoal, dono edita/apaga o próprio mesmo como visualizador — quem
+  // decide de verdade é o servidor (autorizar em /api/mutate), isto só evita
+  // mostrar um botão que ia dar 403.
+  const souDono = item.escopo === 'pessoal' && item.assigned_to.includes(meuId)
 
   return (
     <div className="quebra-evitar rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-3.5 transition-colors">
-      <button
-        onClick={onToggle}
-        className="flex w-full cursor-pointer items-start gap-3 text-left"
-        aria-pressed={feito}
-      >
-        <span
-          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2"
-          style={{
-            borderColor: feito ? 'var(--destaque)' : 'var(--color-borda-forte)',
-            background: feito ? 'var(--destaque)' : 'transparent',
-            transition: 'all var(--transicao)',
-          }}
+      <div className="flex items-start gap-2">
+        <button
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left"
+          aria-pressed={feito}
         >
-          {/* O check cresce ao entrar: é o único sinal de que a marcação pegou,
-              já que a escrita é otimista e não há espera pela rede. */}
-          {feito && <Check size={15} className="anim-subir text-white" strokeWidth={3} />}
-        </span>
-
-        <span className="min-w-0 flex-1">
-          <span className={`block font-medium ${feito ? 'text-(--color-tinta-3) line-through' : ''}`}>
-            {String(item.titulo)}
+          <span
+            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2"
+            style={{
+              borderColor: feito ? 'var(--destaque)' : 'var(--color-borda-forte)',
+              background: feito ? 'var(--destaque)' : 'transparent',
+              transition: 'all var(--transicao)',
+            }}
+          >
+            {/* O check cresce ao entrar: é o único sinal de que a marcação pegou,
+                já que a escrita é otimista e não há espera pela rede. */}
+            {feito && <Check size={15} className="anim-subir text-white" strokeWidth={3} />}
           </span>
-          {item.detalhe && (
-            <span className="mt-1 block text-[13px] text-(--color-tinta-2)">
-              {String(item.detalhe)}
+
+          <span className="min-w-0 flex-1">
+            <span className={`block font-medium ${feito ? 'text-(--color-tinta-3) line-through' : ''}`}>
+              {String(item.titulo)}
+            </span>
+            {item.detalhe && (
+              <span className="mt-1 block text-[13px] text-(--color-tinta-2)">
+                {String(item.detalhe)}
+              </span>
+            )}
+            <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
+              {item.categoria && (
+                <span className="rounded-full bg-(--color-fundo) px-2 py-0.5 text-(--color-tinta-3)">
+                  {String(item.categoria)}
+                </span>
+              )}
+              {item.prazo_ideal && (
+                <span className="tab-num text-(--color-tinta-3)">
+                  ideal até {formatarData(item.prazo_ideal)}
+                </span>
+              )}
+              {item.prazo_maximo &&
+                (vencido ? (
+                  // Vencido é etiqueta com ícone, não só texto vermelho: cor sozinha
+                  // não é informação para quem não a distingue.
+                  <Badge
+                    tipo="perigo"
+                    icone={<AlertTriangle size={11} />}
+                    texto={`Vencido · ${formatarData(item.prazo_maximo)}`}
+                  />
+                ) : (
+                  <span className="tab-num font-semibold text-(--color-tinta-3)">
+                    limite {formatarData(item.prazo_maximo)}
+                  </span>
+                ))}
+              {grupo && (
+                <span className="tab-num rounded-full bg-(--color-destaque-fraco) px-2 py-0.5 font-semibold text-(--color-voo-ink)">
+                  {grupo} do grupo
+                </span>
+              )}
+            </span>
+          </span>
+
+          {item.assigned_to.length > 0 && (
+            <span className="mt-0.5 flex shrink-0 items-center gap-1">
+              {item.assigned_to.slice(0, 3).map((id) => {
+                const p = participantes.find((p) => p.id === id)
+                return p ? <Avatar key={id} nome={p.nome} url={p.avatar_url} tamanho={20} /> : null
+              })}
+              {item.assigned_to.length > 3 && (
+                <span className="tab-num flex h-5 w-5 items-center justify-center rounded-full bg-(--color-superficie-2) text-[9px] font-semibold text-(--color-tinta-3)">
+                  +{item.assigned_to.length - 3}
+                </span>
+              )}
             </span>
           )}
-          <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
-            {item.categoria && (
-              <span className="rounded-full bg-(--color-fundo) px-2 py-0.5 text-(--color-tinta-3)">
-                {String(item.categoria)}
-              </span>
-            )}
-            {item.prazo_ideal && (
-              <span className="tab-num text-(--color-tinta-3)">
-                ideal até {formatarData(item.prazo_ideal)}
-              </span>
-            )}
-            {item.prazo_maximo &&
-              (vencido ? (
-                // Vencido é etiqueta com ícone, não só texto vermelho: cor sozinha
-                // não é informação para quem não a distingue.
-                <Badge
-                  tipo="perigo"
-                  icone={<AlertTriangle size={11} />}
-                  texto={`Vencido · ${formatarData(item.prazo_maximo)}`}
-                />
-              ) : (
-                <span className="tab-num font-semibold text-(--color-tinta-3)">
-                  limite {formatarData(item.prazo_maximo)}
-                </span>
-              ))}
-            {grupo && (
-              <span className="tab-num rounded-full bg-(--color-destaque-fraco) px-2 py-0.5 font-semibold text-(--color-voo-ink)">
-                {grupo} do grupo
-              </span>
-            )}
-          </span>
-        </span>
+        </button>
 
-        {item.assigned_to.length > 0 && (
-          <span className="mt-0.5 flex shrink-0 items-center gap-1">
-            {item.assigned_to.slice(0, 3).map((id) => {
-              const p = participantes.find((p) => p.id === id)
-              return p ? <Avatar key={id} nome={p.nome} url={p.avatar_url} tamanho={20} /> : null
-            })}
-            {item.assigned_to.length > 3 && (
-              <span className="tab-num flex h-5 w-5 items-center justify-center rounded-full bg-(--color-superficie-2) text-[9px] font-semibold text-(--color-tinta-3)">
-                +{item.assigned_to.length - 3}
-              </span>
-            )}
-          </span>
-        )}
-      </button>
+        <AdminAcoes entidade="checklist_item" registro={item} permitirTambem={souDono} />
+      </div>
 
       {item.fonte_tipo && <ExplicacaoFonte item={item} />}
     </div>

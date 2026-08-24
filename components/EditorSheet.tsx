@@ -888,14 +888,19 @@ export function AdminAcoes({
   entidade,
   registro,
   children,
+  permitirTambem = false,
 }: {
   entidade: string
   registro?: Record<string, unknown> | null
   children?: ReactNode
+  /** Libera o botão pra quem não alcança o papel mínimo em casos pontuais de
+      dono do próprio registro (ex.: item pessoal do checklist) — o servidor
+      é quem decide de verdade (`autorizar` em `/api/mutate`), isto é só a UI. */
+  permitirTambem?: boolean
 }) {
   const { posso } = useTrip()
   const [aberto, setAberto] = useState(false)
-  if (!posso(MINIMO[entidade] ?? 'editor')) return null
+  if (!posso(MINIMO[entidade] ?? 'editor') && !permitirTambem) return null
 
   const criando = !registro?.id
   const nome = CAMPOS[entidade]?.nome.toLowerCase() ?? 'registro'
