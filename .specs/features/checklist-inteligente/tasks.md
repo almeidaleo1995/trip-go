@@ -646,7 +646,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T25: `templates/categorias-e-fases.md`
+### T25: `templates/categorias-e-fases.md` ✅
 
 **What**: Lista de categorias sugeridas (seção 5 do brief original), enum de prioridade, e explicação de que a fase é calculada (não armazenada) — para a skill saber que não deve inventar um campo `fase`.
 **Where**: `.claude/skills/viagem-para-json/templates/categorias-e-fases.md`
