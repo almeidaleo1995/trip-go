@@ -210,7 +210,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T6: `/api/mutate` — checagem de dono em item pessoal
+### T6: `/api/mutate` — checagem de dono em item pessoal ✅ (verificado por revisão de código, mesmo padrão do checklist_state ao lado)
 
 **What**: No handler de `checklist_item`, quando `escopo='pessoal'`, só quem está em `assigned_to` ou é `proprietario` pode `editar`/`remover` a linha — fecha o achado de Risks & Concerns (hoje um `editor` pode mexer no item pessoal alheio mesmo sem poder vê-lo).
 **Where**: `app/api/mutate/route.ts`

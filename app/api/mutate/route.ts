@@ -77,7 +77,7 @@ export const POST = rota(async (req) => {
 
   for (const op of parsed.data.ops) {
     try {
-      await autorizar(acesso, op.entidade, op.op, op.campos)
+      await autorizar(acesso, op.entidade, op.op, op.campos, op.id)
       const mudou = await aplicar(acesso, op)
       if (mudou) aplicadas.push(op.id ?? 'novo')
       else rejeitadas.push({ id: op.id ?? undefined, motivo: 'versão do servidor é mais nova' })
@@ -119,6 +119,7 @@ async function autorizar(
   entidade: Entidade,
   op: string,
   campos: Record<string, unknown>,
+  id?: string | null,
 ) {
   const meta = TABELA[entidade]
   if (!meta) throw new ErroHttp(400, `Entidade desconhecida: ${entidade}`)
@@ -135,6 +136,25 @@ async function autorizar(
   if (entidade === 'checklist_state' && campos.traveler_id) {
     if (campos.traveler_id !== acesso.participanteId) {
       throw new ErroHttp(403, 'Você só pode marcar o seu próprio checklist.')
+    }
+  }
+
+  // Um item pessoal so pode ser editado/apagado por quem esta em assigned_to ou
+  // pelo proprietario — do contrario um editor poderia mexer no item pessoal de
+  // outro participante mesmo sem poder VE-LO (checklistDaViagem ja o esconde na
+  // leitura; isto fecha o mesmo buraco na escrita).
+  if (
+    entidade === 'checklist_item' &&
+    (op === 'editar' || op === 'remover') &&
+    id &&
+    !papelAlcanca(acesso.papel, 'proprietario')
+  ) {
+    const r = await sql`
+      select escopo, assigned_to from checklist_items where id = ${id} and trip_id = ${acesso.tripId}
+    `
+    const item = r[0] as { escopo: string; assigned_to: string[] } | undefined
+    if (item?.escopo === 'pessoal' && !item.assigned_to.includes(acesso.participanteId)) {
+      throw new ErroHttp(403, 'Este item pessoal é de outro participante.')
     }
   }
 
