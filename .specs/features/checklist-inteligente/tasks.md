@@ -141,7 +141,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T3: Migração `db/schema.sql` — colunas e constraints
+### T3: Migração `db/schema.sql` — colunas e constraints ✅
 
 **What**: Colunas novas em `checklist_items` no bloco `create table` **e** em `alter table ... add column if not exists` na seção de migrações, mais a constraint `checklist_pessoal_tem_dono`.
 **Where**: `db/schema.sql`

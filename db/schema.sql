@@ -286,7 +286,23 @@ create table if not exists checklist_items (
   valor_estimado_centavos integer check (valor_estimado_centavos is null or valor_estimado_centavos >= 0),
   detalhe                 text,
   ordem                   integer not null default 0,
-  updated_at              timestamptz not null default now()
+  -- donos do item; vazio = todos. So faz sentido preenchido em escopo pessoal ou
+  -- para destacar responsabilidade num item global (ver constraint abaixo).
+  assigned_to             text[] not null default '{}',
+  prioridade              text not null default 'importante'
+                            check (prioridade in ('obrigatorio', 'importante', 'recomendado', 'opcional')),
+  pais                    text,
+  cidade                  text,
+  itinerary_event_id      text references itinerary_events(id) on delete set null,
+  flight_id               text references flights(id) on delete set null,
+  cruise_id               text references cruises(id) on delete set null,
+  -- sugestao da skill ainda nao revisada pelo admin
+  pendente                boolean not null default false,
+  fonte_tipo              text check (fonte_tipo is null or fonte_tipo in ('documento', 'pesquisa', 'sugestao', 'manual')),
+  fonte_detalhe           text,
+  fonte_consultado_em     date,
+  updated_at              timestamptz not null default now(),
+  constraint checklist_pessoal_tem_dono check (escopo <> 'pessoal' or array_length(assigned_to, 1) > 0)
 );
 
 create table if not exists checklist_state (
@@ -624,6 +640,32 @@ alter table itinerary_events add  constraint itinerary_events_tipo_check
                   'hospedagem', 'local', 'passeio', 'ponto', 'restaurante',
                   'refeicao', 'compras', 'evento', 'tarefa', 'compromisso',
                   'dica', 'observacao', 'documento'));
+
+-- ---------------------------------------------------------------- checklist inteligente
+
+alter table checklist_items add column if not exists assigned_to         text[] not null default '{}';
+alter table checklist_items add column if not exists prioridade          text not null default 'importante';
+alter table checklist_items add column if not exists pais                text;
+alter table checklist_items add column if not exists cidade              text;
+alter table checklist_items add column if not exists itinerary_event_id  text references itinerary_events(id) on delete set null;
+alter table checklist_items add column if not exists flight_id           text references flights(id) on delete set null;
+alter table checklist_items add column if not exists cruise_id           text references cruises(id) on delete set null;
+alter table checklist_items add column if not exists pendente            boolean not null default false;
+alter table checklist_items add column if not exists fonte_tipo          text;
+alter table checklist_items add column if not exists fonte_detalhe       text;
+alter table checklist_items add column if not exists fonte_consultado_em date;
+
+alter table checklist_items drop constraint if exists checklist_items_prioridade_check;
+alter table checklist_items add  constraint checklist_items_prioridade_check
+  check (prioridade in ('obrigatorio', 'importante', 'recomendado', 'opcional'));
+
+alter table checklist_items drop constraint if exists checklist_items_fonte_tipo_check;
+alter table checklist_items add  constraint checklist_items_fonte_tipo_check
+  check (fonte_tipo is null or fonte_tipo in ('documento', 'pesquisa', 'sugestao', 'manual'));
+
+alter table checklist_items drop constraint if exists checklist_pessoal_tem_dono;
+alter table checklist_items add  constraint checklist_pessoal_tem_dono
+  check (escopo <> 'pessoal' or array_length(assigned_to, 1) > 0);
 
 -- ---------------------------------------------------------------- indices
 
