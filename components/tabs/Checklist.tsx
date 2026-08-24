@@ -2,9 +2,25 @@
 
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
 import type { z } from 'zod'
-import { Check, AlertTriangle, Upload } from 'lucide-react'
+import {
+  Check,
+  AlertTriangle,
+  Upload,
+  FileText,
+  Briefcase,
+  Shirt,
+  HeartPulse,
+  Wallet,
+  Smartphone,
+  CalendarCheck,
+  MapPin,
+  Siren,
+  RotateCcw,
+  ClipboardList,
+  type LucideIcon,
+} from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
-import { Badge, Cartao, Progresso, Rotulo, Titulo, Vazio, AppModal, Botao, useAviso } from '../ui.tsx'
+import { Badge, Cartao, Progresso, Rotulo, Titulo, Vazio, AppModal, Botao, Avatar, useAviso } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
 import { progressoChecklist, formatarData, parseData } from '@/lib/derive.ts'
 import { ChecklistSugestoesBatchSchema, type ChecklistItemSchema } from '@/lib/schema.ts'
@@ -13,6 +29,7 @@ import { buscarClima, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 
 type ChecklistItem = z.infer<typeof ChecklistItemSchema>
 type EstadoLinha = { traveler_id: string; item_id: string; feito: boolean }
+type Participante = { id: string; nome: string; avatar_url?: string | null }
 
 const agora = () => new Date().toISOString()
 
@@ -24,6 +41,29 @@ const VISOES: { id: Visao; nome: string }[] = [
   { id: 'destino', nome: 'Por destino' },
   { id: 'tudo', nome: 'Tudo' },
 ]
+
+/** Ícone por categoria — mesmo padrão de `Roteiro.tsx` (mapa + fallback), só
+    para dar identidade visual ao cartão; não é fonte de verdade nenhuma. */
+const ICONE_CATEGORIA: Record<string, LucideIcon> = {
+  documentos: FileText,
+  bagagem: Briefcase,
+  roupas: Shirt,
+  saude: HeartPulse,
+  dinheiro: Wallet,
+  eletronicos: Smartphone,
+  reservas: CalendarCheck,
+  destino: MapPin,
+  emergencia: Siren,
+  retorno: RotateCcw,
+}
+const semAcento = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+function iconeCategoria(nome: string): LucideIcon {
+  return ICONE_CATEGORIA[semAcento(nome)] ?? ClipboardList
+}
 
 /** Agrupa os itens JÁ visíveis para quem pediu (o filtro de privacidade é do
     servidor, ver checklistDaViagem) — nenhuma visão aqui esconde item nenhum,
@@ -55,9 +95,130 @@ function agrupar(
   return [...mapa.entries()].map(([titulo, itens]) => ({ titulo, itens }))
 }
 
+/** Cartão de resumo de uma categoria, no carrossel do topo — só leitura, não
+    filtra nada (filtrar por categoria já existe via a visão "Por categoria"). */
+function CartaoCategoria({
+  nome,
+  Icone,
+  total,
+  feitos,
+}: {
+  nome: string
+  Icone: LucideIcon
+  total: number
+  feitos: number
+}) {
+  const pct = total > 0 ? Math.round((feitos / total) * 100) : 0
+  return (
+    <div className="quebra-evitar flex w-40 shrink-0 flex-col rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-3.5">
+      <div
+        className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-xl"
+        style={{ background: 'var(--color-destaque-fraco)', color: 'var(--destaque)' }}
+      >
+        <Icone size={18} />
+      </div>
+      <span className="truncate font-medium">{nome}</span>
+      <span className="tab-num mb-2 text-[12px] text-(--color-tinta-3)">
+        {feitos}/{total} {total === 1 ? 'item' : 'itens'}
+      </span>
+      <Progresso pct={pct} />
+    </div>
+  )
+}
+
+/** Avatar clicável da linha de filtro por pessoa — não é privacidade (isso já
+    veio filtrado do servidor), só reorganização visual (CHK-07). */
+function FiltroPessoa({
+  nome,
+  url,
+  quantidade,
+  selecionado,
+  onClick,
+}: {
+  nome: string
+  url?: string | null
+  quantidade: number
+  selecionado: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={selecionado}
+      className="flex shrink-0 cursor-pointer flex-col items-center gap-1.5 rounded-xl px-2 py-1.5 text-center transition-colors"
+      style={{ background: selecionado ? 'var(--color-destaque-tenue)' : 'transparent' }}
+    >
+      <span
+        className="rounded-full"
+        style={{ boxShadow: selecionado ? '0 0 0 2px var(--destaque)' : 'none' }}
+      >
+        <Avatar nome={nome} url={url} tamanho={40} />
+      </span>
+      <span className="max-w-16 truncate text-[11px] font-medium text-(--color-tinta-2)">
+        {nome.split(' ')[0]}
+      </span>
+      <span className="tab-num text-[10px] text-(--color-tinta-3)">{quantidade}</span>
+    </button>
+  )
+}
+
+/** Anel de progresso — não existia equivalente circular em `ui.tsx` (só o
+    linear `Progresso`), então é SVG puro, sem nova dependência. */
+function AnelProgresso({ pct, tamanho = 128 }: { pct: number; tamanho?: number }) {
+  const espessura = 10
+  const raio = (tamanho - espessura) / 2
+  const circunferencia = 2 * Math.PI * raio
+  const limitado = Math.min(100, Math.max(0, pct))
+  const meio = tamanho / 2
+  return (
+    <svg width={tamanho} height={tamanho} viewBox={`0 0 ${tamanho} ${tamanho}`} role="img" aria-label={`${pct}% concluído`}>
+      <circle cx={meio} cy={meio} r={raio} fill="none" stroke="var(--color-superficie-2)" strokeWidth={espessura} />
+      <circle
+        cx={meio}
+        cy={meio}
+        r={raio}
+        fill="none"
+        stroke="var(--destaque)"
+        strokeWidth={espessura}
+        strokeLinecap="round"
+        strokeDasharray={circunferencia}
+        strokeDashoffset={circunferencia * (1 - limitado / 100)}
+        transform={`rotate(-90 ${meio} ${meio})`}
+        style={{ transition: 'stroke-dashoffset var(--transicao)' }}
+      />
+      <text
+        x="50%"
+        y="50%"
+        textAnchor="middle"
+        dominantBaseline="central"
+        className="tab-num"
+        style={{ fontSize: tamanho * 0.22, fontWeight: 700, fill: 'var(--color-tinta)' }}
+      >
+        {pct}%
+      </text>
+    </svg>
+  )
+}
+
+function LinhaResumo({ cor, rotulo, valor }: { cor: string; rotulo: string; valor: number }) {
+  return (
+    <div className="flex items-center gap-2 text-[13px]">
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: cor }} aria-hidden />
+      <span className="flex-1 text-(--color-tinta-2)">{rotulo}</span>
+      <span className="tab-num font-semibold">{valor}</span>
+    </div>
+  )
+}
+
 export function Checklist() {
   const { snapshot, mutate, posso } = useTrip()
   const [visao, setVisao] = useState<Visao>('categoria')
+  const [pessoaFiltro, setPessoaFiltro] = useState<string>('todos')
+  // Lazy init (não useMemo): mesmo motivo do Dicas() logo abaixo — "vencido"
+  // não precisa do milissegundo exato, só não pode chamar Date.now() no corpo
+  // puro do render. Nome diferente do `agora()` de topo de arquivo (helper de
+  // timestamp ISO) para não sombrear.
+  const [agoraMs] = useState(() => Date.now())
   if (!snapshot) return null
 
   const todosOsItens = snapshot.checklist as unknown as ChecklistItem[]
@@ -68,12 +229,25 @@ export function Checklist() {
   const estados = snapshot.checklist_state as EstadoLinha[]
   const meuId = snapshot.eu.participanteId
   const souProprietario = snapshot.eu.papel === 'proprietario'
-  const participantes = snapshot.participantes as { id: string; nome: string }[]
+  const participantes = snapshot.participantes as Participante[]
 
   const meus = Object.fromEntries(
     estados.filter((e) => e.traveler_id === meuId).map((e) => [String(e.item_id), e.feito]),
   )
-  const progresso = progressoChecklist(itens as { id: string }[], meus)
+
+  const relevantePara = (i: ChecklistItem, participanteId: string) =>
+    i.escopo === 'global' || i.assigned_to.includes(participanteId)
+
+  // Linha de avatares filtra por pessoa (visual, CHK-07) — a privacidade real
+  // já aconteceu no servidor (checklistDaViagem), isso só reorganiza a tela.
+  const itensFiltrados =
+    pessoaFiltro === 'todos' ? itens : itens.filter((i) => relevantePara(i, pessoaFiltro))
+  const progresso = progressoChecklist(itensFiltrados as { id: string }[], meus)
+  const vencidos = itensFiltrados.filter((i) => {
+    if (meus[String(i.id)]) return false
+    const limite = parseData(i.prazo_maximo)
+    return limite !== null && limite.getTime() < agoraMs
+  }).length
 
   /** Quantos viajantes concluíram um item global (CHK-03). */
   const quantosFizeram = (itemId: string) =>
@@ -117,87 +291,149 @@ export function Checklist() {
     )
   }
 
-  const grupos = agrupar(itens, visao, participantes)
+  const grupos = agrupar(itensFiltrados, visao, participantes)
+  // O carrossel de categorias é visão geral: sempre sobre todos os itens, não
+  // sobre `itensFiltrados` — trocar de pessoa no filtro não some com cartão.
+  const categorias = agrupar(itens, 'categoria', participantes)
 
   return (
     <>
       {titulo}
-      {posso('editor') && pendentes.length > 0 && <Pendentes itens={pendentes} />}
-      <Cartao className="mb-4">
-        <div className="mb-2 flex items-baseline justify-between">
-          <Rotulo>Seu progresso</Rotulo>
-          <span className="tab-num text-sm font-semibold">
-            {progresso.feitos}/{progresso.total} · {progresso.pct}%
-          </span>
-        </div>
-        <Progresso pct={progresso.pct} />
-        <p className="mt-2.5 text-[12px] text-(--color-tinta-3)">
-          Suas marcações sincronizam entre os aparelhos quando há internet. Sem rede, ficam salvas
-          aqui e sobem sozinhas depois.
-        </p>
 
-        {/* Progresso por pessoa: só quem administra vê, porque calcular direito
-            exige enxergar o item pessoal de cada um (ver checklistDaViagem). */}
-        {souProprietario && (
-          <div className="mt-3.5 space-y-2 border-t border-(--color-borda) pt-3.5">
-            {participantes.map((p) => {
-              const estadoDaPessoa = Object.fromEntries(
-                estados.filter((e) => e.traveler_id === p.id).map((e) => [String(e.item_id), e.feito]),
-              )
-              const relevantes = itens.filter(
-                (i) => i.escopo === 'global' || i.assigned_to.includes(p.id),
-              )
-              const pp = progressoChecklist(relevantes as { id: string }[], estadoDaPessoa)
-              return (
-                <div key={p.id} className="flex items-center gap-2 text-[12px]">
-                  <span className="w-24 shrink-0 truncate text-(--color-tinta-2)">{p.nome}</span>
-                  <div className="flex-1">
-                    <Progresso pct={pp.pct} />
-                  </div>
-                  <span className="tab-num w-9 shrink-0 text-right font-semibold text-(--color-tinta-3)">
-                    {pp.pct}%
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </Cartao>
-
-      <Dicas />
-      <Clima />
-
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {VISOES.map((v) => (
-          <button
-            key={v.id}
-            onClick={() => setVisao(v.id)}
-            aria-pressed={visao === v.id}
-            className="cursor-pointer rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
-            style={{
-              borderColor: visao === v.id ? 'var(--destaque)' : 'var(--color-borda-forte)',
-              background: visao === v.id ? 'var(--color-destaque-tenue)' : 'transparent',
-              color: visao === v.id ? 'var(--destaque)' : 'var(--color-tinta-2)',
-            }}
-          >
-            {v.nome}
-          </button>
+      <div className="mb-5 -mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1">
+        {categorias.map((c) => (
+          <CartaoCategoria
+            key={c.titulo}
+            nome={c.titulo}
+            Icone={iconeCategoria(c.titulo)}
+            total={c.itens.length}
+            feitos={c.itens.filter((i) => meus[String(i.id)]).length}
+          />
         ))}
       </div>
 
-      {grupos.map((g) => (
-        <Secao key={g.titulo} titulo={g.titulo}>
-          {g.itens.map((i) => (
-            <ItemChecklist
-              key={String(i.id)}
-              item={i}
-              feito={Boolean(meus[String(i.id)])}
-              onToggle={() => alternar(i)}
-              grupo={i.escopo === 'global' ? `${quantosFizeram(String(i.id))}/${totalParticipantes}` : undefined}
+      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+        <div className="min-w-0">
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            {VISOES.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => setVisao(v.id)}
+                aria-pressed={visao === v.id}
+                className="cursor-pointer rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                style={{
+                  borderColor: visao === v.id ? 'var(--destaque)' : 'var(--color-borda-forte)',
+                  background: visao === v.id ? 'var(--color-destaque-tenue)' : 'transparent',
+                  color: visao === v.id ? 'var(--destaque)' : 'var(--color-tinta-2)',
+                }}
+              >
+                {v.nome}
+              </button>
+            ))}
+          </div>
+
+          <div className="mb-5 flex gap-1 overflow-x-auto pb-1">
+            <FiltroPessoa
+              nome="Todos"
+              quantidade={itens.length}
+              selecionado={pessoaFiltro === 'todos'}
+              onClick={() => setPessoaFiltro('todos')}
             />
-          ))}
-        </Secao>
-      ))}
+            {participantes.map((p) => (
+              <FiltroPessoa
+                key={p.id}
+                nome={p.nome}
+                url={p.avatar_url}
+                quantidade={itens.filter((i) => relevantePara(i, p.id)).length}
+                selecionado={pessoaFiltro === p.id}
+                onClick={() => setPessoaFiltro(p.id)}
+              />
+            ))}
+          </div>
+
+          {posso('editor') && pendentes.length > 0 && <Pendentes itens={pendentes} />}
+
+          {grupos.length === 0 ? (
+            <Vazio titulo="Nada por aqui" texto="Ninguém tem item nesta pessoa ou categoria." />
+          ) : (
+            grupos.map((g) => (
+              <Secao key={g.titulo} titulo={g.titulo}>
+                {g.itens.map((i) => (
+                  <ItemChecklist
+                    key={String(i.id)}
+                    item={i}
+                    feito={Boolean(meus[String(i.id)])}
+                    onToggle={() => alternar(i)}
+                    grupo={
+                      i.escopo === 'global'
+                        ? `${quantosFizeram(String(i.id))}/${totalParticipantes}`
+                        : undefined
+                    }
+                    participantes={participantes}
+                  />
+                ))}
+              </Secao>
+            ))
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <Cartao className="text-center">
+            <Rotulo>Seu progresso geral</Rotulo>
+            <div className="my-3 flex justify-center">
+              <AnelProgresso pct={progresso.pct} />
+            </div>
+            <div className="space-y-1.5 text-left">
+              <LinhaResumo cor="var(--destaque)" rotulo="Concluídos" valor={progresso.feitos} />
+              <LinhaResumo
+                cor="var(--color-borda-forte)"
+                rotulo="Pendentes"
+                valor={progresso.total - progresso.feitos}
+              />
+              <LinhaResumo cor="var(--color-perigo-ink)" rotulo="Vencidos" valor={vencidos} />
+            </div>
+            <p className="mt-3 text-[12px] text-(--color-tinta-3)">
+              Suas marcações sincronizam entre os aparelhos quando há internet. Sem rede, ficam
+              salvas aqui e sobem sozinhas depois.
+            </p>
+          </Cartao>
+
+          {/* Progresso por pessoa: só quem administra vê, porque calcular
+              direito exige enxergar o item pessoal de cada um (checklistDaViagem). */}
+          {souProprietario && (
+            <Cartao>
+              <Rotulo>Progresso por pessoa</Rotulo>
+              <div className="mt-3 space-y-2">
+                {participantes.map((p) => {
+                  const estadoDaPessoa = Object.fromEntries(
+                    estados
+                      .filter((e) => e.traveler_id === p.id)
+                      .map((e) => [String(e.item_id), e.feito]),
+                  )
+                  const relevantes = itens.filter((i) => relevantePara(i, p.id))
+                  const pp = progressoChecklist(relevantes as { id: string }[], estadoDaPessoa)
+                  return (
+                    <div key={p.id} className="flex items-center gap-2 text-[12px]">
+                      <span className="w-16 shrink-0 truncate text-(--color-tinta-2)">
+                        {p.nome.split(' ')[0]}
+                      </span>
+                      <div className="flex-1">
+                        <Progresso pct={pp.pct} />
+                      </div>
+                      <span className="tab-num w-9 shrink-0 text-right font-semibold text-(--color-tinta-3)">
+                        {pp.pct}%
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </Cartao>
+          )}
+
+          <Dicas />
+          <Clima />
+        </div>
+      </div>
     </>
   )
 }
@@ -524,15 +760,20 @@ function ItemChecklist({
   feito,
   onToggle,
   grupo,
+  participantes,
 }: {
   item: ChecklistItem
   feito: boolean
   onToggle: () => void
   grupo?: string
+  participantes: Participante[]
 }) {
+  // Lazy init (não useMemo): mesmo motivo do Dicas() abaixo — não pode chamar
+  // Date.now() no corpo puro do render.
+  const [agora] = useState(() => Date.now())
   // Prazo vencido só é alarme se o item ainda não foi feito.
   const limite = parseData(item.prazo_maximo)
-  const vencido = !feito && limite !== null && limite.getTime() < Date.now()
+  const vencido = !feito && limite !== null && limite.getTime() < agora
 
   return (
     <div className="quebra-evitar rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-3.5 transition-colors">
@@ -595,6 +836,20 @@ function ItemChecklist({
             )}
           </span>
         </span>
+
+        {item.assigned_to.length > 0 && (
+          <span className="mt-0.5 flex shrink-0 items-center gap-1">
+            {item.assigned_to.slice(0, 3).map((id) => {
+              const p = participantes.find((p) => p.id === id)
+              return p ? <Avatar key={id} nome={p.nome} url={p.avatar_url} tamanho={20} /> : null
+            })}
+            {item.assigned_to.length > 3 && (
+              <span className="tab-num flex h-5 w-5 items-center justify-center rounded-full bg-(--color-superficie-2) text-[9px] font-semibold text-(--color-tinta-3)">
+                +{item.assigned_to.length - 3}
+              </span>
+            )}
+          </span>
+        )}
       </button>
 
       {item.fonte_tipo && <ExplicacaoFonte item={item} />}
