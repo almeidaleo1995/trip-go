@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ChangeEvent } from 'react'
+import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
 import type { z } from 'zod'
 import { Check, AlertTriangle, Upload } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
@@ -9,6 +9,7 @@ import { AdminAcoes } from '../EditorSheet.tsx'
 import { progressoChecklist, formatarData, parseData } from '@/lib/derive.ts'
 import { ChecklistSugestoesBatchSchema, type ChecklistItemSchema } from '@/lib/schema.ts'
 import { resolverSugestoes, type ContextoResolucao, type ResultadoResolucao } from '@/lib/checklist.ts'
+import { buscarClima, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 
 type ChecklistItem = z.infer<typeof ChecklistItemSchema>
 type EstadoLinha = { traveler_id: string; item_id: string; feito: boolean }
@@ -164,6 +165,7 @@ export function Checklist() {
       </Cartao>
 
       <Dicas />
+      <Clima />
 
       <div className="mb-4 flex flex-wrap gap-1.5">
         {VISOES.map((v) => (
@@ -237,6 +239,65 @@ function Dicas() {
           </li>
         ))}
       </ul>
+    </Cartao>
+  )
+}
+
+/**
+ * Clima ao vivo (Open-Meteo, sem chave) dos próximos destinos com coordenada
+ * conhecida. Nunca mostra nada sem dado de verdade (CHK-23) — sem coordenada,
+ * sem rede, ou resposta inesperada, a cidade simplesmente não entra na lista.
+ */
+function Clima() {
+  const { snapshot } = useTrip()
+  const [previsoes, setPrevisoes] = useState<Record<string, PrevisaoDia[]>>({})
+
+  const lugares = useMemo(() => {
+    if (!snapshot) return []
+    return (snapshot.lugares as Record<string, any>[])
+      .filter((l) => l.lat != null && l.lon != null && l.status !== 'visitada')
+      .slice(0, 3)
+  }, [snapshot])
+
+  useEffect(() => {
+    let cancelado = false
+    Promise.all(
+      lugares.map(async (l) => {
+        const previsao = await buscarClima(Number(l.lat), Number(l.lon), 3)
+        return [String(l.cidade), previsao] as const
+      }),
+    ).then((resultados) => {
+      if (cancelado) return
+      const validos = resultados.filter(
+        (r): r is [string, PrevisaoDia[]] => r[1] !== null && r[1].length > 0,
+      )
+      setPrevisoes(Object.fromEntries(validos))
+    })
+    return () => {
+      cancelado = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lugares.map((l) => l.cidade).join(',')])
+
+  const cidades = Object.keys(previsoes)
+  if (cidades.length === 0) return null
+
+  return (
+    <Cartao className="mb-4">
+      <Rotulo>Clima nos próximos destinos</Rotulo>
+      <div className="mt-2 space-y-1.5">
+        {cidades.map((cidade) => {
+          const hoje = previsoes[cidade][0]
+          return (
+            <div key={cidade} className="flex items-center justify-between text-sm">
+              <span className="font-medium">{cidade}</span>
+              <span className="text-(--color-tinta-2)">
+                {descricaoClima(hoje.codigo)} · {Math.round(hoje.tempMin)}° – {Math.round(hoje.tempMax)}°
+              </span>
+            </div>
+          )
+        })}
+      </div>
     </Cartao>
   )
 }

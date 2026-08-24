@@ -540,7 +540,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T20: Painel de clima (Open-Meteo)
+### T20: Painel de clima (Open-Meteo) ✅ (verificado no navegador: dado real ao vivo pras 3 cidades com coordenada da viagem Europa 2027)
 
 **What**: `buscarClima(lat, lon)` client-side (fetch ao `api.open-meteo.com`, sem chave) para os próximos destinos com `lat`/`lon` conhecidos; painel em `Checklist.tsx` consome a função e só renderiza com dado de sucesso.
 **Where**: `lib/clima.ts`
