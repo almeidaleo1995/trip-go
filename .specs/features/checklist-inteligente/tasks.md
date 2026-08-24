@@ -256,7 +256,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T8: `normalizarTitulo()`
+### T8: `normalizarTitulo()` ✅
 
 **What**: Função pura de normalização de título (minúsculo, sem acento, trim) para dedup.
 **Where**: `lib/checklist.ts` (novo arquivo)
