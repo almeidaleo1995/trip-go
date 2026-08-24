@@ -422,7 +422,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T15: Indicador de atrasado
+### T15: Indicador de atrasado ✅ (já satisfeito por T11+T14, sem mudança de código; verificado no navegador com item de prazo vencido nas visões Por categoria e Tudo)
 
 **What**: Todo item com `prazo_maximo` no passado e não feito mostra indicador "atrasado" em qualquer visão em que aparecer.
 **Where**: `components/tabs/Checklist.tsx`
