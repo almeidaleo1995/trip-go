@@ -289,6 +289,17 @@ test('ChecklistSugestoesBatchSchema aceita lote com uma sugestao valida', () => 
   assert.equal(r.success && r.data.sugestoes.length, 1)
 })
 
+test('checklist_item aceita assigned_to_nomes vindo de um arquivo exportado', () => {
+  const r = validarImportacao({
+    ...MINIMA,
+    checklist: [
+      { titulo: 'Remédio', escopo: 'pessoal', assigned_to_nomes: ['Leonardo'], prioridade: 'obrigatorio' },
+    ],
+  })
+  assert.equal(r.sucesso, true)
+  assert.deepEqual(r.sucesso && r.dados.checklist[0].assigned_to_nomes, ['Leonardo'])
+})
+
 test('ChecklistSugestoesBatchSchema aceita lote vazio', () => {
   const r = ChecklistSugestoesBatchSchema.safeParse({ viagem: 'Europa 2027', gerado_em: '2026-08-20' })
   assert.equal(r.success, true)

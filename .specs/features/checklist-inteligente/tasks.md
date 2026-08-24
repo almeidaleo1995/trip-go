@@ -233,7 +233,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T7: Round-trip de export/import para as colunas novas
+### T7: Round-trip de export/import para as colunas novas ✅ (itinerary_event_id/flight_id/cruise_id deliberadamente não sobrevivem ao ciclo, mesmo gap já aceito para reserva_id/documento_id na duplicação de viagem)
 
 **What**: `/api/export` e `lib/importar.ts` passam a incluir os campos novos de `checklist_items`, para backup/restore e para a criação de viagem nova não perderem dado (README → "Adding a field to an existing entity", passo 3).
 **Where**: `app/api/export/route.ts`, `lib/importar.ts`

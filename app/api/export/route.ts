@@ -219,6 +219,10 @@ export const GET = rota(async (req) => {
       lon: numero(l.lon),
       ordem: Number(l.ordem ?? 0),
     })),
+    // itinerary_event_id/flight_id/cruise_id NAO saem: mesmo caso de reserva_id/
+    // documento_id no roteiro (README) — o id nao sobrevive a importar como
+    // viagem nova, e a viagem nova ainda nao tem os registros pra reencontrar por
+    // nome. O vinculo se refaz pela tela ou por uma nova sugestao da skill.
     checklist: s.checklist.map((c) => ({
       titulo: String(c.titulo),
       categoria: texto(c.categoria),
@@ -228,6 +232,15 @@ export const GET = rota(async (req) => {
       valor_estimado_centavos: numero(c.valor_estimado_centavos),
       detalhe: texto(c.detalhe),
       ordem: Number(c.ordem ?? 0),
+      assigned_to_nomes: (c.assigned_to as string[] | null)?.map((id) => nomePorParticipante.get(id))
+        .filter((nome): nome is string => Boolean(nome)),
+      prioridade: c.prioridade,
+      pais: texto(c.pais),
+      cidade: texto(c.cidade),
+      pendente: Boolean(c.pendente),
+      fonte_tipo: c.fonte_tipo ?? undefined,
+      fonte_detalhe: texto(c.fonte_detalhe),
+      fonte_consultado_em: dia(c.fonte_consultado_em),
     })),
     documentos: s.documentos.map((d) => ({
       titulo: String(d.titulo),

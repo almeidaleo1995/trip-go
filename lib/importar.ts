@@ -147,13 +147,30 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     `)
   }
 
+  // Pessoas vem por NOME no arquivo (ids nao sobrevivem entre viagens), entao a
+  // divisao, o pagador e os donos de checklist sao resolvidos contra a lista de
+  // participantes recem-criada.
+  const idPorNome = new Map(participantes.map((p) => [p.nome, p.id]))
+
   for (const c of d.checklist) {
+    // Vinculo com passeio/voo/cruzeiro NAO sobrevive a exportar/importar como
+    // viagem nova, pelo mesmo motivo que reserva_id/documento_id nao sobrevivem a
+    // uma duplicacao de viagem (README): os ids antigos nao existem na viagem
+    // nova. Quem quiser esses vinculos de volta refaz pela tela ou pela skill.
+    const assignedTo = (c.assigned_to_nomes ?? [])
+      .map((nome) => idPorNome.get(nome))
+      .filter((id): id is NonNullable<typeof id> => Boolean(id))
     q.push(sql`
       insert into checklist_items (id, trip_id, titulo, categoria, escopo, prazo_ideal,
-                                   prazo_maximo, valor_estimado_centavos, detalhe, ordem)
+                                   prazo_maximo, valor_estimado_centavos, detalhe, ordem,
+                                   assigned_to, prioridade, pais, cidade, pendente,
+                                   fonte_tipo, fonte_detalhe, fonte_consultado_em)
       values (${randomUUID()}, ${tripId}, ${c.titulo}, ${c.categoria ?? null}, ${c.escopo},
               ${c.prazo_ideal ?? null}, ${c.prazo_maximo ?? null},
-              ${c.valor_estimado_centavos ?? null}, ${c.detalhe ?? null}, ${c.ordem})
+              ${c.valor_estimado_centavos ?? null}, ${c.detalhe ?? null}, ${c.ordem},
+              ${assignedTo}, ${c.prioridade}, ${c.pais ?? null}, ${c.cidade ?? null},
+              ${c.pendente}, ${c.fonte_tipo ?? null}, ${c.fonte_detalhe ?? null},
+              ${c.fonte_consultado_em ?? null})
     `)
   }
 
@@ -229,9 +246,6 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     `)
   }
 
-  // Pessoas vem por NOME no arquivo (ids nao sobrevivem entre viagens), entao a
-  // divisao e o pagador sao resolvidos contra a lista de participantes recem-criada.
-  const idPorNome = new Map(participantes.map((p) => [p.nome, p.id]))
   // "descricao|numero" -> id da parcela, para religar os reembolsos no fim.
   const idPorParcela = new Map<string, string>()
 

@@ -380,6 +380,10 @@ export const ChecklistItemSchema = z.object({
       em escopo pessoal a regra "precisa ter dono" e imposta pela constraint do banco,
       nao aqui, porque este schema tambem vira .partial() para edicao de um campo so. */
   assigned_to: z.array(Id).default([]),
+  /** So no ARQUIVO: nomes de participante, resolvidos para assigned_to na
+      importacao — mesmo padrao de EventoSchema.reserva/documento (id nao
+      sobrevive a exportar/importar, nome sim). */
+  assigned_to_nomes: z.array(Texto).nullish(),
   prioridade: z.enum(PRIORIDADES_CHECKLIST).default('importante'),
   pais: TextoOpc,
   cidade: TextoOpc,
