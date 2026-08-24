@@ -55,6 +55,13 @@
 **Razao:** Embarque, cabine, portos e dias no mar nao cabem em `flights` nem em `stays` sem distorcer os dois modelos.
 **Consequencia:** A navegacao passa a ser montada a partir dos dados, nao fixa no codigo - o que ja era necessario para o Financeiro por papel.
 
+### AD-009 - Nenhuma chamada de LLM em producao; inteligencia roda em skills externas ao app
+**Data:** 2026-08-24
+**Contexto:** Design da feature `checklist-inteligente` (`.specs/features/checklist-inteligente/`) pedia decidir onde a "IA" de sugestao de checklist roda - um botao dentro do app chamando um provedor de LLM, ou a skill `viagem-para-json` (ja existente, ja roda fora do app) apenas ganhando mais um formato de saida.
+**Decisao:** TripGo nunca tera uma dependencia de LLM/API de IA em producao. Toda inteligencia (leitura de documentos, pesquisa externa, geracao de sugestoes) acontece em skills executadas fora do app (Claude Code/Desktop); o app so recebe, valida e revisa o resultado estruturado.
+**Razao:** Mantem o principio de "4 dependencias de proposito" do CLAUDE.md - sem chave de API para gerenciar, sem custo por geracao, sem superficie de prompt injection em producao. `viagem-para-json` ja seguia esse padrao informalmente; esta decisao o formaliza para toda feature futura.
+**Consequencia:** Um pedido futuro de "IA ao vivo dentro do app" e uma proposta de superar esta decisao (exige uma nova AD que a substitua), nao algo a implementar em silencio.
+
 ## Handoff
 
 **Fase atual:** Todas as 6 fases executadas. 33 commits atômicos na branch `feat/planejador-viagem`.
