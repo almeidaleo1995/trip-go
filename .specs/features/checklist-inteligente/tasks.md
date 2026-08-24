@@ -563,7 +563,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T21: `SKILL.md` — `skillVersion`/`schemaVersion`
+### T21: `SKILL.md` — `skillVersion`/`schemaVersion` ✅
 
 **What**: Front-matter da skill ganha `skillVersion: 1.1.0` e `schemaVersion` (referenciando a versão do contrato de `lib/schema.ts` no momento desta feature).
 **Where**: `.claude/skills/viagem-para-json/SKILL.md`
