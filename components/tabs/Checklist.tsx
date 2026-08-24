@@ -55,11 +55,15 @@ function agrupar(
 }
 
 export function Checklist() {
-  const { snapshot, mutate } = useTrip()
+  const { snapshot, mutate, posso } = useTrip()
   const [visao, setVisao] = useState<Visao>('categoria')
   if (!snapshot) return null
 
-  const itens = snapshot.checklist as unknown as ChecklistItem[]
+  const todosOsItens = snapshot.checklist as unknown as ChecklistItem[]
+  // Sugestão pendente nunca aparece nas visões normais — só na seção de
+  // revisão abaixo, até o admin aceitar ou rejeitar (CHK-13, CHK-20).
+  const itens = todosOsItens.filter((i) => !i.pendente)
+  const pendentes = todosOsItens.filter((i) => i.pendente)
   const estados = snapshot.checklist_state as EstadoLinha[]
   const meuId = snapshot.eu.participanteId
   const souProprietario = snapshot.eu.papel === 'proprietario'
@@ -83,22 +87,27 @@ export function Checklist() {
       client_ts: agora(),
     })
 
+  const titulo = (
+    <Titulo
+      acao={
+        <>
+          <ImportarSugestoes />
+          <AdminAcoes entidade="checklist_item">Item</AdminAcoes>
+        </>
+      }
+    >
+      Checklist
+    </Titulo>
+  )
+
   if (itens.length === 0) {
     return (
       <>
-        <Titulo
-          acao={
-            <>
-              <ImportarSugestoes />
-              <AdminAcoes entidade="checklist_item">Item</AdminAcoes>
-            </>
-          }
-        >
-          Checklist
-        </Titulo>
+        {titulo}
         <div className="mb-4">
           <Progresso pct={0} />
         </div>
+        {posso('editor') && pendentes.length > 0 && <Pendentes itens={pendentes} />}
         <Vazio
           titulo="Checklist vazio"
           texto="Quando houver tarefas cadastradas, elas aparecem aqui para marcar."
@@ -111,7 +120,8 @@ export function Checklist() {
 
   return (
     <>
-      <Titulo acao={<AdminAcoes entidade="checklist_item">Item</AdminAcoes>}>Checklist</Titulo>
+      {titulo}
+      {posso('editor') && pendentes.length > 0 && <Pendentes itens={pendentes} />}
       <Cartao className="mb-4">
         <div className="mb-2 flex items-baseline justify-between">
           <Rotulo>Seu progresso</Rotulo>
@@ -188,12 +198,83 @@ export function Checklist() {
   )
 }
 
+const NOME_FONTE: Record<string, string> = {
+  documento: 'Documento enviado',
+  pesquisa: 'Pesquisado pela skill',
+  sugestao: 'Sugestão da skill',
+  manual: 'Adicionado manualmente',
+}
+
+/**
+ * Sugestões da skill ainda não revisadas. Aceitar só troca `pendente` para
+ * `false` — preserva fonte/detalhe/data (CHK-16). Rejeitar apaga a linha, sem
+ * rastro (CHK-17). Nenhuma das duas acontece sozinha (CHK-20): as duas exigem
+ * clique explícito daqui.
+ */
+function Pendentes({ itens }: { itens: ChecklistItem[] }) {
+  const { mutate } = useTrip()
+
+  const aceitar = (item: ChecklistItem) =>
+    mutate({
+      op: 'editar',
+      entidade: 'checklist_item',
+      id: String(item.id),
+      campos: { pendente: false },
+      client_ts: agora(),
+    })
+
+  const rejeitar = (item: ChecklistItem) =>
+    mutate({
+      op: 'remover',
+      entidade: 'checklist_item',
+      id: String(item.id),
+      campos: {},
+      client_ts: agora(),
+    })
+
+  return (
+    <Cartao tom="atencao" className="mb-4">
+      <Rotulo>Sugestões pendentes de revisão · {itens.length}</Rotulo>
+      <div className="mt-2 space-y-2">
+        {itens.map((item) => (
+          <div
+            key={String(item.id)}
+            className="rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-3.5"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-medium">{item.titulo}</p>
+                <p className="mt-1 text-[12px] text-(--color-tinta-3)">
+                  {NOME_FONTE[item.fonte_tipo ?? ''] ?? 'Sugestão'}
+                  {item.fonte_detalhe && <> · {item.fonte_detalhe}</>}
+                  {item.fonte_consultado_em && (
+                    <> · consultado em {formatarData(item.fonte_consultado_em)}</>
+                  )}
+                </p>
+              </div>
+              <AdminAcoes entidade="checklist_item" registro={item} />
+            </div>
+            <div className="mt-2.5 flex gap-2">
+              <Botao tamanho="pequeno" onClick={() => aceitar(item)}>
+                Aceitar
+              </Botao>
+              <Botao tamanho="pequeno" variante="secundario" onClick={() => rejeitar(item)}>
+                Rejeitar
+              </Botao>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Cartao>
+  )
+}
+
 /**
  * Carrega um arquivo `ChecklistSugestoesBatchSchema` (saída da skill
  * viagem-para-json), resolve nomes -> ids contra a viagem atual e grava as
  * válidas como `checklist_item` com `pendente: true` — nunca confirmadas
  * sozinhas (CHK-13, CHK-20). A revisão em si é a lista normal filtrada por
- * pendente (ver `Pendentes`, T17).
+ * pendente (ver `Pendentes` acima).
  */
 function ImportarSugestoes() {
   const { snapshot, mutate, posso } = useTrip()

@@ -469,7 +469,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T17: Revisar sugestões pendentes
+### T17: Revisar sugestões pendentes ✅ (verificado ponta-a-ponta: Aceitar preserva fonte e some da seção pendente, Rejeitar apaga a linha, contagens/visões corretas antes e depois)
 
 **What**: Seção que lista itens com `pendente: true`, com ação por item: aceitar (`mutate editar { pendente: false }`), editar (abre o `EditorSheet` normal, já aceita ao salvar), rejeitar (`mutate remover`).
 **Where**: `components/tabs/Checklist.tsx`
