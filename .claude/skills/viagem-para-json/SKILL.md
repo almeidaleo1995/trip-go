@@ -11,7 +11,7 @@ Transforma o que o usuário já tem (caderno de viagem, lista de prazos, voucher
 
 O app nunca lê PDF. Esta conversão acontece aqui fora, com julgamento, e o resultado é um JSON validado contra o schema de verdade do projeto.
 
-`schemaVersion` acima espelha `SCHEMA_VERSION` de `lib/schema.ts` no app — é assim que esta skill sabe se está desatualizada em relação ao contrato do app (ver `changelog/CHANGELOG.md` e a regra de nunca reescrever a si mesma, no fim deste arquivo).
+`schemaVersion` acima espelha `SCHEMA_VERSION` de `lib/schema.ts` no app — é assim que esta skill sabe se está desatualizada em relação ao contrato do app (ver `CHANGELOG.md` e a regra de nunca reescrever a si mesma, no fim deste arquivo).
 
 ## Regra que governa tudo
 
@@ -116,4 +116,4 @@ Nova versão sugerida: 1.2.0
 Alterações: [o que mudou no schema do app e por quê isso afeta a skill]
 ```
 
-Quem revisa decide se aplica. Cada versão aplicada ganha uma linha em [changelog/CHANGELOG.md](changelog/CHANGELOG.md).
+Quem revisa decide se aplica. Cada versão aplicada ganha uma linha em [CHANGELOG.md](CHANGELOG.md).
