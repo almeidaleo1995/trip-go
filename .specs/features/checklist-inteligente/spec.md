@@ -139,15 +139,15 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-08 | P1: progresso geral e por pessoa | Tasks | Implementing (T14) |
 | CHK-09 | P1: item atrasado sempre visível | Tasks | Implementing (T15) |
 | CHK-10 | P1: checklist_state sem mudança de contrato | Tasks | Implementing (satisfeito por omissão — nenhuma tarefa de P1 tocou checklist_state) |
-| CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Implementing (T2) |
+| CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Implementing (T2, T16) |
 | CHK-12 | P2: pesquisa exige fonte + data | Tasks | Implementing (T2) |
-| CHK-13 | P2: importação grava como pendente, aditiva | Tasks | In Tasks |
-| CHK-14 | P2: dedup por título normalizado | Tasks | Implementing (T9) |
+| CHK-13 | P2: importação grava como pendente, aditiva | Tasks | Implementing (T16) |
+| CHK-14 | P2: dedup por título normalizado | Tasks | Implementing (T9, T16) |
 | CHK-15 | P2: revisão aceitar/editar/rejeitar | Tasks | In Tasks |
 | CHK-16 | P2: aceitar preserva fonte | Tasks | In Tasks |
 | CHK-17 | P2: rejeitar apaga | Tasks | In Tasks |
-| CHK-18 | P2: assigned_to não resolvido rejeita import | Tasks | Implementing (T9) |
-| CHK-19 | P2: pessoal sem assigned_to rejeita import | Tasks | Implementing (T9) |
+| CHK-18 | P2: assigned_to não resolvido rejeita import | Tasks | Implementing (T9, T16) |
+| CHK-19 | P2: pessoal sem assigned_to rejeita import | Tasks | Implementing (T9, T16) |
 | CHK-20 | P2: nenhuma sugestão confirma sozinha | Tasks | In Tasks |
 | CHK-21 | P3: "por que estou vendo isso" | Tasks | In Tasks |
 | CHK-22 | P3: dicas reaproveitadas do roteiro | Tasks | In Tasks |
