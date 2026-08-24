@@ -193,13 +193,13 @@ function recorte(entidade: Entidade, tripId: string, posicao: number) {
   }
   if (meta.via === 'expense') {
     return {
-      sql: `and expense_id in (select id from expenses where trip_id = ${posicao})`,
+      sql: `and expense_id in (select id from expenses where trip_id = $${posicao})`,
       params: [tripId],
     }
   }
   if (meta.via === 'event') {
     return {
-      sql: `and event_id in (select id from itinerary_events where trip_id = ${posicao})`,
+      sql: `and event_id in (select id from itinerary_events where trip_id = $${posicao})`,
       params: [tripId],
     }
   }
@@ -523,7 +523,9 @@ async function aplicar(
         : ''
     await sql.query(
       `insert into ${meta.nome} (${nomes.join(', ')})
-       values (${nomes.map((_, i) => `${i + 1}`).join(', ')})${conflito}`,
+       values (${nomes
+         .map((_, i) => `$${i + 1}${Array.isArray(valores[i]) ? '::text[]' : ''}`)
+         .join(', ')})${conflito}`,
       valores,
     )
     await registrarAlteracao(
@@ -564,7 +566,9 @@ async function aplicar(
   if (!anterior) throw new Error('registro não encontrado')
 
   // Last-write-wins: a escrita só passa se o servidor não tiver versão mais nova.
-  const sets = cols.map((c, i) => `${c} = $${i + 2}`).join(', ')
+  const sets = cols
+    .map((c, i) => `${c} = $${i + 2}${Array.isArray(campos[c]) ? '::text[]' : ''}`)
+    .join(', ')
   const posTs = cols.length + 2
   const rec = recorte(op.entidade, tripId, posTs + 1)
   const r = await sql.query(
