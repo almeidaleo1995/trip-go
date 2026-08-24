@@ -8,6 +8,7 @@ import { ErroHttp } from '@/lib/session.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { SCHEMA_VERSION, validarImportacao } from '@/lib/schema.ts'
 import { rota } from '@/lib/api.ts'
+import { parseData } from '@/lib/derive.ts'
 import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
@@ -29,8 +30,11 @@ const pad = (n: number) => String(n).padStart(2, '0')
  */
 function formatar(v: unknown, comHora: boolean): string | undefined {
   if (v === null || v === undefined || v === '') return undefined
-  const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T'))
-  if (Number.isNaN(d.getTime())) return undefined
+  // Date vem do driver; string vem das colunas que a query já converte em texto.
+  // `parseData` e não `new Date(...)`: o construtor lê "2027-01-02" como meia-noite
+  // UTC, e o backup sairia com a véspera em qualquer fuso a oeste de Greenwich.
+  const d = v instanceof Date ? v : parseData(String(v))
+  if (!d || Number.isNaN(d.getTime())) return undefined
   const data = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   return comHora ? `${data}T${pad(d.getHours())}:${pad(d.getMinutes())}` : data
 }
@@ -52,6 +56,11 @@ export const GET = rota(async (req) => {
   // dele nem traz as linhas, entao aqui o bloco simplesmente nao existe.
   const fin = s.financeiro.admin ? s.financeiro : null
   const catPorId = new Map((fin?.categorias ?? []).map((c) => [String(c.id), String(c.nome)]))
+  // O item do roteiro aponta para reserva e documento por id; o arquivo não tem
+  // ids, então sai o nome. Nome repetido religa no primeiro homônimo — e é o
+  // mesmo compromisso que categoria e participante já fazem neste formato.
+  const nomePorReserva = new Map(s.reservas.map((r) => [String(r.id), String(r.nome)]))
+  const tituloPorDocumento = new Map(s.documentos.map((d) => [String(d.id), String(d.titulo)]))
   const nomePorParticipante = new Map(s.participantes.map((p) => [String(p.id), String(p.nome)]))
   const parcelasPorDespesa = new Map<string, Record<string, unknown>[]>()
   for (const p of fin?.parcelas ?? []) {
@@ -98,13 +107,49 @@ export const GET = rota(async (req) => {
     })),
     roteiro: s.roteiro.map((e) => ({
       ocorre_em: quando(e.ocorre_em)!,
+      fim_em: quando(e.fim_em),
       cidade: texto(e.cidade),
       local: texto(e.local),
+      endereco: texto(e.endereco),
+      lat: numero(e.lat),
+      lon: numero(e.lon),
       titulo: String(e.titulo),
       descricao: texto(e.descricao),
       tipo: e.tipo,
       ancora: Boolean(e.ancora),
+      distancia_m: numero(e.distancia_m),
+      duracao_min: numero(e.duracao_min),
+      transporte: texto(e.transporte),
+      como_chegar: texto(e.como_chegar),
+      dicas: texto(e.dicas),
+      links: texto(e.links),
+      custo_centavos: numero(e.custo_centavos),
+      reserva: texto(nomePorReserva.get(String(e.reserva_id))),
+      documento: texto(tituloPorDocumento.get(String(e.documento_id))),
       nota: texto(e.nota),
+      ordem: Number(e.ordem ?? 0),
+      opcoes: ((e.opcoes ?? []) as Record<string, unknown>[]).map((o) => ({
+        modo: o.modo,
+        duracao_min: numero(o.duracao_min),
+        distancia_m: numero(o.distancia_m),
+        custo: texto(o.custo),
+        detalhe: texto(o.detalhe),
+        recomendado: Boolean(o.recomendado),
+        ordem: Number(o.ordem ?? 0),
+      })),
+    })),
+    dias: s.dias.map((d) => ({
+      dia: dia(d.dia)!,
+      titulo: texto(d.titulo),
+      cidade: texto(d.cidade),
+      pais: texto(d.pais),
+      resumo: texto(d.resumo),
+      ancora: Boolean(d.ancora),
+      alertas: texto(d.alertas),
+      antes_sair: texto(d.antes_sair),
+      antes_dormir: texto(d.antes_dormir),
+      links: texto(d.links),
+      mapa_url: texto(d.mapa_url),
     })),
     voos: s.voos.map((f) => ({
       companhia: String(f.companhia),

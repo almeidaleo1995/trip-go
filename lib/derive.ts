@@ -199,6 +199,279 @@ export function ordenarEventos<T extends Evento>(eventos: T[]): T[] {
     .map((x) => x.e)
 }
 
+// ---------------------------------------------------------------- roteiro por dia
+
+/**
+ * O roteiro tem tres niveis: viagem -> dia -> item. Este bloco monta o do meio.
+ *
+ * A LISTA DE DIAS NAO VEM DO BANCO. Ela e derivada de data_partida..data_retorno,
+ * e a tabela `itinerary_days` guarda so os dias sobre os quais alguem escreveu
+ * algo. Uma viagem de 17 dias sem anotacao nenhuma tem zero linhas la e mesmo
+ * assim mostra 17 dias na tela - e um dia anotado que caiu fora do intervalo
+ * (a viagem encurtou depois) continua aparecendo, em vez de sumir com o texto
+ * dentro.
+ */
+
+export type DiaRoteiro = {
+  /** 'AAAA-MM-DD' — chave de agrupamento e do seletor. */
+  chave: string
+  data: Date
+  /** 1..n dentro da viagem. 0 quando o dia esta fora do intervalo das datas. */
+  numero: number
+  /** A linha de `itinerary_days`, quando existe. */
+  meta: Record<string, any> | null
+  itens: Record<string, any>[]
+}
+
+/** Itens que representam ESTAR em algum lugar. Alimentam "N locais". */
+const TIPOS_LOCAL = new Set(['local', 'ponto', 'passeio', 'compras', 'evento'])
+/** Itens que representam IR de um lugar a outro. Alimentam "N deslocamentos". */
+const TIPOS_DESLOCAMENTO = new Set(['voo', 'trem', 'onibus', 'traslado', 'caminhada', 'cruzeiro'])
+const TIPOS_REFEICAO = new Set(['restaurante', 'refeicao'])
+
+/** Tipo de item -> modo de transporte, para o resumo de deslocamento do dia. */
+const MODO_POR_TIPO: Record<string, string> = {
+  voo: 'aviao',
+  trem: 'trem',
+  onibus: 'onibus',
+  traslado: 'taxi',
+  caminhada: 'a_pe',
+  cruzeiro: 'barco',
+}
+
+/** 'AAAA-MM-DD' de um Date local. Nao usa toISOString: ele converte para UTC. */
+function chaveLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/**
+ * O dia de calendario de um timestamp, como chave.
+ *
+ * Passa por `parseData` de proposito: cortar os dez primeiros caracteres seria
+ * mais curto, mas aceitaria "2027-13-05" e criaria um dia fantasma no seletor.
+ */
+export function chaveDia(valor: string | null | undefined): string | null {
+  const d = parseData(valor)
+  return d ? chaveLocal(d) : null
+}
+
+/**
+ * Ordena os itens de um dia: por horario, `ordem` desempatando.
+ *
+ * Nao existe "ordem manual" competindo com o relogio. Num roteiro todo item tem
+ * hora (a coluna e `not null`), entao mudar a ordem E mudar o horario — os
+ * botoes de subir/descer trocam o `ocorre_em` dos dois vizinhos, e a linha do
+ * tempo nunca fica contando uma historia diferente da dos horarios que mostra.
+ * `ordem` so decide entre dois itens marcados no mesmo minuto.
+ */
+export function ordenarItens<T extends Evento & { ordem?: number }>(itens: T[]): T[] {
+  return [...(itens ?? [])]
+    .map((e, i) => ({ e, i, t: parseData(e?.ocorre_em)?.getTime() ?? null }))
+    .sort((a, b) => {
+      if (a.t === null && b.t === null) return a.i - b.i
+      if (a.t === null) return 1
+      if (b.t === null) return -1
+      return a.t - b.t || Number(a.e.ordem ?? 0) - Number(b.e.ordem ?? 0) || a.i - b.i
+    })
+    .map((x) => x.e)
+}
+
+export function montarDias(
+  viagem: { data_partida?: string | null; data_retorno?: string | null } | null,
+  itens: Record<string, any>[],
+  dias: Record<string, any>[],
+): DiaRoteiro[] {
+  const porChave = new Map<string, Record<string, any>[]>()
+  for (const e of itens ?? []) {
+    const c = chaveDia(e?.ocorre_em)
+    if (!c) continue
+    if (!porChave.has(c)) porChave.set(c, [])
+    porChave.get(c)!.push(e)
+  }
+
+  const meta = new Map<string, Record<string, any>>()
+  for (const d of dias ?? []) {
+    const c = chaveDia(d?.dia)
+    if (c) meta.set(c, d)
+  }
+
+  const partida = parseData(viagem?.data_partida ?? null)
+  const retorno = parseData(viagem?.data_retorno ?? null)
+
+  // O intervalo da viagem primeiro, para `numero` ser o dia 1, 2, 3... dela.
+  const chaves: string[] = []
+  const numeros = new Map<string, number>()
+  if (partida && retorno) {
+    const total = diasAte(partida, retorno)
+    for (let i = 0; i <= total; i++) {
+      const d = new Date(partida.getFullYear(), partida.getMonth(), partida.getDate() + i)
+      const c = chaveLocal(d)
+      chaves.push(c)
+      numeros.set(c, i + 1)
+    }
+  }
+  // Dia com conteudo fora do intervalo entra mesmo assim: apagar da tela o que
+  // esta gravado no banco e pior do que mostrar um dia a mais.
+  for (const c of [...porChave.keys(), ...meta.keys()]) {
+    if (!numeros.has(c)) chaves.push(c)
+  }
+
+  return [...new Set(chaves)].sort().map((chave) => ({
+    chave,
+    data: parseData(chave)!,
+    numero: numeros.get(chave) ?? 0,
+    meta: meta.get(chave) ?? null,
+    itens: ordenarItens((porChave.get(chave) ?? []) as (Evento & { ordem?: number })[]),
+  }))
+}
+
+export type ResumoDia = {
+  locais: number
+  deslocamentos: number
+  refeicoes: number
+  reservas: number
+  /** Soma de `distancia_m` dos itens do dia. */
+  distanciaM: number
+  /** Soma de `duracao_min`: tempo em transito. */
+  minutosDeslocamento: number
+  /**
+   * Tempo planejado. Soma as duracoes explicitas (fim_em - ocorre_em) e, quando
+   * nenhum item tem fim, cai para o intervalo do primeiro ao ultimo — que e a
+   * unica coisa honesta a dizer sobre um dia sem horario de termino.
+   */
+  minutos: number
+  /** Soma de `custo_centavos`. Estimativa, nunca despesa registrada. */
+  custoCentavos: number
+  /** Deslocamento agrupado por modo, para "3,2 km a pe · 2 de metro". */
+  porModo: { modo: string; vezes: number; distanciaM: number; minutos: number }[]
+}
+
+/**
+ * O modo de transporte efetivo de um item: a opcao recomendada, senao o tipo.
+ *
+ * Cai em 'outro' em vez de devolver null, porque quem chama so pergunta isso de
+ * um item que TEM distancia ou duracao. Um almoco a 2,4 km de metro e um
+ * deslocamento de verdade; devolver null o apagava do resumo do dia enquanto a
+ * linha do tempo continuava mostrando "2,4 km · 18min" logo acima.
+ */
+function modoDoItem(e: Record<string, any>): string {
+  const opcoes = (e.opcoes ?? []) as Record<string, any>[]
+  const recomendada = opcoes.find((o) => o.recomendado) ?? opcoes[0]
+  if (recomendada?.modo) return String(recomendada.modo)
+  return MODO_POR_TIPO[String(e.tipo)] ?? 'outro'
+}
+
+/** Os numeros do cabecalho e do rodape do dia. Tudo somado dos itens, nada fixo. */
+export function resumoDoDia(itens: Record<string, any>[]): ResumoDia {
+  const lista = itens ?? []
+  const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+
+  let explicito = 0
+  const modos = new Map<string, { vezes: number; distanciaM: number; minutos: number }>()
+
+  for (const e of lista) {
+    const ini = parseData(e.ocorre_em)
+    const fim = parseData(e.fim_em)
+    if (ini && fim && fim > ini) explicito += Math.round((fim.getTime() - ini.getTime()) / 60_000)
+
+    if (num(e.distancia_m) > 0 || num(e.duracao_min) > 0) {
+      const modo = modoDoItem(e)
+      const atual = modos.get(modo) ?? { vezes: 0, distanciaM: 0, minutos: 0 }
+      atual.vezes += 1
+      atual.distanciaM += num(e.distancia_m)
+      atual.minutos += num(e.duracao_min)
+      modos.set(modo, atual)
+    }
+  }
+
+  // Sem nenhum horario de termino cadastrado, o "tempo planejado" e o intervalo
+  // do primeiro ao ultimo item — nao zero, que faria o dia parecer vazio.
+  let minutos = explicito
+  if (minutos === 0) {
+    const tempos = lista.map((e) => parseData(e.ocorre_em)?.getTime()).filter(Boolean) as number[]
+    if (tempos.length > 1) {
+      minutos = Math.round((Math.max(...tempos) - Math.min(...tempos)) / 60_000)
+    }
+  }
+
+  return {
+    locais: lista.filter((e) => TIPOS_LOCAL.has(String(e.tipo))).length,
+    deslocamentos: lista.filter((e) => TIPOS_DESLOCAMENTO.has(String(e.tipo))).length,
+    refeicoes: lista.filter((e) => TIPOS_REFEICAO.has(String(e.tipo))).length,
+    reservas: lista.filter((e) => Boolean(e.reserva_id)).length,
+    distanciaM: lista.reduce((s, e) => s + num(e.distancia_m), 0),
+    minutosDeslocamento: lista.reduce((s, e) => s + num(e.duracao_min), 0),
+    minutos,
+    custoCentavos: lista.reduce((s, e) => s + num(e.custo_centavos), 0),
+    porModo: [...modos.entries()]
+      .map(([modo, v]) => ({ modo, ...v }))
+      .sort((a, b) => b.distanciaM - a.distanciaM || b.vezes - a.vezes),
+  }
+}
+
+/**
+ * Qual dia abrir. Hoje, se a viagem esta acontecendo; o proximo, se ainda nao
+ * comecou; o ultimo, se ja acabou (REQ 36). Devolve o indice, nao o dia, porque
+ * quem chama tambem precisa rolar o seletor ate ele.
+ */
+export function diaFoco(dias: DiaRoteiro[], agora: Date | string): number {
+  const lista = dias ?? []
+  if (lista.length === 0) return -1
+  const hoje = chaveLocal(agora instanceof Date ? agora : (parseData(agora) ?? new Date()))
+  const exato = lista.findIndex((d) => d.chave === hoje)
+  if (exato >= 0) return exato
+  const futuro = lista.findIndex((d) => d.chave > hoje)
+  return futuro >= 0 ? futuro : lista.length - 1
+}
+
+/** Metros -> "850 m" / "2,4 km". Vazio quando nao ha distancia cadastrada. */
+export function formatarDistancia(metros: number | null | undefined): string {
+  const m = Math.round(Number(metros) || 0)
+  if (m <= 0) return ''
+  if (m < 1000) return `${m} m`
+  const km = m / 1000
+  // Uma casa decimal ate 10 km, nenhuma acima: "9,4 km" ajuda, "14,3 km" nao.
+  const texto = km < 10 ? km.toFixed(1) : String(Math.round(km))
+  return `${texto.replace('.', ',').replace(',0', '')} km`
+}
+
+/**
+ * Campo de texto com um item por linha -> lista. Alertas, dicas e os rituais de
+ * sair e dormir usam isto em vez de uma tabela filha por lista.
+ */
+export function linhas(texto: string | null | undefined): string[] {
+  return String(texto ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+}
+
+/** Esquemas que podem virar href. Qualquer outro e descartado, `javascript:` incluso. */
+const ESQUEMA_OK = /^(https?:|mailto:|tel:)/i
+
+/**
+ * "Rotulo|https://..." por linha -> lista de links.
+ *
+ * O filtro de esquema NAO e paranoia: quem edita o roteiro escreve para todo
+ * mundo da viagem, e um `javascript:` num href e execucao de codigo na tela dos
+ * outros. Sem esquema, assume https — e o que a pessoa quis dizer ao colar
+ * "maps.google.com".
+ */
+export function lerLinks(texto: string | null | undefined): { rotulo: string; url: string }[] {
+  const saida: { rotulo: string; url: string }[] = []
+  for (const linha of linhas(texto)) {
+    const corte = linha.indexOf('|')
+    const rotulo = corte >= 0 ? linha.slice(0, corte).trim() : ''
+    let url = (corte >= 0 ? linha.slice(corte + 1) : linha).trim()
+    if (!url) continue
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`
+    if (!ESQUEMA_OK.test(url)) continue
+    saida.push({ rotulo: rotulo || url.replace(/^https?:\/\//, ''), url })
+  }
+  return saida
+}
+
 // ---------------------------------------------------------------- lugares
 
 /**

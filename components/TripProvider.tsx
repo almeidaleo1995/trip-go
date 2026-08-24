@@ -53,6 +53,7 @@ export type Snapshot = {
   viagem: Record<string, any> | null
   participantes: Record<string, any>[]
   roteiro: Record<string, any>[]
+  dias: Record<string, any>[]
   voos: Record<string, any>[]
   cruzeiros: Record<string, any>[]
   reservas: Record<string, any>[]
@@ -247,6 +248,7 @@ export function TripProvider({
 /** Espelha localmente o que o servidor fará, para a tela responder na hora. */
 const LISTA: Record<string, keyof Snapshot> = {
   roteiro: 'roteiro',
+  dia: 'dias',
   voo: 'voos',
   cruzeiro: 'cruzeiros',
   reserva: 'reservas',
@@ -392,6 +394,34 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
   if (['custo', 'categoria', 'parcela', 'pagamento'].includes(op.entidade)) {
     if (!s.financeiro.admin) return novo
     novo.financeiro = aplicarFinanceiro(s.financeiro, op)
+    return novo
+  }
+
+  // Opção de transporte: mora ANINHADA em roteiro[].opcoes, não numa lista de
+  // topo. Sem este ramo, adicionar "de metrô, 18 min" em modo avião só aparecia
+  // depois do sync — e o app promete o contrário.
+  if (op.entidade === 'opcao') {
+    const eventoId = String(op.campos.event_id ?? '')
+    novo.roteiro = s.roteiro.map((e) => {
+      const opcoes = (e.opcoes ?? []) as Record<string, any>[]
+      if (op.op === 'remover') return { ...e, opcoes: opcoes.filter((o) => o.id !== op.id) }
+      if (op.op === 'criar') {
+        return e.id === eventoId ? { ...e, opcoes: [...opcoes, { id: op.id, ...op.campos }] } : e
+      }
+      return { ...e, opcoes: opcoes.map((o) => (o.id === op.id ? { ...o, ...op.campos } : o)) }
+    })
+    return novo
+  }
+
+  // O dia é upsert por data no servidor (unique (trip_id, dia)). Espelhar isso
+  // como `push` deixaria duas linhas do mesmo dia na tela até o próximo sync,
+  // e a segunda escreveria por cima da primeira sem que ninguém entendesse.
+  if (op.entidade === 'dia' && op.op === 'criar') {
+    const data = String(op.campos.dia ?? '')
+    const existente = s.dias.find((d) => String(d.dia).slice(0, 10) === data.slice(0, 10))
+    novo.dias = existente
+      ? s.dias.map((d) => (d === existente ? { ...d, ...op.campos } : d))
+      : [...s.dias, { id: op.id, ...op.campos }]
     return novo
   }
 

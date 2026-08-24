@@ -62,10 +62,36 @@ export const POST = rota(async (req) => {
   const d = deslocamento
 
   if (copiar('roteiro')) {
+    // O id derivado (md5) é o que permite copiar as opções de transporte logo
+    // abaixo sem uma segunda consulta para descobrir o novo id de cada item.
+    //
+    // `reserva_id` e `documento_id` saem NULOS de propósito: as reservas e os
+    // documentos da cópia são registros novos, e manter o id antigo deixaria o
+    // item apontando para outra viagem — um ponteiro pendurado que nenhuma tela
+    // resolve, porque toda tela lê a lista já recortada pela viagem da sessão.
     await sql`
-    insert into itinerary_events (trip_id, ocorre_em, cidade, local, titulo, descricao, tipo, ancora, nota)
-    select ${novo}, ocorre_em + ${d}::interval, cidade, local, titulo, descricao, tipo, ancora, nota
+    insert into itinerary_events (id, trip_id, ocorre_em, fim_em, cidade, local, endereco, lat, lon,
+                                  titulo, descricao, tipo, ancora, distancia_m, duracao_min,
+                                  transporte, como_chegar, dicas, links, custo_centavos, nota, ordem)
+    select md5(id || ${novo}), ${novo}, ocorre_em + ${d}::interval, fim_em + ${d}::interval,
+           cidade, local, endereco, lat, lon, titulo, descricao, tipo, ancora, distancia_m,
+           duracao_min, transporte, como_chegar, dicas, links, custo_centavos, nota, ordem
     from itinerary_events where trip_id = ${corpo.id}
+  `
+    await sql`
+    insert into itinerary_options (event_id, modo, duracao_min, distancia_m, custo, detalhe,
+                                   recomendado, ordem)
+    select md5(o.event_id || ${novo}), o.modo, o.duracao_min, o.distancia_m, o.custo, o.detalhe,
+           o.recomendado, o.ordem
+    from itinerary_options o
+    join itinerary_events e on e.id = o.event_id where e.trip_id = ${corpo.id}
+  `
+    await sql`
+    insert into itinerary_days (trip_id, dia, titulo, cidade, pais, resumo, ancora, alertas,
+                                antes_sair, antes_dormir, links, mapa_url)
+    select ${novo}, dia + ${d}::interval, titulo, cidade, pais, resumo, ancora, alertas,
+           antes_sair, antes_dormir, links, mapa_url
+    from itinerary_days where trip_id = ${corpo.id}
   `
     await sql`
     insert into flights (id, trip_id, companhia, numero, origem_iata, origem_cidade, destino_iata,

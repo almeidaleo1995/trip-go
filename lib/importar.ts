@@ -83,14 +83,6 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     `)
   }
 
-  for (const e of d.roteiro) {
-    q.push(sql`
-      insert into itinerary_events (id, trip_id, ocorre_em, cidade, local, titulo, descricao, tipo, ancora, nota)
-      values (${randomUUID()}, ${tripId}, ${e.ocorre_em}, ${e.cidade ?? null}, ${e.local ?? null},
-              ${e.titulo}, ${e.descricao ?? null}, ${e.tipo}, ${e.ancora}, ${e.nota ?? null})
-    `)
-  }
-
   for (const v of d.voos) {
     const vooId = randomUUID()
     q.push(sql`
@@ -130,11 +122,16 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     }
   }
 
+  // Nome -> id, para o item do roteiro reencontrar a reserva que o arquivo cita.
+  // Nome repetido fica com o último; é o mesmo compromisso de `idPorCategoria`.
+  const idPorReserva = new Map<string, string>()
   for (const r of d.reservas) {
+    const reservaId = randomUUID()
+    idPorReserva.set(r.nome, reservaId)
     q.push(sql`
       insert into reservations (id, trip_id, tipo, nome, cidade, inicio_em, fim_em, endereco,
                                 link, telefone, localizador, valor_centavos, nota, ordem)
-      values (${randomUUID()}, ${tripId}, ${r.tipo}, ${r.nome}, ${r.cidade ?? null},
+      values (${reservaId}, ${tripId}, ${r.tipo}, ${r.nome}, ${r.cidade ?? null},
               ${r.inicio_em ?? null}, ${r.fim_em ?? null}, ${r.endereco ?? null}, ${r.link ?? null},
               ${r.telefone ?? null}, ${r.localizador ?? null}, ${r.valor_centavos ?? null},
               ${r.nota ?? null}, ${r.ordem})
@@ -160,13 +157,57 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     `)
   }
 
+  const idPorDocumento = new Map<string, string>()
   for (const doc of d.documentos) {
+    const documentoId = randomUUID()
+    idPorDocumento.set(doc.titulo, documentoId)
     q.push(sql`
       insert into documents (id, trip_id, titulo, valor, tipo, categoria, arquivo_url,
                              arquivo_mime, arquivo_bytes, obs, ordem)
-      values (${randomUUID()}, ${tripId}, ${doc.titulo}, ${doc.valor ?? null}, ${doc.tipo},
+      values (${documentoId}, ${tripId}, ${doc.titulo}, ${doc.valor ?? null}, ${doc.tipo},
               ${doc.categoria ?? null}, ${doc.arquivo_url ?? null}, ${doc.arquivo_mime ?? null},
               ${doc.arquivo_bytes ?? null}, ${doc.obs ?? null}, ${doc.ordem})
+    `)
+  }
+
+  // O roteiro vem por último entre as listas simples porque aponta para reserva
+  // e documento — que o arquivo identifica por NOME, já que ids não sobrevivem a
+  // uma importação. Nome que não bate vira null: o item entra sem o vínculo, em
+  // vez de a importação inteira falhar por causa de uma reserva renomeada.
+  for (const e of d.roteiro) {
+    const eventoId = randomUUID()
+    q.push(sql`
+      insert into itinerary_events (id, trip_id, ocorre_em, fim_em, cidade, local, endereco,
+                                    lat, lon, titulo, descricao, tipo, ancora, distancia_m,
+                                    duracao_min, transporte, como_chegar, dicas, links,
+                                    custo_centavos, reserva_id, documento_id, nota, ordem)
+      values (${eventoId}, ${tripId}, ${e.ocorre_em}, ${e.fim_em ?? null}, ${e.cidade ?? null},
+              ${e.local ?? null}, ${e.endereco ?? null}, ${e.lat ?? null}, ${e.lon ?? null},
+              ${e.titulo}, ${e.descricao ?? null}, ${e.tipo}, ${e.ancora},
+              ${e.distancia_m ?? null}, ${e.duracao_min ?? null}, ${e.transporte ?? null},
+              ${e.como_chegar ?? null}, ${e.dicas ?? null}, ${e.links ?? null},
+              ${e.custo_centavos ?? null}, ${idPorReserva.get(e.reserva ?? '') ?? null},
+              ${idPorDocumento.get(e.documento ?? '') ?? null}, ${e.nota ?? null}, ${e.ordem})
+    `)
+    for (const o of e.opcoes) {
+      q.push(sql`
+        insert into itinerary_options (id, event_id, modo, duracao_min, distancia_m, custo,
+                                       detalhe, recomendado, ordem)
+        values (${randomUUID()}, ${eventoId}, ${o.modo}, ${o.duracao_min ?? null},
+                ${o.distancia_m ?? null}, ${o.custo ?? null}, ${o.detalhe ?? null},
+                ${o.recomendado}, ${o.ordem})
+      `)
+    }
+  }
+
+  for (const dia of d.dias) {
+    q.push(sql`
+      insert into itinerary_days (id, trip_id, dia, titulo, cidade, pais, resumo, ancora,
+                                  alertas, antes_sair, antes_dormir, links, mapa_url)
+      values (${randomUUID()}, ${tripId}, ${dia.dia}, ${dia.titulo ?? null},
+              ${dia.cidade ?? null}, ${dia.pais ?? null}, ${dia.resumo ?? null}, ${dia.ancora},
+              ${dia.alertas ?? null}, ${dia.antes_sair ?? null}, ${dia.antes_dormir ?? null},
+              ${dia.links ?? null}, ${dia.mapa_url ?? null})
     `)
   }
 

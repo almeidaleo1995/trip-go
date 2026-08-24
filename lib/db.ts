@@ -87,6 +87,8 @@ export type Snapshot = {
   viagem: Record<string, unknown> | null
   participantes: Record<string, unknown>[]
   roteiro: Record<string, unknown>[]
+  /** Só os dias com anotação. A lista de dias vem das datas da viagem. */
+  dias: Record<string, unknown>[]
   voos: Record<string, unknown>[]
   cruzeiros: Record<string, unknown>[]
   reservas: Record<string, unknown>[]
@@ -289,6 +291,8 @@ export async function getSnapshot(
     viagem,
     participantes,
     roteiro,
+    opcoes,
+    dias,
     voos,
     escalas,
     cruzeiros,
@@ -307,7 +311,19 @@ export async function getSnapshot(
                p.passaporte, p.ordem, p.updated_at, u.avatar_url
         from travelers p left join users u on u.id = p.user_id
         where p.trip_id = ${tripId} order by p.ordem, p.nome`,
-    sql`select * from itinerary_events where trip_id = ${tripId} order by ocorre_em`,
+    sql`select * from itinerary_events where trip_id = ${tripId} order by ocorre_em, ordem`,
+    sql`select o.* from itinerary_options o
+        join itinerary_events e on e.id = o.event_id
+        where e.trip_id = ${tripId} order by o.ordem`,
+    // `dia` sai como TEXTO, não como date.
+    //
+    // O driver materializa uma coluna `date` como Date na hora local do servidor,
+    // e a serialização para JSON a converte para UTC — a leste de Greenwich isso
+    // devolve o dia anterior, e o dia é a chave de agrupamento de toda a aba
+    // Roteiro. Um to_char aqui é mais barato do que descobrir isso num fuso.
+    sql`select id, trip_id, to_char(dia, 'YYYY-MM-DD') as dia, titulo, cidade, pais,
+               resumo, ancora, alertas, antes_sair, antes_dormir, links, mapa_url, updated_at
+        from itinerary_days where trip_id = ${tripId} order by dia`,
     sql`select * from flights where trip_id = ${tripId} order by ordem, parte_em`,
     sql`select s.* from flight_stops s
         join flights f on f.id = s.flight_id
@@ -333,6 +349,10 @@ export async function getSnapshot(
   ])
 
   // Aninha os filhos em uma passada, sem query por pai.
+  const roteiroComOpcoes = roteiro.map((e) => ({
+    ...e,
+    opcoes: opcoes.filter((o) => o.event_id === e.id),
+  }))
   const voosComEscalas = voos.map((v) => ({
     ...v,
     escalas: escalas.filter((e) => e.flight_id === v.id),
@@ -347,7 +367,8 @@ export async function getSnapshot(
   return {
     viagem: viagem[0] ?? null,
     participantes,
-    roteiro,
+    roteiro: roteiroComOpcoes,
+    dias,
     voos: voosComEscalas,
     cruzeiros: cruzeirosComPortos,
     reservas,

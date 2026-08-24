@@ -149,19 +149,123 @@ export const ParticipanteSchema = z.object({
   ordem: z.number().int().default(0),
 })
 
+/**
+ * Os tipos de item do roteiro. Nao sao so atividades turisticas: tarefa, dica e
+ * observacao existem para o dia poder guardar o que nao tem hora marcada.
+ *
+ * Espelha o check de `itinerary_events.tipo`. Acrescentar um valor aqui sem
+ * acrescentar la faz o insert estourar em producao com "violates check constraint".
+ */
+export const TIPOS_EVENTO = [
+  'voo',
+  'trem',
+  'onibus',
+  'traslado',
+  'caminhada',
+  'cruzeiro',
+  'hospedagem',
+  'local',
+  'passeio',
+  'ponto',
+  'restaurante',
+  'refeicao',
+  'compras',
+  'evento',
+  'tarefa',
+  'compromisso',
+  'dica',
+  'observacao',
+  'documento',
+] as const
+
+/** Modos de transporte de uma opcao de "como chegar". Espelha itinerary_options.modo. */
+export const MODOS_TRANSPORTE = [
+  'a_pe',
+  'metro',
+  'onibus',
+  'trem',
+  'taxi',
+  'carro',
+  'barco',
+  'aviao',
+] as const
+
+/**
+ * Uma opcao de deslocamento ate um item: a pe, de metro, de taxi.
+ *
+ * `custo` e TEXTO ("30-40 EUR"), nao centavos, de proposito: e a faixa que um
+ * guia informa, nao uma despesa. Dinheiro que entra na conta da viagem mora em
+ * `expenses` e passa por resolverDivisao.
+ */
+export const OpcaoSchema = z.object({
+  id: Id.optional(),
+  modo: z.enum(MODOS_TRANSPORTE).default('a_pe'),
+  duracao_min: z.number().int().min(0).nullish(),
+  distancia_m: z.number().int().min(0).nullish(),
+  custo: TextoOpc,
+  detalhe: TextoOpc,
+  recomendado: z.boolean().default(false),
+  ordem: z.number().int().default(0),
+})
+
 export const EventoSchema = z.object({
   id: Id.optional(),
   ocorre_em: DataHora,
+  fim_em: DataHora.nullish(),
   cidade: TextoOpc,
   local: TextoOpc,
+  endereco: TextoOpc,
+  lat: z.number().min(-90).max(90).nullish(),
+  lon: z.number().min(-180).max(180).nullish(),
   titulo: Texto,
   descricao: TextoOpc,
-  tipo: z
-    .enum(['voo', 'hospedagem', 'cruzeiro', 'passeio', 'traslado', 'documento', 'refeicao'])
-    .default('passeio'),
+  tipo: z.enum(TIPOS_EVENTO).default('passeio'),
   /** Dia-ancora: embarque, voo internacional, o que nao pode ser perdido. */
   ancora: z.boolean().default(false),
+  /** O deslocamento ATE este item, nao a partir dele. */
+  distancia_m: z.number().int().min(0).nullish(),
+  duracao_min: z.number().int().min(0).nullish(),
+  transporte: TextoOpc,
+  como_chegar: TextoOpc,
+  /** Uma dica por linha. */
+  dicas: TextoOpc,
+  /** "Rotulo|https://..." por linha. */
+  links: TextoOpc,
+  /** Custo ESTIMADO. Nao e despesa: nao entra em nenhuma divisao. */
+  custo_centavos: z.number().int().min(0).nullish(),
+  reserva_id: Id.nullish(),
+  documento_id: Id.nullish(),
+  /**
+   * No ARQUIVO os dois vinculos acima viajam por nome, nao por id: nenhum id
+   * sobrevive a uma importacao (todos sao recriados), e e o mesmo caminho que o
+   * pagamento ja usa para reencontrar a parcela. Na mutacao eles sao removidos
+   * pelo omit em POR_ENTIDADE — nao existem como coluna.
+   */
+  reserva: TextoOpc,
+  documento: TextoOpc,
   nota: TextoOpc,
+  ordem: z.number().int().default(0),
+  opcoes: z.array(OpcaoSchema).default([]),
+})
+
+/**
+ * Um dia com anotacao. So existe quando alguem escreveu algo sobre ele — a lista
+ * de dias vem das datas da viagem, nao daqui.
+ */
+export const DiaSchema = z.object({
+  id: Id.optional(),
+  dia: Data,
+  titulo: TextoOpc,
+  cidade: TextoOpc,
+  pais: TextoOpc,
+  resumo: TextoOpc,
+  ancora: z.boolean().default(false),
+  /** Um item por linha, nas tres listas abaixo. */
+  alertas: TextoOpc,
+  antes_sair: TextoOpc,
+  antes_dormir: TextoOpc,
+  links: TextoOpc,
+  mapa_url: TextoOpc,
 })
 
 export const EscalaSchema = z.object({
@@ -480,6 +584,7 @@ const TripArquivoSchema = z.object({
   // Toda secao de lista e opcional: uma viagem so com roteiro e valida.
   participantes: z.array(ParticipanteSchema).default([]),
   roteiro: z.array(EventoSchema).default([]),
+  dias: z.array(DiaSchema).default([]),
   voos: z.array(VooSchema).default([]),
   cruzeiros: z.array(CruzeiroSchema).default([]),
   reservas: z.array(ReservaSchema).default([]),
@@ -538,6 +643,8 @@ export const ENTIDADES = [
   'viagem',
   'participante',
   'roteiro',
+  'dia',
+  'opcao',
   'voo',
   'escala',
   'cruzeiro',
@@ -577,7 +684,12 @@ export const MutationBatchSchema = z.object({
 const POR_ENTIDADE: Partial<Record<Entidade, z.ZodTypeAny>> = {
   viagem: ViagemSchema.partial(),
   participante: ParticipanteSchema.partial(),
-  roteiro: EventoSchema.partial(),
+  // `opcoes` chega junto por conveniencia do formulario e e gravado pela
+  // entidade `opcao`; o omit evita que o insert generico tente escrever a
+  // coluna inexistente `opcoes` em itinerary_events.
+  roteiro: EventoSchema.omit({ opcoes: true, reserva: true, documento: true }).partial(),
+  dia: DiaSchema.partial(),
+  opcao: OpcaoSchema.partial(),
   voo: VooSchema.partial(),
   escala: EscalaSchema.partial(),
   cruzeiro: CruzeiroSchema.partial(),
@@ -648,6 +760,8 @@ export function resumirImportacao(dados: TripImport): Record<string, number> {
   return {
     participantes: dados.participantes.length,
     roteiro: dados.roteiro.length,
+    dias: dados.dias.length,
+    opcoes: dados.roteiro.reduce((s, e) => s + e.opcoes.length, 0),
     voos: dados.voos.length,
     cruzeiros: dados.cruzeiros.length,
     portos: dados.cruzeiros.reduce((s, c) => s + c.portos.length, 0),

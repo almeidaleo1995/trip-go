@@ -238,14 +238,49 @@ const TONS: Record<string, { bg: string; ink: string }> = {
   neutro: { bg: 'var(--color-superficie-2)', ink: 'var(--color-tinta-2)' },
 }
 
+/**
+ * Tipo novo do roteiro -> par de cor de um tipo antigo.
+ *
+ * Dezenove tipos de item não pedem dezenove paletas; pedem que trem e ônibus
+ * leiam como "deslocamento" e que restaurante leia como "comida". Sem este
+ * mapa, cada tipo novo cairia no cinza neutro e a linha do tempo perderia a
+ * única pista de cor que ela tem.
+ */
+const ALIAS_TOM: Record<string, string> = {
+  trem: 'traslado',
+  onibus: 'traslado',
+  caminhada: 'traslado',
+  local: 'passeio',
+  ponto: 'passeio',
+  compras: 'passeio',
+  evento: 'passeio',
+  restaurante: 'refeicao',
+  tarefa: 'info',
+  compromisso: 'info',
+  dica: 'sucesso',
+  observacao: 'neutro',
+}
+
 const NOMES: Record<string, string> = {
   voo: 'Voo',
-  hospedagem: 'Hospedagem',
-  cruzeiro: 'Cruzeiro',
-  passeio: 'Passeio',
+  trem: 'Trem',
+  onibus: 'Ônibus',
   traslado: 'Traslado',
-  documento: 'Documento',
+  caminhada: 'Caminhada',
+  cruzeiro: 'Cruzeiro',
+  hospedagem: 'Hospedagem',
+  local: 'Local',
+  passeio: 'Passeio',
+  ponto: 'Ponto turístico',
+  restaurante: 'Restaurante',
   refeicao: 'Refeição',
+  compras: 'Compras',
+  evento: 'Evento',
+  tarefa: 'Tarefa',
+  compromisso: 'Compromisso',
+  dica: 'Dica',
+  observacao: 'Observação',
+  documento: 'Documento',
 }
 
 /**
@@ -261,7 +296,8 @@ export function Badge({
   texto?: string
   icone?: ReactNode
 }) {
-  const tom = TONS[tipo ?? ''] ?? TONS.neutro
+  const chave = tipo ?? ''
+  const tom = TONS[chave] ?? TONS[ALIAS_TOM[chave] ?? ''] ?? TONS.neutro
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap"

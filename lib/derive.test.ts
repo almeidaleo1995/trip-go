@@ -24,6 +24,13 @@ import {
   formatarData,
   statusViagem,
   formatarRelativo,
+  montarDias,
+  ordenarItens,
+  resumoDoDia,
+  diaFoco,
+  formatarDistancia,
+  linhas,
+  lerLinks,
 } from './derive.ts'
 
 const PARTIDA = '2026-12-30'
@@ -408,4 +415,194 @@ test('formatarRelativo escreve a distancia em pt-BR', () => {
   assert.equal(formatarRelativo('2026-06-22T10:00', agora), 'há 2 meses')
   assert.equal(formatarRelativo('2024-06-22T10:00', agora), 'há 2 anos')
   assert.equal(formatarRelativo(null, agora), '')
+})
+
+// ================================================================ roteiro por dia
+
+const VIAGEM = { data_partida: '2026-12-30', data_retorno: '2027-01-15' }
+
+test('montarDias cobre a viagem inteira mesmo sem nenhum item', () => {
+  const dias = montarDias(VIAGEM, [], [])
+  assert.equal(dias.length, 17)
+  assert.equal(dias[0].chave, '2026-12-30')
+  assert.equal(dias[0].numero, 1)
+  assert.equal(dias.at(-1)!.chave, '2027-01-15')
+  assert.equal(dias.at(-1)!.numero, 17)
+})
+
+test('montarDias agrupa os itens no dia certo e ordena por horario', () => {
+  const itens = [
+    { id: 'b', ocorre_em: '2027-01-02T14:00', titulo: 'HafenCity' },
+    { id: 'a', ocorre_em: '2027-01-02T10:00', titulo: 'Speicherstadt' },
+    { id: 'c', ocorre_em: '2027-01-03T09:00', titulo: 'Embarque' },
+  ]
+  const dias = montarDias(VIAGEM, itens, [])
+  const doDia2 = dias.find((d) => d.chave === '2027-01-02')!
+  assert.deepEqual(
+    doDia2.itens.map((i) => i.id),
+    ['a', 'b'],
+  )
+  assert.equal(dias.find((d) => d.chave === '2027-01-03')!.itens.length, 1)
+})
+
+// Dois itens no mesmo minuto: `ordem` desempata. E o unico papel dela.
+test('ordenarItens usa ordem so para desempatar o mesmo horario', () => {
+  const itens = [
+    { id: 'x', ocorre_em: '2027-01-02T10:00', ordem: 2 },
+    { id: 'y', ocorre_em: '2027-01-02T10:00', ordem: 1 },
+    { id: 'z', ocorre_em: '2027-01-02T09:00', ordem: 9 },
+  ]
+  assert.deepEqual(
+    ordenarItens(itens).map((i) => i.id),
+    ['z', 'y', 'x'],
+  )
+})
+
+// A viagem encurtou depois que alguem ja tinha escrito o dia 20. Sumir com o
+// texto seria perder trabalho em silencio.
+test('montarDias mantem dia anotado fora do intervalo da viagem', () => {
+  const dias = montarDias(VIAGEM, [{ id: 'a', ocorre_em: '2027-01-20T10:00' }], [])
+  const extra = dias.find((d) => d.chave === '2027-01-20')
+  assert.ok(extra, 'o dia fora do intervalo tem que continuar na lista')
+  assert.equal(extra!.numero, 0, 'mas nao ganha numero de dia da viagem')
+})
+
+test('montarDias liga a linha de itinerary_days ao dia correspondente', () => {
+  const dias = montarDias(VIAGEM, [], [{ id: 'd1', dia: '2027-01-02', resumo: 'Hamburgo a pé' }])
+  assert.equal(dias.find((d) => d.chave === '2027-01-02')!.meta!.resumo, 'Hamburgo a pé')
+  assert.equal(dias.find((d) => d.chave === '2027-01-03')!.meta, null)
+})
+
+test('montarDias sem datas da viagem ainda agrupa pelos itens', () => {
+  const dias = montarDias(null, [{ id: 'a', ocorre_em: '2027-01-02T10:00' }], [])
+  assert.equal(dias.length, 1)
+  assert.equal(dias[0].numero, 0)
+})
+
+// ---------------------------------------------------------------- resumoDoDia
+
+const DIA_CHEIO = [
+  { tipo: 'refeicao', ocorre_em: '2027-01-02T08:00', fim_em: '2027-01-02T09:00' },
+  {
+    tipo: 'caminhada',
+    ocorre_em: '2027-01-02T09:30',
+    distancia_m: 850,
+    duracao_min: 11,
+  },
+  {
+    tipo: 'ponto',
+    ocorre_em: '2027-01-02T10:00',
+    fim_em: '2027-01-02T11:30',
+    custo_centavos: 2500,
+    reserva_id: 'r1',
+  },
+  {
+    tipo: 'traslado',
+    ocorre_em: '2027-01-02T12:00',
+    distancia_m: 2400,
+    duracao_min: 18,
+    opcoes: [{ modo: 'metro', recomendado: true }],
+  },
+  { tipo: 'restaurante', ocorre_em: '2027-01-02T12:30', fim_em: '2027-01-02T14:00' },
+  { tipo: 'local', ocorre_em: '2027-01-02T14:00', fim_em: '2027-01-02T16:00' },
+]
+
+test('resumoDoDia conta locais, deslocamentos, refeicoes e reservas', () => {
+  const r = resumoDoDia(DIA_CHEIO)
+  assert.equal(r.locais, 2) // ponto + local
+  assert.equal(r.deslocamentos, 2) // caminhada + traslado
+  assert.equal(r.refeicoes, 2) // refeicao + restaurante
+  assert.equal(r.reservas, 1)
+})
+
+test('resumoDoDia soma distancia, transito e custo estimado', () => {
+  const r = resumoDoDia(DIA_CHEIO)
+  assert.equal(r.distanciaM, 3250)
+  assert.equal(r.minutosDeslocamento, 29)
+  assert.equal(r.custoCentavos, 2500)
+})
+
+// 1h (café) + 1h30 (ponto) + 1h30 (almoço) + 2h (local) = 6h
+test('resumoDoDia soma as duracoes explicitas quando existem', () => {
+  assert.equal(resumoDoDia(DIA_CHEIO).minutos, 360)
+})
+
+// Sem nenhum fim_em, o unico numero honesto e o intervalo do primeiro ao ultimo.
+test('resumoDoDia cai para o intervalo do dia quando ninguem cadastrou fim', () => {
+  const r = resumoDoDia([
+    { tipo: 'local', ocorre_em: '2027-01-02T09:00' },
+    { tipo: 'local', ocorre_em: '2027-01-02T17:30' },
+  ])
+  assert.equal(r.minutos, 510)
+})
+
+test('resumoDoDia de um dia vazio nao explode e zera tudo', () => {
+  const r = resumoDoDia([])
+  assert.equal(r.minutos, 0)
+  assert.equal(r.distanciaM, 0)
+  assert.deepEqual(r.porModo, [])
+})
+
+// A opcao recomendada manda no modo; sem opcao, o tipo do item decide.
+test('resumoDoDia agrupa o deslocamento por modo', () => {
+  const r = resumoDoDia(DIA_CHEIO)
+  assert.deepEqual(r.porModo, [
+    { modo: 'metro', vezes: 1, distanciaM: 2400, minutos: 18 },
+    { modo: 'a_pe', vezes: 1, distanciaM: 850, minutos: 11 },
+  ])
+})
+
+// ---------------------------------------------------------------- diaFoco
+
+test('diaFoco abre hoje durante a viagem, o proximo antes e o ultimo depois', () => {
+  const dias = montarDias(VIAGEM, [], [])
+  assert.equal(dias[diaFoco(dias, new Date(2027, 0, 2))].chave, '2027-01-02')
+  assert.equal(dias[diaFoco(dias, new Date(2026, 5, 1))].chave, '2026-12-30')
+  assert.equal(dias[diaFoco(dias, new Date(2027, 5, 1))].chave, '2027-01-15')
+  assert.equal(diaFoco([], new Date()), -1)
+})
+
+// ---------------------------------------------------------------- formatarDistancia
+
+test('formatarDistancia escreve metros ate 1 km e km acima', () => {
+  assert.equal(formatarDistancia(850), '850 m')
+  assert.equal(formatarDistancia(2400), '2,4 km')
+  assert.equal(formatarDistancia(3000), '3 km')
+  assert.equal(formatarDistancia(14300), '14 km')
+  assert.equal(formatarDistancia(0), '')
+  assert.equal(formatarDistancia(null), '')
+})
+
+// ---------------------------------------------------------------- linhas e links
+
+test('linhas ignora vazio e espaco sobrando', () => {
+  assert.deepEqual(linhas('  Passaporte \n\n Casaco\r\n'), ['Passaporte', 'Casaco'])
+  assert.deepEqual(linhas(null), [])
+})
+
+test('lerLinks separa rotulo de url e assume https', () => {
+  assert.deepEqual(lerLinks('Site oficial|https://elbphilharmonie.de'), [
+    { rotulo: 'Site oficial', url: 'https://elbphilharmonie.de' },
+  ])
+  assert.deepEqual(lerLinks('maps.google.com'), [
+    { rotulo: 'maps.google.com', url: 'https://maps.google.com' },
+  ])
+})
+
+// O roteiro e escrito por uma pessoa e lido por todas as outras: um href com
+// `javascript:` seria codigo rodando na tela dos outros participantes.
+test('lerLinks descarta esquema que nao vira href seguro', () => {
+  assert.deepEqual(lerLinks('Clique|javascript:alert(1)'), [])
+  assert.deepEqual(lerLinks('Arquivo|file:///etc/passwd'), [])
+  assert.equal(lerLinks('Ligar|tel:+493040000').length, 1)
+})
+
+// Um deslocamento cadastrado num item que não é "de transporte" (o almoço a 2,4 km
+// de metrô) tem que continuar contando: a linha do tempo já mostra a distância dele.
+test('resumoDoDia nao perde deslocamento de item sem modo conhecido', () => {
+  const r = resumoDoDia([
+    { tipo: 'restaurante', ocorre_em: '2027-01-02T12:30', distancia_m: 2400, duracao_min: 18 },
+  ])
+  assert.deepEqual(r.porModo, [{ modo: 'outro', vezes: 1, distanciaM: 2400, minutos: 18 }])
+  assert.equal(r.distanciaM, 2400)
 })

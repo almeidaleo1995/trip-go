@@ -16,7 +16,9 @@ const BANCO = 'viagem'
 //
 //   1 -> 2  financeiro deixou de ser { categorias, custos } e virou dois
 //           formatos por papel ({ admin: true, ... } / { admin: false, ... })
-const VERSAO = 2
+//   2 -> 3  o roteiro virou dia a dia: o snapshot ganhou `dias`, e cada evento
+//           ganhou `opcoes` e uma dúzia de campos (fim_em, dicas, links...)
+const VERSAO = 3
 const SNAPSHOT = 'snapshot'
 const FILA = 'fila'
 

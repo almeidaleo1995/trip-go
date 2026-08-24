@@ -75,20 +75,90 @@ create table if not exists travelers (
 
 -- ---------------------------------------------------------------- roteiro
 
+-- Um dia da viagem. A linha existe SO quando alguem escreveu algo sobre o dia
+-- (titulo, resumo, alerta, ritual de sair ou dormir) -- a lista de dias em si e
+-- derivada de trips.data_partida..data_retorno e nao precisa de linha nenhuma
+-- aqui. Por isso a tela faz upsert por (trip_id, dia) e nunca "cria os dias" ao
+-- criar a viagem: uma viagem de 17 dias sem anotacao tem zero linhas.
+create table if not exists itinerary_days (
+  id            text primary key default gen_random_uuid()::text,
+  trip_id       text not null references trips(id) on delete cascade,
+  dia           date not null,
+  titulo        text,
+  cidade        text,
+  pais          text,
+  resumo        text,
+  -- dia-ancora: embarque, troca de cidade, retorno. Ganha destaque no seletor.
+  ancora        boolean not null default false,
+  -- as tres listas abaixo sao UM ITEM POR LINHA. Uma tabela filha por lista daria
+  -- tres entidades, tres editores e tres round-trips de export para guardar frases.
+  alertas       text,
+  antes_sair    text,
+  antes_dormir  text,
+  -- "Rotulo|https://..." por linha; sem barra, a url vira o proprio rotulo
+  links         text,
+  -- link externo do mapa do dia (Google Maps, Citymapper). Sem ele a secao some.
+  mapa_url      text,
+  updated_at    timestamptz not null default now(),
+  unique (trip_id, dia)
+);
+
 create table if not exists itinerary_events (
   id          text primary key default gen_random_uuid()::text,
   trip_id     text not null references trips(id) on delete cascade,
   ocorre_em   timestamp not null,
+  fim_em      timestamp,
   cidade      text,
   local       text,
+  endereco    text,
+  -- lat/lon opcionais, igual a places: sem eles o botao "ver no mapa" some
+  lat         numeric(8, 5),
+  lon         numeric(8, 5),
   titulo      text not null,
   descricao   text,
-  -- tipo alimenta o badge colorido da linha do tempo
+  -- tipo alimenta o badge colorido e o icone da linha do tempo
   tipo        text not null default 'passeio'
-              check (tipo in ('voo', 'hospedagem', 'cruzeiro', 'passeio', 'traslado', 'documento', 'refeicao')),
+              check (tipo in ('voo', 'trem', 'onibus', 'traslado', 'caminhada', 'cruzeiro',
+                              'hospedagem', 'local', 'passeio', 'ponto', 'restaurante',
+                              'refeicao', 'compras', 'evento', 'tarefa', 'compromisso',
+                              'dica', 'observacao', 'documento')),
   ancora      boolean not null default false,
+  -- o DESLOCAMENTO ATE AQUI, nao a partir daqui. Fica no item de destino porque
+  -- e assim que se le um roteiro: "para chegar no Speicherstadt, 850 m a pe".
+  distancia_m  integer check (distancia_m is null or distancia_m >= 0),
+  duracao_min  integer check (duracao_min is null or duracao_min >= 0),
+  transporte   text,
+  como_chegar  text,
+  -- uma dica por linha
+  dicas        text,
+  -- "Rotulo|https://..." por linha
+  links        text,
+  -- custo ESTIMADO deste item. Despesa de verdade mora em `expenses` e nao e
+  -- espelhada aqui: misturar estimativa com gasto registrado e o erro do modulo.
+  custo_centavos integer check (custo_centavos is null or custo_centavos >= 0),
+  reserva_id  text references reservations(id) on delete set null,
+  documento_id text references documents(id) on delete set null,
   nota        text,
+  ordem       integer not null default 0,
   updated_at  timestamptz not null default now()
+);
+
+-- Como chegar: as opcoes de transporte de UM deslocamento (a pe / metro / taxi).
+-- Tabela filha pelo mesmo motivo de flight_stops: sao varias por item, cada uma
+-- com quatro campos, e uma marcada como recomendada.
+create table if not exists itinerary_options (
+  id           text primary key default gen_random_uuid()::text,
+  event_id     text not null references itinerary_events(id) on delete cascade,
+  modo         text not null default 'a_pe'
+               check (modo in ('a_pe', 'metro', 'onibus', 'trem', 'taxi', 'carro', 'barco', 'aviao')),
+  duracao_min  integer check (duracao_min is null or duracao_min >= 0),
+  distancia_m  integer check (distancia_m is null or distancia_m >= 0),
+  -- faixa de preco em texto ("30-40 EUR"), nao centavos: estimativa de guia, nao despesa
+  custo        text,
+  detalhe      text,
+  recomendado  boolean not null default false,
+  ordem        integer not null default 0,
+  updated_at   timestamptz not null default now()
 );
 
 -- ---------------------------------------------------------------- voos
@@ -529,6 +599,32 @@ end $$;
 -- O PIN de 4 digitos foi substituido pela senha da conta em `users`.
 alter table travelers drop column if exists pin_hash;
 
+-- ---------------------------------------------------------------- roteiro por dia
+
+alter table itinerary_events add column if not exists fim_em         timestamp;
+alter table itinerary_events add column if not exists endereco       text;
+alter table itinerary_events add column if not exists lat            numeric(8, 5);
+alter table itinerary_events add column if not exists lon            numeric(8, 5);
+alter table itinerary_events add column if not exists distancia_m    integer;
+alter table itinerary_events add column if not exists duracao_min    integer;
+alter table itinerary_events add column if not exists transporte     text;
+alter table itinerary_events add column if not exists como_chegar    text;
+alter table itinerary_events add column if not exists dicas          text;
+alter table itinerary_events add column if not exists links          text;
+alter table itinerary_events add column if not exists custo_centavos integer;
+alter table itinerary_events add column if not exists reserva_id     text references reservations(id) on delete set null;
+alter table itinerary_events add column if not exists documento_id   text references documents(id) on delete set null;
+alter table itinerary_events add column if not exists ordem          integer not null default 0;
+
+-- O check de `tipo` cresceu de 7 para 19 valores. Trocar a constraint e o unico
+-- caminho: `check` nao aceita `if not exists`, e a antiga recusaria 'restaurante'.
+alter table itinerary_events drop constraint if exists itinerary_events_tipo_check;
+alter table itinerary_events add  constraint itinerary_events_tipo_check
+  check (tipo in ('voo', 'trem', 'onibus', 'traslado', 'caminhada', 'cruzeiro',
+                  'hospedagem', 'local', 'passeio', 'ponto', 'restaurante',
+                  'refeicao', 'compras', 'evento', 'tarefa', 'compromisso',
+                  'dica', 'observacao', 'documento'));
+
 -- ---------------------------------------------------------------- indices
 
 create index if not exists idx_users_email             on users (email);
@@ -536,6 +632,9 @@ create index if not exists idx_trips_owner             on trips (owner_id, arqui
 create index if not exists idx_travelers_trip          on travelers (trip_id);
 create index if not exists idx_travelers_user          on travelers (user_id);
 create index if not exists idx_events_trip_quando      on itinerary_events (trip_id, ocorre_em);
+create index if not exists idx_events_ordem            on itinerary_events (trip_id, ocorre_em, ordem);
+create index if not exists idx_itinerary_days_trip     on itinerary_days (trip_id, dia);
+create index if not exists idx_itinerary_options_event on itinerary_options (event_id, ordem);
 create index if not exists idx_flights_trip            on flights (trip_id, ordem);
 create index if not exists idx_flight_stops_flight     on flight_stops (flight_id, ordem);
 create index if not exists idx_reservations_trip       on reservations (trip_id, tipo, inicio_em);

@@ -24,6 +24,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Commands](#commands)
 - [Testing](#testing)
 - [Shipping a new update](#shipping-a-new-update)
+- [The itinerary, day by day](#the-itinerary-day-by-day)
 - [Known limitations](#known-limitations)
 - [Security checklist](#security-checklist)
 
@@ -34,12 +35,12 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | | |
 | --- | --- |
 | **Framework** | Next.js 16.3.2, App Router, React 19.2, Node runtime |
-| **Database** | Neon serverless Postgres — 22 tables, one idempotent `schema.sql` |
+| **Database** | Neon serverless Postgres — 24 tables, one idempotent `schema.sql` |
 | **Auth** | Email + password, scrypt hashes, HMAC-signed httpOnly cookie, 90 days |
 | **Runtime deps** | 4 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react` |
 | **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
-| **Tests** | 137 unit tests, `node --test`, zero test frameworks |
+| **Tests** | 156 unit tests, `node --test`, zero test frameworks |
 | **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
@@ -76,7 +77,7 @@ flowchart TB
         DB["lib/db.ts<br/>SQL + snapshot assembly"]
     end
 
-    NEON[("Neon Postgres<br/>19 tables<br/>credential lives only here")]
+    NEON[("Neon Postgres<br/>24 tables<br/>credential lives only here")]
 
     TP -->|"fetch"| API
     SW -.->|"cache miss"| RSC
@@ -169,11 +170,24 @@ All of it lives in `lib/financeiro.ts`: zero I/O, zero React, zero SQL. The serv
 
 `lib/schema.ts` is the single contract: the import file format, the mutation format, and the account forms. `EditorSheet.tsx` builds its fields **from the zod schema**, so fifteen entities share one editor instead of fifteen hand-written forms. The server validates against the same schemas before writing.
 
+### 9. The itinerary's day list is derived, not stored
+
+A trip screen that shows "30 DEZ · 31 DEZ · 01 JAN …" looks like it needs a `days`
+table. It does not. The list comes from `data_partida..data_retorno`, computed by
+`montarDias()`; `itinerary_days` stores only the days somebody actually wrote
+*about* — a title, a summary, alerts, the two rituals.
+
+The alternative — materialising every day at trip creation — buys nothing and costs
+a reconciliation every time the dates change: shift the return date by two days and
+you own the question of what happens to the rows past the end. Deriving makes that
+question disappear, and a day annotated outside the range still renders (with no day
+number) instead of silently taking its text with it.
+
 ---
 
 ## Data model
 
-22 tables. Everything trip-scoped cascades from `trips`; everything person-scoped cascades from `users`.
+24 tables. Everything trip-scoped cascades from `trips`; everything person-scoped cascades from `users`.
 
 ```mermaid
 erDiagram
@@ -182,6 +196,8 @@ erDiagram
     users ||--o{ notifications : receives
     trips ||--o{ travelers : has
     trips ||--o{ itinerary_events : has
+    trips ||--o{ itinerary_days : "annotates"
+    itinerary_events ||--o{ itinerary_options : "how to get there"
     trips ||--o{ flights : has
     trips ||--o{ reservations : has
     trips ||--o{ places : has
@@ -502,7 +518,8 @@ travel-guide/
 │   ├── MapaRota.tsx             # hand-projected SVG route map
 │   ├── PdfBolso.tsx             # print-only pocket sheet — window.print(), no PDF lib
 │   ├── ui.tsx                   # the whole design system
-│   └── tabs/                    # Inicio · Conteudo · Interativas · Financeiro · Dados
+│   └── tabs/                    # Inicio · Roteiro · Conteudo · Interativas ·
+│                                #   Financeiro · Dados
 │
 ├── lib/
 │   ├── db.ts                    # SQL + snapshot assembly. Credential stops here.
@@ -518,7 +535,7 @@ travel-guide/
 │
 ├── config/                      # site.ts · theme.ts · navigation.ts
 ├── db/
-│   ├── schema.sql               # 19 tables, idempotent, migrations included
+│   ├── schema.sql               # 24 tables, idempotent, migrations included
 │   └── europa-2027.json         # a real trip in import format (see Limitations)
 ├── scripts/                     # db-push · seed · test-api runner
 ├── tests/api.test.mjs           # integration suite (see Testing)
@@ -551,7 +568,7 @@ Trip duplication is worth a look: it runs **entirely in SQL**, never pulling row
 ```bash
 npm install
 cp .env.example .env.local          # then fill it in
-npm run db:push                     # creates/updates all 19 tables — idempotent
+npm run db:push                     # creates/updates all 24 tables — idempotent
 npm run dev                         # http://localhost:3000
 ```
 
@@ -643,15 +660,17 @@ node .claude/skills/viagem-para-json/scripts/validar.mjs db/europa-2027.json
 
 ## Testing
 
-### Unit — 88 passing
+### Unit — 156 passing
 
 ```
 lib/financeiro.test.ts 49 tests  the money engine: exact splits, weights, custom
                                  amounts, installment schedules, overdue/partial/paid,
                                  balances, debt simplification, and the privacy cut —
                                  what a common traveller is allowed to receive
-lib/derive.test.ts    48 tests   pure calculations: dates, phases, countdowns,
-                                 checklist progress, pt-BR money parsing, map projection
+lib/derive.test.ts    67 tests   pure calculations: dates, phases, countdowns,
+                                 checklist progress, pt-BR money parsing, map projection,
+                                 the day model of the itinerary (grouping, day summary,
+                                 which day to open, distances, link parsing)
 lib/schema.test.ts    24 tests   the zod contract: field-precise error messages,
                                  calendar rollover, currency, roles, per-entity fields
 lib/session.test.ts   16 tests   scrypt round-trip, tampered/expired tokens,
@@ -760,6 +779,72 @@ vercel --prod
 
 ---
 
+## The itinerary, day by day
+
+The Roteiro is the one screen meant to be used **with one hand, on a phone, in a
+foreign city**. It answers, in this order: where do I need to be now, what comes
+next, how do I get there, how long does it take, do I need a document, do I have a
+booking, what does it cost, and is there anything I should know first.
+
+### Three levels
+
+```
+VIAGEM  ──►  DIA  ──►  ITEM
+             │          │
+             │          └─ nível 1  horário · o quê · onde · próximo deslocamento
+             │             nível 2  como chegar · distância · transporte · duração
+             │             nível 3  dicas · links · reserva · documentos · custos
+             │
+             └─ cabeçalho · resumo · alertas · checklist · antes de sair/dormir
+```
+
+Levels 2 and 3 are collapsed behind a **Detalhes** toggle. That is the whole reason
+the screen can carry this much without reading as a spreadsheet: the first layer is
+four facts per item, and everything else is one tap away.
+
+### What comes from where
+
+| On screen | Source | Stored? |
+| --- | --- | --- |
+| The strip of days | `trips.data_partida..data_retorno` | derived |
+| Title, city, summary, alerts, the two rituals, day links, map link | `itinerary_days` | one row **per annotated day** |
+| Timeline items, "how to get here", tips, links, estimated cost | `itinerary_events` | yes |
+| The transport options under "Como chegar" | `itinerary_options` | yes, child of an item |
+| Day chips (locais · km · deslocamentos · refeições · tempo) | `resumoDoDia()` over the day's items | derived, never hardcoded |
+| Flights, hotel check-in/out, embarkation, port calls | `flights` · `reservations` · `cruises` | **not copied** — rendered from the other tabs |
+| Checklist of the day | `checklist_items` whose deadline falls on the day | the existing checklist, same `checklist_state` |
+| Money of the day | `financeiro` — the slice the server already decided this role may see | see [The money is scoped](#the-money-is-scoped-not-hidden) |
+
+Two of those rows carry the design:
+
+**Nothing is copied between modules.** A flight appears on its day as a *derived*
+entry, marked "do cadastro de voos" and not editable from here. Writing the flight
+into `itinerary_events` as well would create two records of one fact that then age
+apart — which is exactly how a travel app starts lying about a departure time.
+
+**The day's checklist is the trip's checklist.** Items whose `prazo_ideal` or
+`prazo_maximo` lands on the open day, ticked through the same `checklist_state` the
+Checklist tab writes. A second per-day task system would mean the same task ticked
+in one place and open in the other.
+
+### Reordering
+
+Every item has a mandatory `ocorre_em`, so "move up" can only mean "happen earlier".
+The ↑/↓ buttons **swap the times** of two neighbours; `ordem` exists only to break a
+tie between two items marked at the same minute. There is no drag-and-drop: HTML5
+drag is poor on touch, and a library for it would be the fifth runtime dependency.
+
+### Text fields that are lists
+
+`dicas`, `alertas`, `antes_sair` and `antes_dormir` are **one item per line** in a
+single `text` column; `links` is `Rótulo|https://…` per line. Four child tables to
+store sentences would have meant four entities, four editors and four round-trips
+through the import format. `linhas()` and `lerLinks()` in `derive.ts` parse them —
+and `lerLinks()` drops any scheme that is not `http`, `https`, `mailto` or `tel`,
+because one person writes the itinerary and everybody else's browser renders it.
+
+---
+
 ## Known limitations
 
 Nothing here is a hidden surprise. Each is a deliberate choice with a known ceiling and a known upgrade path.
@@ -776,6 +861,11 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | **Export omits credentials** | A restored backup has no passwords. Intentional — the file circulates by email. | None wanted. |
 | **Old expenses import without a split** | A v2 backup records how *many* people shared a cost, never *who*. The importer converts the amount to a total and leaves the split empty rather than inventing participants; the screen marks those expenses "a dividir". | Open each one and choose who divides it. |
 | **A reimbursement tied to an installment is re-linked by description** | Installment ids are recreated on import, so `payments.parcela_id` is restored by matching *expense description + installment number*. Two expenses with the same description put the payment on the first. Balances stay exact either way — only the "paid on this installment" label can move. | Export the expense's `ordem` alongside it. |
+| **Only `itinerary_days.dia` is read as text** | The Neon driver materialises a `date` column as a `Date` in server-local time, and JSON serialisation converts it to UTC — east of Greenwich that lands on the previous day. The itinerary's day key is converted with `to_char` in the query because the whole screen indexes on it. The other `date` columns (`prazo_ideal`, `ocorre_em` on an expense, `vence_em`) still travel as `Date`, which is correct for a UTC server and for any timezone west of Greenwich — both environments this runs in. | Same `to_char` on those queries. `expenses.ocorre_em` and `installments.vence_em` feed the money engine, so that one wants its tests re-run, not a blind edit. |
+| **The day list is derived, not stored** | `itinerary_days` holds only the days somebody wrote *about*. The list of days on screen comes from `data_partida..data_retorno`, so shortening a trip hides nothing — a day with notes outside the new range still renders, without a day number. | None wanted. Storing every day would mean a write per trip creation and a reconciliation on every date change. |
+| **"Antes de sair" / "antes de dormir" tick locally** | The two day rituals live in `localStorage`, per device. The *lists* are stored on the day; only the checkmarks are local, so they do not sync between the five travellers and vanish with cleared site data. Marked with a `ponytail:` comment at the source. | Move the marks into `checklist_state`, which already carries per-person state. The lists themselves would not move. |
+| **Reordering a day means changing times** | Every itinerary item has a mandatory `ocorre_em`, so the up/down buttons swap the *time* of two neighbours rather than a parallel `ordem`. `ordem` only breaks a tie between two items marked at the same minute. | None wanted — a timeline whose order disagrees with the clock it prints is worse. |
+| **Trip duplication drops item → reservation links** | `reserva_id` and `documento_id` are set to NULL on clone: the copy's reservations are new rows, and keeping the old id would point an item at another trip. | Copy reservations and documents with derived ids too, the way flights already are. |
 | **Debt simplification is greedy** | Largest debtor against largest creditor. At most n−1 transfers, which settles any group; not the proven minimum (that is NP-hard). | A partition solver, if a trip ever has enough participants for it to matter. |
 | **`db:push` is not part of the build** | Deploying does not migrate. | Intentional. Automate only with a real migration tool. |
 | **Social sign-in is inert** | Google and Apple buttons render disabled with a reason, driven by `siteConfig.social`. | Flip `ativo` once a provider is wired. |

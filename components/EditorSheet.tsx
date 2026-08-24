@@ -20,7 +20,8 @@ import {
   useAviso,
 } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
-import { paraCampoDinheiro } from '@/lib/derive.ts'
+import { paraCampoDinheiro, parseData } from '@/lib/derive.ts'
+import { TIPOS_EVENTO, MODOS_TRANSPORTE } from '@/lib/schema.ts'
 import { type Papel } from '@/config/navigation.ts'
 
 type TipoCampo = 'texto' | 'area' | 'data' | 'datahora' | 'numero' | 'dinheiro' | 'bool' | 'opcao'
@@ -32,6 +33,12 @@ type Campo = {
   obrigatorio?: boolean
   opcoes?: { valor: string; nome: string }[]
   dica?: string
+  /**
+   * Preenche as opções com registros da própria viagem em vez de uma lista
+   * fixa. É o que transforma "reserva_id" de um campo de id digitado à mão —
+   * inusável — numa seleção de "Motel One Hamburg · 01 jan".
+   */
+  fonte?: 'reservas' | 'documentos'
   /** Seção do formulário. Campos sem grupo caem em "Informações básicas". */
   grupo?: string
 }
@@ -43,6 +50,45 @@ const DATAS = 'Datas e horários'
 const RESERVA = 'Reserva'
 const CONTATO = 'Contato'
 const OBS = 'Observações'
+const LOCAL = 'Local'
+const CHEGAR = 'Como chegar'
+const VINCULOS = 'Reserva, documento e custo'
+const DIA = 'O dia'
+const RITUAIS = 'Antes de sair e antes de dormir'
+
+/** Nome de exibição de cada tipo de item. Espelha NOMES em ui.tsx. */
+const NOME_TIPO: Record<string, string> = {
+  voo: 'Voo',
+  trem: 'Trem',
+  onibus: 'Ônibus',
+  traslado: 'Transporte / traslado',
+  caminhada: 'Caminhada',
+  cruzeiro: 'Cruzeiro',
+  hospedagem: 'Hospedagem',
+  local: 'Local',
+  passeio: 'Passeio',
+  ponto: 'Ponto turístico',
+  restaurante: 'Restaurante',
+  refeicao: 'Refeição',
+  compras: 'Compras',
+  evento: 'Evento',
+  tarefa: 'Tarefa',
+  compromisso: 'Compromisso',
+  dica: 'Dica',
+  observacao: 'Observação',
+  documento: 'Documento',
+}
+
+const NOME_MODO: Record<string, string> = {
+  a_pe: 'A pé',
+  metro: 'Transporte público / metrô',
+  onibus: 'Ônibus',
+  trem: 'Trem',
+  taxi: 'Táxi / carro de app',
+  carro: 'Carro',
+  barco: 'Barco / balsa',
+  aviao: 'Avião',
+}
 
 /** Entidade -> campos editáveis. Espelha os schemas zod de lib/schema.ts. */
 export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
@@ -96,29 +142,134 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
     ],
   },
   roteiro: {
-    nome: 'Evento do roteiro',
+    nome: 'Item do roteiro',
     campos: [
       { chave: 'titulo', rotulo: 'Título', tipo: 'texto', obrigatorio: true },
-      { chave: 'ocorre_em', rotulo: 'Quando', tipo: 'datahora', obrigatorio: true, grupo: DATAS },
       {
         chave: 'tipo',
         rotulo: 'Tipo',
         tipo: 'opcao',
-        opcoes: [
-          { valor: 'voo', nome: 'Voo' },
-          { valor: 'hospedagem', nome: 'Hospedagem' },
-          { valor: 'cruzeiro', nome: 'Cruzeiro' },
-          { valor: 'passeio', nome: 'Passeio' },
-          { valor: 'traslado', nome: 'Traslado' },
-          { valor: 'documento', nome: 'Documento' },
-          { valor: 'refeicao', nome: 'Refeição' },
-        ],
+        opcoes: TIPOS_EVENTO.map((v) => ({ valor: v, nome: NOME_TIPO[v] })),
       },
-      { chave: 'cidade', rotulo: 'Cidade', tipo: 'texto' },
-      { chave: 'local', rotulo: 'Local', tipo: 'texto' },
-      { chave: 'ancora', rotulo: 'Não pode ser perdido', tipo: 'bool' },
+      { chave: 'ocorre_em', rotulo: 'Começa', tipo: 'datahora', obrigatorio: true, grupo: DATAS },
+      { chave: 'fim_em', rotulo: 'Termina', tipo: 'datahora', grupo: DATAS },
+      { chave: 'ancora', rotulo: 'Não pode ser perdido', tipo: 'bool', grupo: DATAS },
+      { chave: 'local', rotulo: 'Nome do local', tipo: 'texto', grupo: LOCAL },
+      { chave: 'endereco', rotulo: 'Endereço', tipo: 'texto', grupo: LOCAL },
+      { chave: 'cidade', rotulo: 'Cidade', tipo: 'texto', grupo: LOCAL },
+      { chave: 'lat', rotulo: 'Latitude', tipo: 'numero', dica: '53.5436', grupo: LOCAL },
+      { chave: 'lon', rotulo: 'Longitude', tipo: 'numero', dica: '9.9885', grupo: LOCAL },
+      {
+        chave: 'transporte',
+        rotulo: 'Como se chega aqui',
+        tipo: 'texto',
+        dica: 'a pé, metrô U3, táxi',
+        grupo: CHEGAR,
+      },
+      { chave: 'distancia_m', rotulo: 'Distância (m)', tipo: 'numero', grupo: CHEGAR },
+      { chave: 'duracao_min', rotulo: 'Duração (min)', tipo: 'numero', grupo: CHEGAR },
+      {
+        chave: 'como_chegar',
+        rotulo: 'Instruções',
+        tipo: 'area',
+        dica: 'linha, estação, saída',
+        grupo: CHEGAR,
+      },
+      {
+        chave: 'dicas',
+        rotulo: 'Dicas',
+        tipo: 'area',
+        dica: 'uma por linha',
+        grupo: 'Dicas e links',
+      },
+      {
+        chave: 'links',
+        rotulo: 'Links úteis',
+        tipo: 'area',
+        dica: 'Site oficial|https://…  (um por linha)',
+        grupo: 'Dicas e links',
+      },
+      {
+        chave: 'reserva_id',
+        rotulo: 'Reserva',
+        tipo: 'opcao',
+        fonte: 'reservas',
+        grupo: VINCULOS,
+      },
+      {
+        chave: 'documento_id',
+        rotulo: 'Documento necessário',
+        tipo: 'opcao',
+        fonte: 'documentos',
+        grupo: VINCULOS,
+      },
+      {
+        chave: 'custo_centavos',
+        rotulo: 'Custo estimado',
+        tipo: 'dinheiro',
+        dica: 'estimativa, não despesa',
+        grupo: VINCULOS,
+      },
       { chave: 'descricao', rotulo: 'Descrição', tipo: 'area', grupo: OBS },
       { chave: 'nota', rotulo: 'Anotação livre', tipo: 'area', grupo: OBS },
+    ],
+  },
+  dia: {
+    nome: 'Dia do roteiro',
+    campos: [
+      { chave: 'dia', rotulo: 'Data', tipo: 'data', obrigatorio: true },
+      { chave: 'titulo', rotulo: 'Título do dia', tipo: 'texto', dica: 'Dia de exploração' },
+      { chave: 'cidade', rotulo: 'Cidade', tipo: 'texto' },
+      { chave: 'pais', rotulo: 'País', tipo: 'texto' },
+      { chave: 'ancora', rotulo: 'Dia-âncora', tipo: 'bool' },
+      { chave: 'resumo', rotulo: 'Resumo do dia', tipo: 'area', grupo: DIA },
+      {
+        chave: 'alertas',
+        rotulo: 'Atenção hoje',
+        tipo: 'area',
+        dica: 'um alerta por linha',
+        grupo: DIA,
+      },
+      { chave: 'mapa_url', rotulo: 'Link do mapa do dia', tipo: 'texto', grupo: DIA },
+      {
+        chave: 'links',
+        rotulo: 'Links úteis do dia',
+        tipo: 'area',
+        dica: 'Rótulo|https://…  (um por linha)',
+        grupo: DIA,
+      },
+      {
+        chave: 'antes_sair',
+        rotulo: 'Antes de sair',
+        tipo: 'area',
+        dica: 'um item por linha',
+        grupo: RITUAIS,
+      },
+      {
+        chave: 'antes_dormir',
+        rotulo: 'Antes de dormir',
+        tipo: 'area',
+        dica: 'um item por linha',
+        grupo: RITUAIS,
+      },
+    ],
+  },
+  opcao: {
+    nome: 'Opção de transporte',
+    campos: [
+      {
+        chave: 'modo',
+        rotulo: 'Modo',
+        tipo: 'opcao',
+        opcoes: MODOS_TRANSPORTE.map((v) => ({ valor: v, nome: NOME_MODO[v] })),
+      },
+      { chave: 'duracao_min', rotulo: 'Duração (min)', tipo: 'numero' },
+      { chave: 'distancia_m', rotulo: 'Distância (m)', tipo: 'numero' },
+      // Texto, não centavos: aqui é a faixa que um guia informa ("€30–€40"),
+      // não uma despesa que entra na divisão da viagem.
+      { chave: 'custo', rotulo: 'Custo aproximado', tipo: 'texto', dica: '€30–€40' },
+      { chave: 'detalhe', rotulo: 'Detalhe', tipo: 'texto', dica: 'Linha U3, saída Baumwall' },
+      { chave: 'recomendado', rotulo: 'Recomendado', tipo: 'bool' },
     ],
   },
   voo: {
@@ -267,8 +418,10 @@ function paraInput(valor: unknown, tipo: TipoCampo): string {
   if (valor === null || valor === undefined) return ''
   if (tipo === 'dinheiro') return paraCampoDinheiro(Number(valor))
   if (tipo === 'data' || tipo === 'datahora') {
-    const d = valor instanceof Date ? valor : new Date(String(valor).replace(' ', 'T'))
-    if (Number.isNaN(d.getTime())) return String(valor)
+    // parseData e não o construtor de Date: ele lê "2027-01-02" como meia-noite
+    // UTC e o campo abriria no dia 1 em qualquer fuso a oeste de Greenwich.
+    const d = valor instanceof Date ? valor : parseData(String(valor))
+    if (!d || Number.isNaN(d.getTime())) return String(valor)
     const p = (n: number) => String(n).padStart(2, '0')
     const base = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
     return tipo === 'data' ? base : `${base}T${p(d.getHours())}:${p(d.getMinutes())}`
@@ -350,6 +503,16 @@ export function EditorSheet({
         else campos[c.chave] = Math.round(n * 100)
       } else {
         campos[c.chave] = s
+      }
+    }
+
+    // O vínculo com o pai (event_id de uma opção de transporte, flight_id de uma
+    // escala) vem do registro semente, não de um campo digitado: quem adiciona
+    // "de metrô, 18 min" já está dentro do item do roteiro. Sem isto o servidor
+    // recusa a criação com "item do roteiro nao encontrado nesta viagem".
+    if (criando) {
+      for (const chave of ['event_id', 'flight_id', 'cruise_id', 'expense_id']) {
+        if (registro?.[chave]) campos[chave] = registro[chave]
       }
     }
 
@@ -460,6 +623,29 @@ export function EditorSheet({
   )
 }
 
+/** As opções de um campo com `fonte`: registros desta viagem, com "—" na frente. */
+function useOpcoesDaFonte(fonte: Campo['fonte']) {
+  const { snapshot } = useTrip()
+  if (!fonte) return null
+  const vazio = { valor: '', nome: '— nenhum —' }
+  if (fonte === 'reservas') {
+    return [
+      vazio,
+      ...((snapshot?.reservas ?? []) as Record<string, any>[]).map((r) => ({
+        valor: String(r.id),
+        nome: [r.nome, r.localizador].filter(Boolean).join(' · '),
+      })),
+    ]
+  }
+  return [
+    vazio,
+    ...((snapshot?.documentos ?? []) as Record<string, any>[]).map((d) => ({
+      valor: String(d.id),
+      nome: String(d.titulo),
+    })),
+  ]
+}
+
 function CampoEditor({
   campo,
   valor,
@@ -471,6 +657,7 @@ function CampoEditor({
   erro?: string
   aoMudar: (v: string | boolean) => void
 }) {
+  const daFonte = useOpcoesDaFonte(campo.fonte)
   const idErro = `erro-${campo.chave}`
   const classe = `toque mt-1 ${CLASSE_CAMPO}`
   const estiloErro = erro ? { borderColor: 'var(--color-perigo-ink)' } : undefined
@@ -520,7 +707,7 @@ function CampoEditor({
           className={classe}
           {...aria}
         >
-          {campo.opcoes?.map((o) => (
+          {(daFonte ?? campo.opcoes)?.map((o) => (
             <option key={o.valor} value={o.valor}>
               {o.nome}
             </option>

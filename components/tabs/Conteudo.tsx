@@ -1,6 +1,10 @@
 'use client'
 
-// Abas de leitura: Roteiro, Voos, Cruzeiro, Hospedagem, Cidades, Documentos.
+// Abas de leitura: Voos, Cruzeiro, Hospedagem, Cidades, Documentos.
+//
+// O Roteiro saiu daqui: ele deixou de ser "ler do snapshot e listar" e virou uma
+// tela com navegação por dia, linha do tempo e painel de apoio. Mora em
+// components/tabs/Roteiro.tsx.
 //
 // Ficam num arquivo só porque compartilham a mesma forma — ler do snapshot,
 // ordenar, renderizar cartão, tratar vazio. Separá-las em seis arquivos daria
@@ -10,7 +14,6 @@ import { useTrip } from '../TripProvider.tsx'
 import { Cartao, Vazio, Rotulo, Badge, Copiar, Titulo, Linha } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
 import {
-  ordenarEventos,
   formatarData,
   formatarHora,
   formatarDuracao,
@@ -18,94 +21,6 @@ import {
   noitesABordo,
   parseData,
 } from '@/lib/derive.ts'
-
-// ---------------------------------------------------------------- Roteiro
-
-export function Roteiro() {
-  const { snapshot } = useTrip()
-  const eventos = ordenarEventos((snapshot?.roteiro ?? []) as any[])
-
-  if (eventos.length === 0) {
-    return (
-      <>
-        <Titulo acao={<AdminAcoes entidade="roteiro">Evento</AdminAcoes>}>Roteiro</Titulo>
-        <Vazio
-          titulo="Roteiro ainda vazio"
-          texto="Quando os dias da viagem forem cadastrados, eles aparecem aqui em ordem, dia a dia."
-        />
-      </>
-    )
-  }
-
-  // Agrupa por dia. Evento sem data válida cai em "Sem data" no fim.
-  const porDia = new Map<string, any[]>()
-  for (const e of eventos) {
-    const d = parseData(e.ocorre_em)
-    const chave = d ? formatarData(e.ocorre_em, { day: '2-digit', month: '2-digit' }) : 'Sem data'
-    if (!porDia.has(chave)) porDia.set(chave, [])
-    porDia.get(chave)!.push(e)
-  }
-
-  return (
-    <>
-      <Titulo acao={<AdminAcoes entidade="roteiro">Evento</AdminAcoes>}>Roteiro</Titulo>
-      <div className="space-y-5">
-        {[...porDia.entries()].map(([dia, doDia]) => (
-          <div key={dia}>
-            <div className="mb-2 flex items-baseline gap-2">
-              <p className="tab-num text-lg font-bold">{dia}</p>
-              <p className="text-sm text-(--color-tinta-3)">
-                {doDia[0].ocorre_em
-                  ? formatarData(doDia[0].ocorre_em, { weekday: 'long' })
-                  : 'data a confirmar'}
-              </p>
-            </div>
-            <div className="space-y-2">
-              {doDia.map((e) => (
-                <Cartao
-                  key={String(e.id)}
-                  // Evento âncora ("não pode ser perdido") ganha uma barra na
-                  // lateral. O `Cartao` só passou a aceitar `style` agora — antes
-                  // a prop era ignorada em silêncio e a barra nunca aparecia.
-                  className={e.ancora ? 'border-l-4' : ''}
-                  style={e.ancora ? { borderLeftColor: 'var(--destaque)' } : undefined}
-                >
-                  <div className="flex items-start gap-3">
-                    <span className="tab-num w-12 shrink-0 pt-0.5 text-sm font-semibold text-(--color-tinta-2)">
-                      {formatarHora(e.ocorre_em) || '—'}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{String(e.titulo)}</p>
-                      {(e.cidade || e.local) && (
-                        <p className="mt-0.5 text-[13px] text-(--color-tinta-3)">
-                          {[e.local, e.cidade].filter(Boolean).join(' · ')}
-                        </p>
-                      )}
-                      {e.descricao && (
-                        <p className="mt-1.5 text-sm text-(--color-tinta-2)">
-                          {String(e.descricao)}
-                        </p>
-                      )}
-                      {e.nota && (
-                        <p className="mt-1.5 text-sm text-(--color-tinta-3) italic">
-                          {String(e.nota)}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <Badge tipo={String(e.tipo)} />
-                      <AdminAcoes entidade="roteiro" registro={e} />
-                    </div>
-                  </div>
-                </Cartao>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  )
-}
 
 // ---------------------------------------------------------------- Voos
 

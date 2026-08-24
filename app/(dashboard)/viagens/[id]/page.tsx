@@ -11,14 +11,8 @@ import { TripProvider, useTrip } from '@/components/TripProvider.tsx'
 import { Shell, type AbaId } from '@/components/Shell.tsx'
 import { PdfBolso } from '@/components/PdfBolso.tsx'
 import { Inicio } from '@/components/tabs/Inicio.tsx'
-import {
-  Roteiro,
-  Voos,
-  Cruzeiro,
-  Hospedagem,
-  Lugares,
-  Documentos,
-} from '@/components/tabs/Conteudo.tsx'
+import { Roteiro } from '@/components/tabs/Roteiro.tsx'
+import { Voos, Cruzeiro, Hospedagem, Lugares, Documentos } from '@/components/tabs/Conteudo.tsx'
 import { Emergencia, Checklist } from '@/components/tabs/Interativas.tsx'
 import { Financeiro } from '@/components/tabs/Financeiro.tsx'
 import { Dados } from '@/components/tabs/Dados.tsx'

@@ -37,11 +37,13 @@ export const dynamic = 'force-dynamic'
  */
 const TABELA: Record<
   Entidade,
-  { nome: string; via: 'trip' | 'flight' | 'cruise' | 'expense' | 'self'; minimo: Papel }
+  { nome: string; via: 'trip' | 'flight' | 'cruise' | 'expense' | 'event' | 'self'; minimo: Papel }
 > = {
   viagem: { nome: 'trips', via: 'self', minimo: 'editor' },
   participante: { nome: 'travelers', via: 'trip', minimo: 'proprietario' },
   roteiro: { nome: 'itinerary_events', via: 'trip', minimo: 'editor' },
+  dia: { nome: 'itinerary_days', via: 'trip', minimo: 'editor' },
+  opcao: { nome: 'itinerary_options', via: 'event', minimo: 'editor' },
   voo: { nome: 'flights', via: 'trip', minimo: 'editor' },
   escala: { nome: 'flight_stops', via: 'flight', minimo: 'editor' },
   cruzeiro: { nome: 'cruises', via: 'trip', minimo: 'editor' },
@@ -171,7 +173,13 @@ function recorte(entidade: Entidade, tripId: string, posicao: number) {
   }
   if (meta.via === 'expense') {
     return {
-      sql: `and expense_id in (select id from expenses where trip_id = $${posicao})`,
+      sql: `and expense_id in (select id from expenses where trip_id = ${posicao})`,
+      params: [tripId],
+    }
+  }
+  if (meta.via === 'event') {
+    return {
+      sql: `and event_id in (select id from itinerary_events where trip_id = ${posicao})`,
       params: [tripId],
     }
   }
@@ -341,6 +349,13 @@ async function conferirPai(
       'cruzeiro não encontrado nesta viagem',
     )
   }
+  if (entidade === 'opcao') {
+    await vinculo(
+      'event_id',
+      (id) => sql`select 1 from itinerary_events where id = ${id} and trip_id = ${tripId}`,
+      'item do roteiro nao encontrado nesta viagem',
+    )
+  }
   if (entidade === 'parcela') {
     await vinculo(
       'expense_id',
@@ -468,15 +483,27 @@ async function aplicar(
     if (meta.via === 'flight') campos.flight_id = op.campos.flight_id
     if (meta.via === 'cruise') campos.cruise_id = op.campos.cruise_id
     if (meta.via === 'expense') campos.expense_id = op.campos.expense_id
+    if (meta.via === 'event') campos.event_id = op.campos.event_id
 
     const id = op.id ?? randomUUID()
     const cols = Object.keys(campos)
     const vinculo = meta.via === 'trip' ? ['trip_id'] : []
     const nomes = ['id', ...vinculo, ...cols]
     const valores = [id, ...(vinculo.length ? [tripId] : []), ...cols.map((c) => campos[c])]
+    // O dia do roteiro é o único upsert: a tela edita "02 de janeiro" sem saber
+    // se já existe linha para ele, e (trip_id, dia) é unique. Sem o on conflict,
+    // anotar um dia duas vezes viraria 409 em vez de salvar.
+    const conflito =
+      op.entidade === 'dia'
+        ? ` on conflict (trip_id, dia) do update set ${cols
+            .filter((c) => c !== 'dia')
+            .map((c) => `${c} = excluded.${c}`)
+            .concat('updated_at = now()')
+            .join(', ')}`
+        : ''
     await sql.query(
       `insert into ${meta.nome} (${nomes.join(', ')})
-       values (${nomes.map((_, i) => `$${i + 1}`).join(', ')})`,
+       values (${nomes.map((_, i) => `${i + 1}`).join(', ')})${conflito}`,
       valores,
     )
     await registrarAlteracao(
