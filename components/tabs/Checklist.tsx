@@ -68,31 +68,54 @@ function iconeCategoria(nome: string): LucideIcon {
 /** Agrupa os itens JÁ visíveis para quem pediu (o filtro de privacidade é do
     servidor, ver checklistDaViagem) — nenhuma visão aqui esconde item nenhum,
     só reorganiza (CHK-07, e mantém CHK-09: atrasado nunca some de visão nenhuma). */
+/** Mais perto de vencer primeiro (prazo_maximo, ou prazo_ideal quando não tem
+    prazo_maximo) — sem prazo nenhum vai pro fim, na ordem em que já estava.
+    Mesmo formato de comparador do `ordenarEventos` em lib/derive.ts. */
+function ordenarPorPrazo(itens: ChecklistItem[]): ChecklistItem[] {
+  return itens
+    .map((item, i) => ({
+      item,
+      i,
+      t: parseData(item.prazo_maximo ?? item.prazo_ideal)?.getTime() ?? null,
+    }))
+    .sort((a, b) => {
+      if (a.t === null && b.t === null) return a.i - b.i
+      if (a.t === null) return 1
+      if (b.t === null) return -1
+      return a.t - b.t || a.i - b.i
+    })
+    .map((x) => x.item)
+}
+
 function agrupar(
   itens: ChecklistItem[],
   visao: Visao,
   participantes: { id: string; nome: string }[],
 ): { titulo: string; itens: ChecklistItem[] }[] {
-  if (visao === 'tudo') return itens.length > 0 ? [{ titulo: 'Todos os itens', itens }] : []
+  let grupos: { titulo: string; itens: ChecklistItem[] }[]
 
-  if (visao === 'pessoa') {
-    return participantes
+  if (visao === 'tudo') {
+    grupos = itens.length > 0 ? [{ titulo: 'Todos os itens', itens }] : []
+  } else if (visao === 'pessoa') {
+    grupos = participantes
       .map((p) => ({
         titulo: p.nome,
         itens: itens.filter((i) => i.assigned_to.length === 0 || i.assigned_to.includes(p.id)),
       }))
       .filter((g) => g.itens.length > 0)
+  } else {
+    const mapa = new Map<string, ChecklistItem[]>()
+    for (const i of itens) {
+      const chave =
+        visao === 'categoria'
+          ? i.categoria?.trim() || 'Sem categoria'
+          : [i.cidade, i.pais].filter(Boolean).join(', ') || 'Sem destino'
+      mapa.set(chave, [...(mapa.get(chave) ?? []), i])
+    }
+    grupos = [...mapa.entries()].map(([titulo, itens]) => ({ titulo, itens }))
   }
 
-  const mapa = new Map<string, ChecklistItem[]>()
-  for (const i of itens) {
-    const chave =
-      visao === 'categoria'
-        ? i.categoria?.trim() || 'Sem categoria'
-        : [i.cidade, i.pais].filter(Boolean).join(', ') || 'Sem destino'
-    mapa.set(chave, [...(mapa.get(chave) ?? []), i])
-  }
-  return [...mapa.entries()].map(([titulo, itens]) => ({ titulo, itens }))
+  return grupos.map((g) => ({ ...g, itens: ordenarPorPrazo(g.itens) }))
 }
 
 /** Cartão de resumo de uma categoria, no carrossel do topo — só leitura, não
