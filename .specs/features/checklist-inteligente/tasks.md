@@ -164,7 +164,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T4: Aplicar a migração
+### T4: Aplicar a migração ✅ (aplicada via MCP neon, projeto `lucky-surf-81885593`, confirmada com `describe_table_schema`)
 
 **What**: Rodar `npm run db:push` e confirmar que as colunas existem.
 **Where**: banco (via `scripts/db-push.mjs`, sem mudança de código)
