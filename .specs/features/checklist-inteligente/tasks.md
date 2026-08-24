@@ -605,7 +605,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T23: `schema/checklist-sugestoes.schema.json`
+### T23: `schema/checklist-sugestoes.schema.json` ✅
 
 **What**: JSON Schema espelhando `ChecklistSugestoesBatchSchema`, com comentário no topo apontando `lib/schema.ts` como fonte real.
 **Where**: `.claude/skills/viagem-para-json/schema/checklist-sugestoes.schema.json`
