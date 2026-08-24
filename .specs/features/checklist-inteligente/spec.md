@@ -137,7 +137,8 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-05 | P1: prioridade com default | Tasks | Verified (T1, T13) |
 | CHK-06 | P1: vínculos opcionais com roteiro/voo/cruzeiro/destino | Tasks | Verified (T1, T13) |
 | CHK-07 | P1: visões por categoria/pessoa/destino/tudo | Tasks | Verified (T14) |
-| CHK-08 | P1: progresso geral (todos) e por pessoa (só proprietario, CHK-08a) | Tasks | Verified (T14) |
+| CHK-08 | P1: progresso geral, todo participante | Tasks | Verified (T14) |
+| CHK-08a | P1: progresso por pessoa, só proprietario | Tasks | Verified (T14) |
 | CHK-09 | P1: item atrasado sempre visível | Tasks | Verified (T15) |
 | CHK-10 | P1: checklist_state sem mudança de contrato | Tasks | Verified (satisfeito por omissão — nenhuma tarefa de P1 tocou checklist_state) |
 | CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Verified (T2, T16) |
@@ -156,7 +157,7 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-24 | P3: skillVersion/schemaVersion + changelog | Tasks | Verified (T21-T27) |
 | CHK-25 | P3: proposta de versão nunca autoaplica | Tasks | Verified (T21, T24) |
 
-**Coverage:** 25 total, 0 mapped to tasks, 25 unmapped ⚠️ (esperado antes da fase Tasks)
+**Coverage:** 25 total (+ CHK-08a, emendado durante Execute), 26 mapeados a tarefas, 0 unmapped. Todos verificados — ver `validation.md` (iteração 2, PASS).
 
 ---
 

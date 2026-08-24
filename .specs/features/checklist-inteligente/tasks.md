@@ -25,7 +25,7 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 
 | Code Layer | Required Test Type | Coverage Expectation | Location Pattern | Run Command |
 | --- | --- | --- | --- | --- |
-| Domain / lógica pura (`lib/checklist.ts`, adição a `lib/derive.ts`) | unit | Todas as ramificações; 1:1 com os ACs do spec (CHK-14, CHK-18, CHK-19, cálculo de fase); cada edge case listado no spec tem um teste | `lib/*.test.ts` | `npm test` |
+| Domain / lógica pura (`lib/checklist.ts`) | unit | Todas as ramificações; 1:1 com os ACs do spec (CHK-14, CHK-18, CHK-19); cada edge case listado no spec tem um teste | `lib/*.test.ts` | `npm test` |
 | Schema / zod (`ChecklistItemSchema`, `ChecklistSugestaoSchema`) | unit | Mesma profundidade de `lib/schema.test.ts` hoje (24 testes, mensagem de erro exata por campo) — este repo já testa schema, isso é o piso, não o teto | `lib/schema.test.ts` | `npm test` |
 | Acesso a dado (`lib/db.ts`: `checklistDaViagem`, export/import) | nenhum automatizado | Nenhum `lib/db.test.ts` existe hoje (precisa de Neon real; `test:api` está quebrado e o próprio `CLAUDE.md` instrui a não tratá-lo como regressão). Verificação manual via `npm run dev` + navegador, documentada no `Done when` de cada tarefa | — | `npm run build` (gate de tipo) |
 | Rota (`app/api/mutate/route.ts` — checagem de dono) | nenhum automatizado | Mesma razão acima. Caminho sensível (segurança) — `Done when` exige um passo manual explícito de verificação, não só o gate de build | — | `npm run build` |

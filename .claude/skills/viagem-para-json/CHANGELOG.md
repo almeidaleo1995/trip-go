@@ -12,8 +12,9 @@ alguém aceitar.
   existente no app (`reference/checklist-sugestoes.md`), em vez de só o JSON
   de importação de uma viagem inteira.
 - Estrutura nova: `schema/`, `rules/`, `templates/`, `mappings/`,
-  `validators/`, `changelog/` — versionamento explícito e evolução
-  controlada, sem a skill reescrever o próprio `SKILL.md`.
+  `validators/`, mais este `CHANGELOG.md` na raiz da skill — versionamento
+  explícito e evolução controlada, sem a skill reescrever o próprio
+  `SKILL.md`.
 
 ## 1.0.0
 
