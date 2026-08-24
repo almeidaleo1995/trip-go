@@ -334,7 +334,7 @@ export async function getSnapshot(
         where c.trip_id = ${tripId} order by p.ordem`,
     sql`select * from reservations where trip_id = ${tripId} order by inicio_em, ordem`,
     sql`select * from places where trip_id = ${tripId} order by ordem`,
-    sql`select * from checklist_items where trip_id = ${tripId} order by ordem`,
+    checklistDaViagem(tripId, papel, participanteId),
     sql`select e.* from checklist_state e
         join checklist_items i on i.id = e.item_id
         where i.trip_id = ${tripId}`,
@@ -382,6 +382,26 @@ export async function getSnapshot(
     financeiro,
     server_time: new Date().toISOString(),
   }
+}
+
+// ---------------------------------------------------------------- checklist
+
+/**
+ * O checklist que este papel pode ver — decidido na query, nao filtrado depois de
+ * buscar (mesmo principio de `financeiroDaViagem`, adaptado: aqui a FORMA da linha
+ * nao muda com o papel, so a contagem, entao uma query com WHERE condicional basta).
+ *
+ * `proprietario` ve tudo. `editor`/`visualizador` veem todo item `global` mais os
+ * `pessoal` em que sao dono (CHK-01..04) — um item pessoal alheio nunca sai daqui.
+ */
+export async function checklistDaViagem(tripId: string, papel: Papel, participanteId: string) {
+  if (papelAlcanca(papel, 'proprietario')) {
+    return sql`select * from checklist_items where trip_id = ${tripId} order by ordem`
+  }
+  return sql`select * from checklist_items
+      where trip_id = ${tripId}
+        and (escopo = 'global' or ${participanteId} = any(assigned_to))
+      order by ordem`
 }
 
 // ---------------------------------------------------------------- financeiro

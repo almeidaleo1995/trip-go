@@ -186,7 +186,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T5: `checklistDaViagem()` — privacidade no servidor
+### T5: `checklistDaViagem()` — privacidade no servidor ✅ (WHERE verificado direto no Postgres; teste ponta-a-ponta com dado real fica pra quando a UI existir, Phase 4)
 
 **What**: Nova função em `lib/db.ts` que decide a query por papel (mesmo princípio de `financeiroDaViagem`, uma query com `WHERE` condicional); substitui a query crua usada em `getSnapshot`.
 **Where**: `lib/db.ts`

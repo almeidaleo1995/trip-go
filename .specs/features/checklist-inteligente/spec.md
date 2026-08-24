@@ -129,10 +129,10 @@ Explicitamente excluído. Documentado para evitar scope creep.
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| CHK-01 | P1: item global sem atribuição visível a todos | Tasks | In Tasks |
-| CHK-02 | P1: item pessoal visível só a assigned_to + proprietario | Tasks | In Tasks |
-| CHK-03 | P1: exclusão server-side de itens pessoais de terceiros | Tasks | In Tasks |
-| CHK-04 | P1: assigned_to em item global é só destaque | Tasks | In Tasks |
+| CHK-01 | P1: item global sem atribuição visível a todos | Tasks | Implementing (T5) |
+| CHK-02 | P1: item pessoal visível só a assigned_to + proprietario | Tasks | Implementing (T5) |
+| CHK-03 | P1: exclusão server-side de itens pessoais de terceiros | Tasks | Implementing (T5) |
+| CHK-04 | P1: assigned_to em item global é só destaque | Tasks | Implementing (T5) |
 | CHK-05 | P1: prioridade com default | Tasks | Implementing (T1) |
 | CHK-06 | P1: vínculos opcionais com roteiro/voo/cruzeiro/destino | Tasks | Implementing (T1) |
 | CHK-07 | P1: visões por categoria/pessoa/destino/tudo | Tasks | In Tasks |
