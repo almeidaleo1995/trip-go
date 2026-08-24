@@ -135,8 +135,8 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-04 | P1: assigned_to em item global é só destaque | Tasks | Implementing (T5) |
 | CHK-05 | P1: prioridade com default | Tasks | Implementing (T1, T13) |
 | CHK-06 | P1: vínculos opcionais com roteiro/voo/cruzeiro/destino | Tasks | Implementing (T1, T13) |
-| CHK-07 | P1: visões por categoria/pessoa/destino/tudo | Tasks | In Tasks |
-| CHK-08 | P1: progresso geral e por pessoa | Tasks | In Tasks |
+| CHK-07 | P1: visões por categoria/pessoa/destino/tudo | Tasks | Implementing (T14) |
+| CHK-08 | P1: progresso geral e por pessoa | Tasks | Implementing (T14) |
 | CHK-09 | P1: item atrasado sempre visível | Tasks | In Tasks |
 | CHK-10 | P1: checklist_state sem mudança de contrato | Tasks | In Tasks |
 | CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Implementing (T2) |

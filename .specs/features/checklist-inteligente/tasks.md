@@ -399,7 +399,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T14: As 4 visões + progresso
+### T14: As 4 visões + progresso ✅ (verificado no navegador: categoria/pessoa/destino renderizam corretamente contra a viagem real)
 
 **What**: Filtros "Por categoria / Por pessoa / Por destino / Tudo", progresso geral e por pessoa (`Progresso` + números), usando `progressoChecklist` existente e os campos novos.
 **Where**: `components/tabs/Checklist.tsx`
