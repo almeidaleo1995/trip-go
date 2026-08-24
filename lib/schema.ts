@@ -363,6 +363,9 @@ export const CruzeiroSchema = z.object({
   portos: z.array(PortoSchema).default([]),
 })
 
+export const PRIORIDADES_CHECKLIST = ['obrigatorio', 'importante', 'recomendado', 'opcional'] as const
+export const FONTES_CHECKLIST = ['documento', 'pesquisa', 'sugestao', 'manual'] as const
+
 export const ChecklistItemSchema = z.object({
   id: Id.optional(),
   titulo: Texto,
@@ -373,6 +376,21 @@ export const ChecklistItemSchema = z.object({
   valor_estimado_centavos: Centavos.nullish(),
   detalhe: TextoOpc,
   ordem: z.number().int().default(0),
+  /** Donos do item (participante_id). Vazio = todos — so faz sentido em escopo global;
+      em escopo pessoal a regra "precisa ter dono" e imposta pela constraint do banco,
+      nao aqui, porque este schema tambem vira .partial() para edicao de um campo so. */
+  assigned_to: z.array(Id).default([]),
+  prioridade: z.enum(PRIORIDADES_CHECKLIST).default('importante'),
+  pais: TextoOpc,
+  cidade: TextoOpc,
+  itinerary_event_id: Id.nullish(),
+  flight_id: Id.nullish(),
+  cruise_id: Id.nullish(),
+  /** Sugestao da skill ainda nao revisada pelo admin (ve-se so na tela de revisao). */
+  pendente: z.boolean().default(false),
+  fonte_tipo: z.enum(FONTES_CHECKLIST).nullish(),
+  fonte_detalhe: TextoOpc,
+  fonte_consultado_em: Data.nullish(),
 })
 
 export const DocumentoSchema = z.object({

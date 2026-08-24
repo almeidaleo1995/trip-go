@@ -216,3 +216,37 @@ test('validarCampos aceita edicao parcial, so o campo que mudou', () => {
 test('validarCampos rejeita papel invalido em participante', () => {
   assert.equal(validarCampos('participante', { papel: 'dono' }).sucesso, false)
 })
+
+// ---------------------------------------------------------------- checklist
+
+test('checklist_item aceita edicao parcial sem prioridade nem assigned_to', () => {
+  const r = validarCampos('checklist_item', { titulo: 'Passaporte' })
+  assert.equal(r.sucesso, true)
+})
+
+test('checklist_item aplica prioridade padrao importante quando criado sem o campo', () => {
+  const r = validarImportacao({
+    ...MINIMA,
+    checklist: [{ titulo: 'Passaporte' }],
+  })
+  assert.equal(r.sucesso, true)
+  assert.equal(r.sucesso && r.dados.checklist[0].prioridade, 'importante')
+})
+
+test('checklist_item rejeita prioridade fora do enum', () => {
+  const r = validarCampos('checklist_item', { prioridade: 'urgente' })
+  assert.equal(r.sucesso, false)
+  assert.match(r.sucesso === false ? r.erro : '', /prioridade/)
+})
+
+test('checklist_item aceita default de assigned_to vazio (todos)', () => {
+  const r = validarImportacao({ ...MINIMA, checklist: [{ titulo: 'Seguro viagem' }] })
+  assert.equal(r.sucesso, true)
+  assert.deepEqual(r.sucesso && r.dados.checklist[0].assigned_to, [])
+})
+
+test('checklist_item rejeita fonte_tipo fora do enum', () => {
+  const r = validarCampos('checklist_item', { fonte_tipo: 'chute' })
+  assert.equal(r.sucesso, false)
+  assert.match(r.sucesso === false ? r.erro : '', /fonte_tipo/)
+})
