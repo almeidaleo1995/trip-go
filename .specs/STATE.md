@@ -64,19 +64,21 @@
 
 ## Handoff
 
-**Fase atual:** Todas as 6 fases executadas. 33 commits atômicos na branch `feat/planejador-viagem`.
-**Gates:** 88 testes unitários + 26 de integração contra o Neon real + `next build` limpo.
-**Estado do banco:** viagem Europa 2027 carregada (139 registros em 12 seções).
-**Próximo passo:** deploy na Vercel e rotação da senha do Neon (AD-005).
+**Fase atual:** Feature `checklist-inteligente` completa — 27/27 tarefas, Verifier independente com PASS na 2ª iteração (`.specs/features/checklist-inteligente/validation.md`). Branch `spec-checklist`, ~38 commits atômicos. Nada dado como `git push` ainda.
+**Gates:** 178 testes unitários (`node --test`, +21 líquido: +29 novos, -8 de código morto removido) + `next build` limpo + sensor de discriminação (4/4 mutações mortas na 1ª iteração, 1/1 reconfirmada na 2ª).
+**Estado do banco:** mesmo projeto Neon da viagem Europa 2027 real (`lucky-surf-81885593`). `checklist_items` migrada ao vivo: 11 colunas novas + 3 constraints (`checklist_pessoal_tem_dono` etc.), aplicada e conferida com `describe_table_schema`.
+**Próximo passo:** revisar o diff e decidir sobre push/deploy — nada foi enviado ao remoto nesta sessão. `VERSAO` subiu de 3 para 4 em `lib/offline.ts` (cache antigo dos 5 participantes descarta sozinho no próximo carregamento).
 
-**Bugs reais encontrados pelos testes durante a execução, não por revisão:**
-1. `projetarRota` plotava cidade sem coordenada em (0,0) — `Number(null)` é 0.
-2. `parseData` aceitava rollover: `2026-13-45` virava `2027-02-14`.
-3. Refine do zod v4 roda após o regex falhar: data inválida dava 500 em vez de 400.
-4. O catch do lote em `/api/mutate` engolia o 409 do último admin e devolvia 200.
-5. Driver do Neon devolve `date` como `Date`: `String(d).slice(0,10)` virava "Mon Dec 3" e o backup não restaurava.
-6. Um teste passava por acidente (procurava substring "pin" num corpo que era erro 500).
+**Bugs reais encontrados durante a execução, não por revisão:**
+1. `app/api/mutate/route.ts` — o commit imediatamente anterior a esta sessão (`1a2c7c3`) tinha derrubado o `$` de dois placeholders parametrizados; `criar` de **qualquer** entidade do app quebrava com "bind message supplies N parameters, but prepared statement requires 0". Corrigido (`2aeddee`).
+2. Array JS vazio como parâmetro de query perde o tipo do elemento — Postgres inferia `integer` em vez de `text[]` para `assigned_to: []`, e todo item `global` (o caso mais comum) falhava ao criar. Corrigido com cast `::text[]` explícito quando o valor é array.
+3. `itinerary_events.ocorre_em` volta do `/api/snapshot` com sufixo `Z` e milissegundos; `parseData` (`lib/derive.ts`) não reconhece esse formato e devolve `null` em silêncio — afeta `proximoCompromisso`, `ordenarEventos`, `resumoDoDia` no app inteiro, não só checklist. **Não corrigido na raiz** (faltaria o mesmo `to_char` que `itinerary_days.dia` já usa); contornado localmente no painel de Dicas com `new Date(...)`. Registrado em `design.md` → Risks & Concerns da feature.
+4. `VERSAO` do snapshot não tinha subido apesar de `checklist_items` ganhar 11 campos — pego pelo Verifier via edge case do spec, não por revisão de código nem pelos testes.
+5. O checklist já vazava item pessoal para todo participante antes desta feature (`escopo: 'pessoal'` era só rótulo, sem filtro real na query nem no `/api/mutate`) — era o motivo da feature existir, não uma regressão dela.
 
 **Não construído, e por quê:**
+- Motor de diff/merge genérico para reconciliar roteiro/voos/hospedagens ao reimportar viagem existente — fora de escopo desta feature por decisão do usuário (ver spec Out of Scope). Checklist é aditivo porque é lista; entidades escalares (horário, endereço) precisam de outro desenho.
+- Tombstone de sugestão de checklist rejeitada — decisão explícita de simplificar (`ponytail:` no código), reconsiderar se a skill repetir sugestão já recusada com frequência incômoda.
+- Cobertura de teste automatizado para `checklistDaViagem`/`lib/db.ts` (o limite de privacidade, a razão de a feature existir) — consistente com o resto do repo (não existe `lib/db.test.ts` em lugar nenhum), mas é a linha mais sensível da feature sem nenhum teste que a defenda; o sensor do Verifier confirmou (mutante sobrevive). Considerar teste de integração contra um branch Neon descartável se este risco pesar.
 - CRUD de escalas de voo e de portos do cruzeiro pela interface: as entidades existem no schema, na API e no `EditorSheet`, mas não há botão nas abas. Entram pela importação de JSON. Custo baixo de adicionar depois.
 - Troca entre múltiplas viagens (ADM-07): o schema suporta, a UI não. Importar arquiva a anterior.

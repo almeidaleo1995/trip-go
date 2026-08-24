@@ -9,7 +9,7 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 ---
 
 **Design**: `.specs/features/checklist-inteligente/design.md`
-**Status**: Approved — execução inline nesta sessão, sem sub-agentes. T4/T5 usam o MCP `neon` para a parte de banco.
+**Status**: ✅ Done — 27/27 tarefas concluídas, Verifier PASS na iteração 2 (`validation.md`). Migração aplicada no Neon real (`lucky-surf-81885593`).
 
 ---
 
