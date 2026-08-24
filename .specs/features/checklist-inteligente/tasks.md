@@ -585,7 +585,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T22: `CHANGELOG.md` da skill
+### T22: `CHANGELOG.md` da skill ✅
 
 **What**: Novo arquivo na raiz da skill, uma entrada por mudança de schema/regra, começando com esta feature.
 **Where**: `.claude/skills/viagem-para-json/CHANGELOG.md`
