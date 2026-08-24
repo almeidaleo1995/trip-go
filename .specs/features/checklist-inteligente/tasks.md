@@ -668,7 +668,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T26: `mappings/campo-para-app.md`
+### T26: `mappings/campo-para-app.md` ✅
 
 **What**: Tabela nome→campo (como `assigned_to_nomes`, `evento`, `voo`, `cruzeiro` resolvem para os ids do app), no mesmo estilo da tabela "Mapeamentos que exigem atenção" já existente no `SKILL.md`.
 **Where**: `.claude/skills/viagem-para-json/mappings/campo-para-app.md`
