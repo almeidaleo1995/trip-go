@@ -142,12 +142,12 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Implementing (T2) |
 | CHK-12 | P2: pesquisa exige fonte + data | Tasks | Implementing (T2) |
 | CHK-13 | P2: importação grava como pendente, aditiva | Tasks | In Tasks |
-| CHK-14 | P2: dedup por título normalizado | Tasks | In Tasks |
+| CHK-14 | P2: dedup por título normalizado | Tasks | Implementing (T9) |
 | CHK-15 | P2: revisão aceitar/editar/rejeitar | Tasks | In Tasks |
 | CHK-16 | P2: aceitar preserva fonte | Tasks | In Tasks |
 | CHK-17 | P2: rejeitar apaga | Tasks | In Tasks |
-| CHK-18 | P2: assigned_to não resolvido rejeita import | Tasks | In Tasks |
-| CHK-19 | P2: pessoal sem assigned_to rejeita import | Tasks | In Tasks |
+| CHK-18 | P2: assigned_to não resolvido rejeita import | Tasks | Implementing (T9) |
+| CHK-19 | P2: pessoal sem assigned_to rejeita import | Tasks | Implementing (T9) |
 | CHK-20 | P2: nenhuma sugestão confirma sozinha | Tasks | In Tasks |
 | CHK-21 | P3: "por que estou vendo isso" | Tasks | In Tasks |
 | CHK-22 | P3: dicas reaproveitadas do roteiro | Tasks | In Tasks |

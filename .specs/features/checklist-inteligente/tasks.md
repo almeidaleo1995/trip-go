@@ -278,7 +278,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T9: `resolverSugestoes()`
+### T9: `resolverSugestoes()` ✅
 
 **What**: Função pura que recebe as sugestões cruas (`ChecklistSugestao[]`) e o snapshot atual, resolve nomes → ids (participantes, evento/voo/cruzeiro), aplica dedup contra `snapshot.checklist` e entre sugestões do mesmo lote, e separa em `validas`/`erros`.
 **Where**: `lib/checklist.ts`
