@@ -20,10 +20,26 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
-import { Badge, Cartao, Progresso, Rotulo, Titulo, Vazio, AppModal, Botao, Avatar, useAviso } from '../ui.tsx'
+import {
+  Badge,
+  Cartao,
+  Progresso,
+  Rotulo,
+  Titulo,
+  Vazio,
+  AppModal,
+  Botao,
+  Avatar,
+  Selecao,
+  useAviso,
+} from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
 import { progressoChecklist, formatarData, parseData } from '@/lib/derive.ts'
-import { ChecklistSugestoesBatchSchema, type ChecklistItemSchema } from '@/lib/schema.ts'
+import {
+  ChecklistSugestoesBatchSchema,
+  PRIORIDADES_CHECKLIST,
+  type ChecklistItemSchema,
+} from '@/lib/schema.ts'
 import { resolverSugestoes, type ContextoResolucao, type ResultadoResolucao } from '@/lib/checklist.ts'
 import { buscarClima, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 
@@ -65,19 +81,30 @@ function iconeCategoria(nome: string): LucideIcon {
   return ICONE_CATEGORIA[semAcento(nome)] ?? ClipboardList
 }
 
-/** Agrupa os itens JÁ visíveis para quem pediu (o filtro de privacidade é do
-    servidor, ver checklistDaViagem) — nenhuma visão aqui esconde item nenhum,
-    só reorganiza (CHK-07, e mantém CHK-09: atrasado nunca some de visão nenhuma). */
-/** Mais perto de vencer primeiro (prazo_maximo, ou prazo_ideal quando não tem
-    prazo_maximo) — sem prazo nenhum vai pro fim, na ordem em que já estava.
-    Mesmo formato de comparador do `ordenarEventos` em lib/derive.ts. */
-function ordenarPorPrazo(itens: ChecklistItem[]): ChecklistItem[] {
+type Ordem = 'prazo' | 'prioridade' | 'alfabetica'
+
+const ORDENS: { id: Ordem; nome: string }[] = [
+  { id: 'prazo', nome: 'Prazo mais próximo' },
+  { id: 'prioridade', nome: 'Prioridade' },
+  { id: 'alfabetica', nome: 'Ordem alfabética' },
+]
+
+// Posição no array = colocação no ranking ('obrigatorio' primeiro).
+const RANK_PRIORIDADE = Object.fromEntries(PRIORIDADES_CHECKLIST.map((p, i) => [p, i]))
+
+/** Critério escolhido no seletor "Ordenar por". `prazo` e `prioridade` levam
+    quem não tem valor pro fim, mantendo a ordem em que já estava — mesmo
+    formato de comparador do `ordenarEventos` em lib/derive.ts. */
+function ordenarItens(itens: ChecklistItem[], ordem: Ordem): ChecklistItem[] {
+  if (ordem === 'alfabetica') {
+    return [...itens].sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'))
+  }
+  const chave = (item: ChecklistItem): number | null =>
+    ordem === 'prazo'
+      ? (parseData(item.prazo_maximo ?? item.prazo_ideal)?.getTime() ?? null)
+      : (RANK_PRIORIDADE[item.prioridade] ?? null)
   return itens
-    .map((item, i) => ({
-      item,
-      i,
-      t: parseData(item.prazo_maximo ?? item.prazo_ideal)?.getTime() ?? null,
-    }))
+    .map((item, i) => ({ item, i, t: chave(item) }))
     .sort((a, b) => {
       if (a.t === null && b.t === null) return a.i - b.i
       if (a.t === null) return 1
@@ -87,10 +114,14 @@ function ordenarPorPrazo(itens: ChecklistItem[]): ChecklistItem[] {
     .map((x) => x.item)
 }
 
+/** Agrupa os itens JÁ visíveis para quem pediu (o filtro de privacidade é do
+    servidor, ver checklistDaViagem) — nenhuma visão aqui esconde item nenhum,
+    só reorganiza (CHK-07, e mantém CHK-09: atrasado nunca some de visão nenhuma). */
 function agrupar(
   itens: ChecklistItem[],
   visao: Visao,
   participantes: { id: string; nome: string }[],
+  ordem: Ordem = 'prazo',
 ): { titulo: string; itens: ChecklistItem[] }[] {
   let grupos: { titulo: string; itens: ChecklistItem[] }[]
 
@@ -115,7 +146,7 @@ function agrupar(
     grupos = [...mapa.entries()].map(([titulo, itens]) => ({ titulo, itens }))
   }
 
-  return grupos.map((g) => ({ ...g, itens: ordenarPorPrazo(g.itens) }))
+  return grupos.map((g) => ({ ...g, itens: ordenarItens(g.itens, ordem) }))
 }
 
 /** Cartão de resumo de uma categoria, no carrossel do topo — só leitura, não
@@ -237,6 +268,7 @@ export function Checklist() {
   const { snapshot, mutate, posso } = useTrip()
   const [visao, setVisao] = useState<Visao>('categoria')
   const [pessoaFiltro, setPessoaFiltro] = useState<string>('todos')
+  const [ordem, setOrdem] = useState<Ordem>('prazo')
   // Lazy init (não useMemo): mesmo motivo do Dicas() logo abaixo — "vencido"
   // não precisa do milissegundo exato, só não pode chamar Date.now() no corpo
   // puro do render. Nome diferente do `agora()` de topo de arquivo (helper de
@@ -314,7 +346,7 @@ export function Checklist() {
     )
   }
 
-  const grupos = agrupar(itensFiltrados, visao, participantes)
+  const grupos = agrupar(itensFiltrados, visao, participantes, ordem)
   // O carrossel de categorias é visão geral: sempre sobre todos os itens, não
   // sobre `itensFiltrados` — trocar de pessoa no filtro não some com cartão.
   const categorias = agrupar(itens, 'categoria', participantes)
@@ -337,22 +369,34 @@ export function Checklist() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <div className="min-w-0">
-          <div className="mb-4 flex flex-wrap gap-1.5">
-            {VISOES.map((v) => (
-              <button
-                key={v.id}
-                onClick={() => setVisao(v.id)}
-                aria-pressed={visao === v.id}
-                className="cursor-pointer rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
-                style={{
-                  borderColor: visao === v.id ? 'var(--destaque)' : 'var(--color-borda-forte)',
-                  background: visao === v.id ? 'var(--color-destaque-tenue)' : 'transparent',
-                  color: visao === v.id ? 'var(--destaque)' : 'var(--color-tinta-2)',
-                }}
-              >
-                {v.nome}
-              </button>
-            ))}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {VISOES.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => setVisao(v.id)}
+                  aria-pressed={visao === v.id}
+                  className="cursor-pointer rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                  style={{
+                    borderColor: visao === v.id ? 'var(--destaque)' : 'var(--color-borda-forte)',
+                    background: visao === v.id ? 'var(--color-destaque-tenue)' : 'transparent',
+                    color: visao === v.id ? 'var(--destaque)' : 'var(--color-tinta-2)',
+                  }}
+                >
+                  {v.nome}
+                </button>
+              ))}
+            </div>
+
+            <div className="w-44 shrink-0">
+              <Selecao
+                rotulo="Ordenar por"
+                compacto
+                valor={ordem}
+                aoMudar={(v) => setOrdem(v as Ordem)}
+                opcoes={ORDENS.map((o) => ({ valor: o.id, nome: o.nome }))}
+              />
+            </div>
           </div>
 
           <div className="mb-5 flex gap-1 overflow-x-auto pb-1">
