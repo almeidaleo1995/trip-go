@@ -307,7 +307,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T10: `faseChecklist()` ✅
+### T10: `faseChecklist()` ⛔ (revertida após o Verifier — CHK-07 nunca pediu uma 5ª visão por fase, e T14 entregou só as 4 do spec; função + 8 testes eram código morto, removidos de lib/derive.ts e lib/derive.test.ts em vez de virar uma visão fora de escopo)
 
 **What**: Função pura que calcula a fase de um item (antes/preparação/7 dias antes/48h antes/no dia/durante/por destino/retorno) a partir de `prazo_ideal`/`prazo_maximo`/datas da viagem — sem coluna nova, mesmo princípio de `faseDaViagem`.
 **Where**: `lib/derive.ts`
@@ -329,7 +329,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T11: Extrair `Checklist()` para `components/tabs/Checklist.tsx`
+### T11: Extrair `Checklist()` para `components/tabs/Checklist.tsx` ✅
 
 **What**: Move a função `Checklist` (e `Secao`, `ItemChecklist`) de `Interativas.tsx` para um arquivo novo dedicado, sem mudar comportamento — só o arquivo. `Interativas.tsx` fica só com `Emergência`.
 **Where**: `components/tabs/Checklist.tsx`
@@ -446,6 +446,8 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 ---
 
 ### T16: Importar sugestões ✅ (verificado ponta-a-ponta no navegador contra a viagem real: dedup, os 2 tipos de erro, e os 2 itens válidos gravados como pendente=true com todos os campos corretos, inclusive fonte/data)
+
+**Desvio achado pelo Verifier:** o Done-when pedia "mutate em lote (não um POST por item)". `useTrip().mutate()` só aceita uma operação por chamada e drena a fila antes da próxima — então a importação faz um `await mutate(...)` por sugestão válida, ou seja, um POST por item, não um único POST em lote. Funcionalmente correto (cada sugestão é criada, nada se perde), só não é a forma pedida. Não corrigido: exigiria um caminho de escrita em lote separado do `mutate()` de uso geral (que existe para escrita otimista de uma ação por vez), o que é maior que o gap justifica para um fluxo de admin com poucas sugestões por lote.
 
 **What**: UI para carregar um arquivo `ChecklistSugestoesBatchSchema` (upload), validar contra o schema, rodar `resolverSugestoes`, mostrar erros (nomes não resolvidos) e o resumo de duplicadas descartadas, e enviar as válidas como um lote `criar` (`pendente: true`) via `/api/mutate`.
 **Where**: `components/tabs/Checklist.tsx`

@@ -705,7 +705,7 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
   if (fonte === 'roteiro') {
     return [
       vazio,
-      ...((snapshot?.roteiro ?? []) as Record<string, any>[]).map((e) => ({
+      ...((snapshot?.roteiro ?? []) as { id: string; titulo: string }[]).map((e) => ({
         valor: String(e.id),
         nome: String(e.titulo),
       })),
@@ -714,16 +714,18 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
   if (fonte === 'voos') {
     return [
       vazio,
-      ...((snapshot?.voos ?? []) as Record<string, any>[]).map((v) => ({
-        valor: String(v.id),
-        nome: [v.companhia, v.numero].filter(Boolean).join(' '),
-      })),
+      ...((snapshot?.voos ?? []) as { id: string; companhia: string; numero?: string | null }[]).map(
+        (v) => ({
+          valor: String(v.id),
+          nome: [v.companhia, v.numero].filter(Boolean).join(' '),
+        }),
+      ),
     ]
   }
   if (fonte === 'cruzeiros') {
     return [
       vazio,
-      ...((snapshot?.cruzeiros ?? []) as Record<string, any>[]).map((c) => ({
+      ...((snapshot?.cruzeiros ?? []) as { id: string; navio: string }[]).map((c) => ({
         valor: String(c.id),
         nome: String(c.navio),
       })),

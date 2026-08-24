@@ -66,7 +66,8 @@ Explicitamente excluído. Documentado para evitar scope creep.
 5. WHEN um item de checklist é criado ou editado THEN o sistema SHALL aceitar `prioridade` como um de `obrigatorio`, `importante`, `recomendado`, `opcional`, com `importante` como padrão quando omitido. <!-- event-driven -->
 6. WHEN um item de checklist é criado ou editado com qualquer combinação de `pais`, `cidade`, `dia`, `itinerary_event_id`, `flight_id`, `cruise_id` THEN o sistema SHALL persistir os vínculos informados sem exigir nenhum deles. <!-- event-driven -->
 7. WHEN a tela de Checklist carrega THEN o sistema SHALL oferecer as visões "Por categoria", "Por pessoa", "Por destino" e "Tudo", cada uma agrupando os itens visíveis para quem está pedindo (respeitando os critérios 1–4). <!-- event-driven -->
-8. WHEN a tela de Checklist carrega THEN o sistema SHALL mostrar o progresso geral (`concluídos / total`, percentual) e o progresso por pessoa, calculados só sobre os itens visíveis para quem está pedindo. <!-- event-driven -->
+8. WHEN a tela de Checklist carrega THEN o sistema SHALL mostrar o progresso geral (`concluídos / total`, percentual) para todo participante, calculado só sobre os itens visíveis para quem está pedindo. <!-- event-driven -->
+8a. WHILE quem está pedindo é `proprietario`, o sistema SHALL mostrar também o progresso por pessoa de cada participante — só `proprietario` enxerga o item pessoal de todo mundo (CHK-02), então é o único papel que consegue computar o progresso alheio corretamente; mostrar uma versão incompleta para `editor`/`visualizador` seria um número errado, não uma tela mais simples. <!-- state-driven, achado no Verifier (validation.md), emendado 2026-08-24 -->
 9. IF um item de checklist é atrasado (`prazo_maximo` no passado e ainda não `feito`) THEN o sistema SHALL exibi-lo com indicador "atrasado" em toda visão em que aparecer, nunca ocultá-lo. <!-- unwanted-behavior -->
 10. The system SHALL manter o comportamento existente de `checklist_state` (uma marca de "feito" por `traveler_id` + `item_id`) sem alteração de contrato. <!-- ubiquitous -->
 
@@ -129,31 +130,31 @@ Explicitamente excluído. Documentado para evitar scope creep.
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| CHK-01 | P1: item global sem atribuição visível a todos | Tasks | Implementing (T5) |
-| CHK-02 | P1: item pessoal visível só a assigned_to + proprietario | Tasks | Implementing (T5) |
-| CHK-03 | P1: exclusão server-side de itens pessoais de terceiros | Tasks | Implementing (T5) |
-| CHK-04 | P1: assigned_to em item global é só destaque | Tasks | Implementing (T5) |
-| CHK-05 | P1: prioridade com default | Tasks | Implementing (T1, T13) |
-| CHK-06 | P1: vínculos opcionais com roteiro/voo/cruzeiro/destino | Tasks | Implementing (T1, T13) |
-| CHK-07 | P1: visões por categoria/pessoa/destino/tudo | Tasks | Implementing (T14) |
-| CHK-08 | P1: progresso geral e por pessoa | Tasks | Implementing (T14) |
-| CHK-09 | P1: item atrasado sempre visível | Tasks | Implementing (T15) |
-| CHK-10 | P1: checklist_state sem mudança de contrato | Tasks | Implementing (satisfeito por omissão — nenhuma tarefa de P1 tocou checklist_state) |
-| CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Implementing (T2, T16) |
-| CHK-12 | P2: pesquisa exige fonte + data | Tasks | Implementing (T2) |
-| CHK-13 | P2: importação grava como pendente, aditiva | Tasks | Implementing (T16) |
-| CHK-14 | P2: dedup por título normalizado | Tasks | Implementing (T9, T16) |
-| CHK-15 | P2: revisão aceitar/editar/rejeitar | Tasks | Implementing (T17) |
-| CHK-16 | P2: aceitar preserva fonte | Tasks | Implementing (T17) |
-| CHK-17 | P2: rejeitar apaga | Tasks | Implementing (T17) |
-| CHK-18 | P2: assigned_to não resolvido rejeita import | Tasks | Implementing (T9, T16) |
-| CHK-19 | P2: pessoal sem assigned_to rejeita import | Tasks | Implementing (T9, T16) |
-| CHK-20 | P2: nenhuma sugestão confirma sozinha | Tasks | Implementing (T17) |
-| CHK-21 | P3: "por que estou vendo isso" | Tasks | Implementing (T18) |
-| CHK-22 | P3: dicas reaproveitadas do roteiro | Tasks | Implementing (T19) |
-| CHK-23 | P3: clima ao vivo com fallback de ocultar | Tasks | Implementing (T20) |
-| CHK-24 | P3: skillVersion/schemaVersion + changelog | Tasks | Implementing (T21-T27) |
-| CHK-25 | P3: proposta de versão nunca autoaplica | Tasks | Implementing (T21, T24) |
+| CHK-01 | P1: item global sem atribuição visível a todos | Tasks | Verified (T5) |
+| CHK-02 | P1: item pessoal visível só a assigned_to + proprietario | Tasks | Verified (T5) |
+| CHK-03 | P1: exclusão server-side de itens pessoais de terceiros | Tasks | Verified (T5) |
+| CHK-04 | P1: assigned_to em item global é só destaque | Tasks | Verified (T5) |
+| CHK-05 | P1: prioridade com default | Tasks | Verified (T1, T13) |
+| CHK-06 | P1: vínculos opcionais com roteiro/voo/cruzeiro/destino | Tasks | Verified (T1, T13) |
+| CHK-07 | P1: visões por categoria/pessoa/destino/tudo | Tasks | Verified (T14) |
+| CHK-08 | P1: progresso geral (todos) e por pessoa (só proprietario, CHK-08a) | Tasks | Verified (T14) |
+| CHK-09 | P1: item atrasado sempre visível | Tasks | Verified (T15) |
+| CHK-10 | P1: checklist_state sem mudança de contrato | Tasks | Verified (satisfeito por omissão — nenhuma tarefa de P1 tocou checklist_state) |
+| CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Verified (T2, T16) |
+| CHK-12 | P2: pesquisa exige fonte + data | Tasks | Verified (T2) |
+| CHK-13 | P2: importação grava como pendente, aditiva | Tasks | Verified (T16) |
+| CHK-14 | P2: dedup por título normalizado | Tasks | Verified (T9, T16) |
+| CHK-15 | P2: revisão aceitar/editar/rejeitar | Tasks | Verified (T17) |
+| CHK-16 | P2: aceitar preserva fonte | Tasks | Verified (T17) |
+| CHK-17 | P2: rejeitar apaga | Tasks | Verified (T17) |
+| CHK-18 | P2: assigned_to não resolvido rejeita import | Tasks | Verified (T9, T16) |
+| CHK-19 | P2: pessoal sem assigned_to rejeita import | Tasks | Verified (T9, T16) |
+| CHK-20 | P2: nenhuma sugestão confirma sozinha | Tasks | Verified (T17) |
+| CHK-21 | P3: "por que estou vendo isso" | Tasks | Verified (T18) |
+| CHK-22 | P3: dicas reaproveitadas do roteiro | Tasks | Verified (T19) |
+| CHK-23 | P3: clima ao vivo com fallback de ocultar | Tasks | Verified (T20) |
+| CHK-24 | P3: skillVersion/schemaVersion + changelog | Tasks | Verified (T21-T27) |
+| CHK-25 | P3: proposta de versão nunca autoaplica | Tasks | Verified (T21, T24) |
 
 **Coverage:** 25 total, 0 mapped to tasks, 25 unmapped ⚠️ (esperado antes da fase Tasks)
 

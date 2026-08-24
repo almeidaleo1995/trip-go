@@ -206,13 +206,18 @@ export function Checklist() {
  * Lê `dicas` dos próximos eventos do roteiro, sem gerar texto novo (CHK-22).
  * Painel some sozinho quando não há nada — nunca mostra uma seção vazia.
  */
+type EventoDica = { dicas?: string | null; ocorre_em?: string | null }
+
 function Dicas() {
   const { snapshot } = useTrip()
+  // useState (não useMemo): o inicializador lazy é o lugar certo para uma
+  // leitura impura como Date.now() — "próximo" não precisa do milissegundo
+  // exato, só não pode rodar dentro do corpo puro do render.
+  const [agora] = useState(() => Date.now())
   if (!snapshot) return null
 
-  const agora = Date.now()
   const linhas: string[] = []
-  for (const e of snapshot.roteiro as Record<string, any>[]) {
+  for (const e of snapshot.roteiro as EventoDica[]) {
     if (!e.dicas) continue
     // `ocorre_em` chega do /api/snapshot com sufixo Z (timestamp completo,
     // sem ambiguidade) — não é o mesmo caso que parseData existe para
@@ -248,13 +253,20 @@ function Dicas() {
  * conhecida. Nunca mostra nada sem dado de verdade (CHK-23) — sem coordenada,
  * sem rede, ou resposta inesperada, a cidade simplesmente não entra na lista.
  */
+type LugarComCoordenada = {
+  cidade: string
+  lat?: number | string | null
+  lon?: number | string | null
+  status?: string | null
+}
+
 function Clima() {
   const { snapshot } = useTrip()
   const [previsoes, setPrevisoes] = useState<Record<string, PrevisaoDia[]>>({})
 
   const lugares = useMemo(() => {
     if (!snapshot) return []
-    return (snapshot.lugares as Record<string, any>[])
+    return (snapshot.lugares as LugarComCoordenada[])
       .filter((l) => l.lat != null && l.lon != null && l.status !== 'visitada')
       .slice(0, 3)
   }, [snapshot])

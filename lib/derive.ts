@@ -118,52 +118,6 @@ export function faseDaViagem(
 /** Dias antes da partida em que a viagem deixa de ser "planejando" e vira "proxima". */
 export const JANELA_PROXIMA = 60
 
-// ---------------------------------------------------------------- fase do item de checklist
-
-export type FaseChecklist =
-  | 'sem_prazo'
-  | 'preparacao'
-  | 'sete_dias_antes'
-  | 'quarenta_oito_horas_antes'
-  | 'no_dia'
-  | 'durante'
-  | 'retorno'
-
-/**
- * Em que fase da viagem um item de checklist cai, a partir do prazo dele e das
- * datas da viagem — nunca armazenada, sempre calculada (mesmo principio de
- * `faseDaViagem`, e mesma razao do README para nao duplicar sistema de tarefas
- * por dia: o prazo JA e a data, nao precisa de coluna `dia` separada).
- *
- * `prazo` deve ser o prazo mais urgente do item (normalmente `prazo_maximo`,
- * caindo para `prazo_ideal` quando so ele existir) — decisao de quem chama.
- */
-export function faseChecklist(
-  prazo: string | null | undefined,
-  dataPartida: string | null | undefined,
-  dataRetorno: string | null | undefined,
-): FaseChecklist {
-  const p = parseData(prazo)
-  const partida = parseData(dataPartida)
-  if (!p || !partida) return 'sem_prazo'
-
-  const retorno = parseData(dataRetorno)
-  const dPrazo = numeroDoDia(p)
-  const dPartida = numeroDoDia(partida)
-
-  if (dPrazo === dPartida) return 'no_dia'
-  if (retorno && dPrazo > dPartida && dPrazo <= numeroDoDia(retorno)) return 'durante'
-  if (retorno && dPrazo > numeroDoDia(retorno)) return 'retorno'
-  if (dPrazo < dPartida) {
-    const faltam = dPartida - dPrazo
-    if (faltam <= 2) return 'quarenta_oito_horas_antes'
-    if (faltam <= 7) return 'sete_dias_antes'
-    return 'preparacao'
-  }
-  // dPrazo > dPartida sem data_retorno valida para comparar: aproxima de "durante".
-  return 'durante'
-}
-
 export type StatusViagem = 'planejando' | 'proxima' | 'andamento' | 'concluida' | 'arquivada'
 
 /**
