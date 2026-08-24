@@ -305,7 +305,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T10: `faseChecklist()`
+### T10: `faseChecklist()` ✅
 
 **What**: Função pura que calcula a fase de um item (antes/preparação/7 dias antes/48h antes/no dia/durante/por destino/retorno) a partir de `prazo_ideal`/`prazo_maximo`/datas da viagem — sem coluna nova, mesmo princípio de `faseDaViagem`.
 **Where**: `lib/derive.ts`

@@ -11,6 +11,7 @@ import {
   noites,
   noitesABordo,
   faseDaViagem,
+  faseChecklist,
   proximoCompromisso,
   ordenarEventos,
   contarLugares,
@@ -213,6 +214,39 @@ test('progressoChecklist ignora IDs que nao existem mais no checklist', () => {
 
 test('progressoChecklist trata valor falso como nao feito', () => {
   assert.equal(progressoChecklist([{ id: '1' }], { '1': false }).feitos, 0)
+})
+
+test('faseChecklist sem prazo devolve sem_prazo', () => {
+  assert.equal(faseChecklist(null, PARTIDA, RETORNO), 'sem_prazo')
+})
+
+test('faseChecklist a 10 dias da partida devolve preparacao', () => {
+  assert.equal(faseChecklist('2026-12-20', PARTIDA, RETORNO), 'preparacao')
+})
+
+test('faseChecklist a 6 dias da partida devolve sete_dias_antes', () => {
+  assert.equal(faseChecklist('2026-12-24', PARTIDA, RETORNO), 'sete_dias_antes')
+})
+
+test('faseChecklist a 1 dia da partida devolve quarenta_oito_horas_antes', () => {
+  assert.equal(faseChecklist('2026-12-29', PARTIDA, RETORNO), 'quarenta_oito_horas_antes')
+})
+
+test('faseChecklist no dia da partida devolve no_dia', () => {
+  assert.equal(faseChecklist(PARTIDA, PARTIDA, RETORNO), 'no_dia')
+})
+
+test('faseChecklist entre partida e retorno devolve durante', () => {
+  assert.equal(faseChecklist('2027-01-05', PARTIDA, RETORNO), 'durante')
+})
+
+test('faseChecklist depois do retorno devolve retorno', () => {
+  assert.equal(faseChecklist('2027-01-20', PARTIDA, RETORNO), 'retorno')
+})
+
+test('faseChecklist exatamente 7 e 2 dias antes ficam no bucket mais proximo', () => {
+  assert.equal(faseChecklist('2026-12-23', PARTIDA, RETORNO), 'sete_dias_antes')
+  assert.equal(faseChecklist('2026-12-28', PARTIDA, RETORNO), 'quarenta_oito_horas_antes')
 })
 
 // ---------------------------------------------------------------- dinheiro digitado
