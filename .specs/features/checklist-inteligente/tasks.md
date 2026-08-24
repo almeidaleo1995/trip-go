@@ -626,7 +626,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T24: `rules/dedup-e-prioridade.md`
+### T24: `rules/dedup-e-prioridade.md` ✅
 
 **What**: Documenta a regra de normalização/dedup (mesma de `normalizarTitulo`, T8), a regra "pessoal exige dono" (CHK-19), a regra de fonte+data obrigatória para `pesquisa` (CHK-12), e a regra "nunca autoaplica versão" (CHK-25).
 **Where**: `.claude/skills/viagem-para-json/rules/dedup-e-prioridade.md`
