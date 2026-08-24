@@ -517,7 +517,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T19: Painel de dicas
+### T19: Painel de dicas ✅ (verificado: vazio some, populado mostra as linhas certas; achou e evitou localmente um bug pré-existente de parseData vs. ocorre_em com Z — não corrigido na raiz, fora de escopo, sinalizado ao usuário)
 
 **What**: Lista as `dicas` de eventos do roteiro nos próximos dias da viagem, lidas direto do campo existente — nenhum texto novo gerado.
 **Where**: `components/tabs/Checklist.tsx`

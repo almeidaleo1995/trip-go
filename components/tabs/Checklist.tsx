@@ -163,6 +163,8 @@ export function Checklist() {
         )}
       </Cartao>
 
+      <Dicas />
+
       <div className="mb-4 flex flex-wrap gap-1.5">
         {VISOES.map((v) => (
           <button
@@ -195,6 +197,47 @@ export function Checklist() {
         </Secao>
       ))}
     </>
+  )
+}
+
+/**
+ * Lê `dicas` dos próximos eventos do roteiro, sem gerar texto novo (CHK-22).
+ * Painel some sozinho quando não há nada — nunca mostra uma seção vazia.
+ */
+function Dicas() {
+  const { snapshot } = useTrip()
+  if (!snapshot) return null
+
+  const agora = Date.now()
+  const linhas: string[] = []
+  for (const e of snapshot.roteiro as Record<string, any>[]) {
+    if (!e.dicas) continue
+    // `ocorre_em` chega do /api/snapshot com sufixo Z (timestamp completo,
+    // sem ambiguidade) — não é o mesmo caso que parseData existe para
+    // resolver (data sem hora, que o construtor de Date lê como UTC).
+    const data = e.ocorre_em ? new Date(String(e.ocorre_em)) : null
+    if (!data || Number.isNaN(data.getTime()) || data.getTime() < agora) continue
+    for (const linha of String(e.dicas)
+      .split('\n')
+      .map((l: string) => l.trim())
+      .filter(Boolean)) {
+      linhas.push(linha)
+    }
+  }
+  if (linhas.length === 0) return null
+
+  return (
+    <Cartao className="mb-4">
+      <Rotulo>Dicas para não esquecer nada</Rotulo>
+      <ul className="mt-2 space-y-1.5 text-sm text-(--color-tinta-2)">
+        {linhas.slice(0, 8).map((texto, i) => (
+          <li key={i} className="flex gap-2">
+            <span aria-hidden>·</span>
+            <span>{texto}</span>
+          </li>
+        ))}
+      </ul>
+    </Cartao>
   )
 }
 
