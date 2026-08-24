@@ -445,7 +445,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T16: Importar sugestões
+### T16: Importar sugestões ⚠️ (código completo, build+test verdes; verificação no navegador interrompida por rate limit da sessão — pendente confirmar visualmente)
 
 **What**: UI para carregar um arquivo `ChecklistSugestoesBatchSchema` (upload), validar contra o schema, rodar `resolverSugestoes`, mostrar erros (nomes não resolvidos) e o resumo de duplicadas descartadas, e enviar as válidas como um lote `criar` (`pendente: true`) via `/api/mutate`.
 **Where**: `components/tabs/Checklist.tsx`

@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import type { z } from 'zod'
-import { Check, AlertTriangle } from 'lucide-react'
+import { Check, AlertTriangle, Upload } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
-import { Badge, Cartao, Progresso, Rotulo, Titulo, Vazio } from '../ui.tsx'
+import { Badge, Cartao, Progresso, Rotulo, Titulo, Vazio, AppModal, Botao, useAviso } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
 import { progressoChecklist, formatarData, parseData } from '@/lib/derive.ts'
-import type { ChecklistItemSchema } from '@/lib/schema.ts'
+import { ChecklistSugestoesBatchSchema, type ChecklistItemSchema } from '@/lib/schema.ts'
+import { resolverSugestoes, type ContextoResolucao, type ResultadoResolucao } from '@/lib/checklist.ts'
 
 type ChecklistItem = z.infer<typeof ChecklistItemSchema>
 type EstadoLinha = { traveler_id: string; item_id: string; feito: boolean }
@@ -85,7 +86,16 @@ export function Checklist() {
   if (itens.length === 0) {
     return (
       <>
-        <Titulo acao={<AdminAcoes entidade="checklist_item">Item</AdminAcoes>}>Checklist</Titulo>
+        <Titulo
+          acao={
+            <>
+              <ImportarSugestoes />
+              <AdminAcoes entidade="checklist_item">Item</AdminAcoes>
+            </>
+          }
+        >
+          Checklist
+        </Titulo>
         <div className="mb-4">
           <Progresso pct={0} />
         </div>
@@ -174,6 +184,131 @@ export function Checklist() {
           ))}
         </Secao>
       ))}
+    </>
+  )
+}
+
+/**
+ * Carrega um arquivo `ChecklistSugestoesBatchSchema` (saída da skill
+ * viagem-para-json), resolve nomes -> ids contra a viagem atual e grava as
+ * válidas como `checklist_item` com `pendente: true` — nunca confirmadas
+ * sozinhas (CHK-13, CHK-20). A revisão em si é a lista normal filtrada por
+ * pendente (ver `Pendentes`, T17).
+ */
+function ImportarSugestoes() {
+  const { snapshot, mutate, posso } = useTrip()
+  const avisar = useAviso()
+  const [resultado, setResultado] = useState<ResultadoResolucao | null>(null)
+  const [enviando, setEnviando] = useState(false)
+
+  if (!snapshot || !posso('editor')) return null
+
+  async function aoEscolherArquivo(e: ChangeEvent<HTMLInputElement>) {
+    const arquivo = e.target.files?.[0]
+    e.target.value = ''
+    if (!arquivo || !snapshot) return
+
+    let bruto: unknown
+    try {
+      bruto = JSON.parse(await arquivo.text())
+    } catch {
+      avisar('erro', 'Arquivo não é um JSON válido.')
+      return
+    }
+    const parsed = ChecklistSugestoesBatchSchema.safeParse(bruto)
+    if (!parsed.success) {
+      avisar('erro', 'Arquivo não bate com o formato de sugestões de checklist esperado.')
+      return
+    }
+
+    const contexto: ContextoResolucao = {
+      participantes: snapshot.participantes.map((p) => ({ id: String(p.id), nome: String(p.nome) })),
+      roteiro: snapshot.roteiro.map((e) => ({ id: String(e.id), titulo: String(e.titulo) })),
+      voos: snapshot.voos.map((v) => ({
+        id: String(v.id),
+        companhia: String(v.companhia),
+        numero: v.numero ?? null,
+      })),
+      cruzeiros: snapshot.cruzeiros.map((c) => ({ id: String(c.id), navio: String(c.navio) })),
+      checklistExistente: (snapshot.checklist as { titulo: string }[]).map((c) => ({
+        titulo: c.titulo,
+      })),
+    }
+    setResultado(resolverSugestoes(parsed.data.sugestoes, contexto))
+  }
+
+  async function confirmar() {
+    if (!resultado) return
+    setEnviando(true)
+    for (const item of resultado.validas) {
+      await mutate({ op: 'criar', entidade: 'checklist_item', campos: item, client_ts: agora() })
+    }
+    setEnviando(false)
+    avisar(
+      'sucesso',
+      `${resultado.validas.length} sugestão(ões) importada(s) como pendente — revise antes de confirmar.`,
+    )
+    setResultado(null)
+  }
+
+  return (
+    <>
+      <label className="sem-impressao toque inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-(--color-tinta-2) transition-colors hover:bg-(--color-superficie-2)">
+        <Upload size={16} />
+        Importar sugestões
+        <input type="file" accept="application/json" className="hidden" onChange={aoEscolherArquivo} />
+      </label>
+
+      {resultado && (
+        <AppModal
+          titulo="Sugestões da skill"
+          aoFechar={() => setResultado(null)}
+          acoes={
+            <>
+              <Botao variante="secundario" onClick={() => setResultado(null)}>
+                Cancelar
+              </Botao>
+              <Botao
+                onClick={confirmar}
+                carregando={enviando}
+                desabilitado={resultado.validas.length === 0}
+              >
+                Importar {resultado.validas.length} como pendente
+              </Botao>
+            </>
+          }
+        >
+          <p className="text-sm text-(--color-tinta-2)">
+            <strong className="text-(--color-tinta)">{resultado.validas.length}</strong> prontas
+            para importar
+            {resultado.duplicadas > 0 && <> · {resultado.duplicadas} duplicada(s) descartada(s)</>}
+            {resultado.erros.length > 0 && <> · {resultado.erros.length} com problema</>}
+          </p>
+
+          {resultado.erros.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {resultado.erros.map((e, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-[13px] text-(--color-perigo-ink)"
+                >
+                  <strong>{e.sugestao.titulo}</strong> — {e.motivo}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {resultado.validas.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {resultado.validas.map((v, i) => (
+                <div key={i} className="rounded-xl border border-(--color-borda) px-3 py-2 text-sm">
+                  {v.titulo}
+                </div>
+              ))}
+            </div>
+          )}
+        </AppModal>
+      )}
     </>
   )
 }
