@@ -6,6 +6,8 @@ import {
   validarCampos,
   MutationSchema,
   SCHEMA_VERSION,
+  ChecklistSugestaoSchema,
+  ChecklistSugestoesBatchSchema,
 } from './schema.ts'
 
 /** Importacao minima valida: so viagem, nenhuma lista. */
@@ -249,4 +251,46 @@ test('checklist_item rejeita fonte_tipo fora do enum', () => {
   const r = validarCampos('checklist_item', { fonte_tipo: 'chute' })
   assert.equal(r.sucesso, false)
   assert.match(r.sucesso === false ? r.erro : '', /fonte_tipo/)
+})
+
+const SUGESTAO_DOCUMENTO = {
+  titulo: 'Conferir validade do passaporte',
+  fonte_tipo: 'documento' as const,
+}
+
+test('ChecklistSugestaoSchema aceita sugestao com fonte documento sem detalhe', () => {
+  const r = ChecklistSugestaoSchema.safeParse(SUGESTAO_DOCUMENTO)
+  assert.equal(r.success, true)
+})
+
+test('ChecklistSugestaoSchema rejeita fonte pesquisa sem fonte_detalhe e sem data', () => {
+  const r = ChecklistSugestaoSchema.safeParse({ ...SUGESTAO_DOCUMENTO, fonte_tipo: 'pesquisa' })
+  assert.equal(r.success, false)
+  assert.match(r.success ? '' : r.error.issues[0].path.join('.'), /fonte_detalhe/)
+})
+
+test('ChecklistSugestaoSchema aceita fonte pesquisa com detalhe e data', () => {
+  const r = ChecklistSugestaoSchema.safeParse({
+    ...SUGESTAO_DOCUMENTO,
+    fonte_tipo: 'pesquisa',
+    fonte_detalhe: 'site oficial do consulado',
+    fonte_consultado_em: '2026-08-20',
+  })
+  assert.equal(r.success, true)
+})
+
+test('ChecklistSugestoesBatchSchema aceita lote com uma sugestao valida', () => {
+  const r = ChecklistSugestoesBatchSchema.safeParse({
+    viagem: 'Europa 2027',
+    gerado_em: '2026-08-20',
+    sugestoes: [SUGESTAO_DOCUMENTO],
+  })
+  assert.equal(r.success, true)
+  assert.equal(r.success && r.data.sugestoes.length, 1)
+})
+
+test('ChecklistSugestoesBatchSchema aceita lote vazio', () => {
+  const r = ChecklistSugestoesBatchSchema.safeParse({ viagem: 'Europa 2027', gerado_em: '2026-08-20' })
+  assert.equal(r.success, true)
+  assert.deepEqual(r.success && r.data.sugestoes, [])
 })

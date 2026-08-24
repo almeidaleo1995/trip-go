@@ -139,8 +139,8 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-08 | P1: progresso geral e por pessoa | Tasks | In Tasks |
 | CHK-09 | P1: item atrasado sempre visível | Tasks | In Tasks |
 | CHK-10 | P1: checklist_state sem mudança de contrato | Tasks | In Tasks |
-| CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | In Tasks |
-| CHK-12 | P2: pesquisa exige fonte + data | Tasks | In Tasks |
+| CHK-11 | P2: forma da sugestão emitida pela skill | Tasks | Implementing (T2) |
+| CHK-12 | P2: pesquisa exige fonte + data | Tasks | Implementing (T2) |
 | CHK-13 | P2: importação grava como pendente, aditiva | Tasks | In Tasks |
 | CHK-14 | P2: dedup por título normalizado | Tasks | In Tasks |
 | CHK-15 | P2: revisão aceitar/editar/rejeitar | Tasks | In Tasks |

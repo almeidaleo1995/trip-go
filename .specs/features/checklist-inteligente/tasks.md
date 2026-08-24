@@ -117,7 +117,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T2: Adicionar `ChecklistSugestaoSchema` e `ChecklistSugestoesBatchSchema`
+### T2: Adicionar `ChecklistSugestaoSchema` e `ChecklistSugestoesBatchSchema` ✅
 
 **What**: Novo schema (formato de saída da skill, campos por nome em vez de id) — `ChecklistSugestaoSchema` e o envelope `ChecklistSugestoesBatchSchema`.
 **Where**: `lib/schema.ts`

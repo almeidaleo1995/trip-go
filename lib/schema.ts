@@ -393,6 +393,43 @@ export const ChecklistItemSchema = z.object({
   fonte_consultado_em: Data.nullish(),
 })
 
+/**
+ * Formato de saida da skill viagem-para-json para sugestoes de checklist — nunca
+ * gravado como esta. `resolverSugestoes` (lib/checklist.ts) resolve os campos por
+ * nome para os ids reais antes de criar um ChecklistItemSchema de verdade.
+ */
+export const ChecklistSugestaoSchema = z
+  .object({
+    titulo: Texto,
+    categoria: TextoOpc,
+    escopo: z.enum(['global', 'pessoal']).default('global'),
+    /** Nomes de participantes, resolvidos para assigned_to na importacao. */
+    assigned_to_nomes: z.array(Texto).default([]),
+    prioridade: z.enum(PRIORIDADES_CHECKLIST).default('importante'),
+    pais: TextoOpc,
+    cidade: TextoOpc,
+    /** Nome do passeio/hospedagem, voo ou cruzeiro no roteiro — por nome, mesmo
+        padrao que EventoSchema.reserva/documento ja usa. */
+    evento: TextoOpc,
+    voo: TextoOpc,
+    cruzeiro: TextoOpc,
+    prazo_ideal: Data.nullish(),
+    prazo_maximo: Data.nullish(),
+    fonte_tipo: z.enum(FONTES_CHECKLIST),
+    fonte_detalhe: TextoOpc,
+    fonte_consultado_em: Data.nullish(),
+  })
+  .refine((d) => d.fonte_tipo !== 'pesquisa' || (d.fonte_detalhe && d.fonte_consultado_em), {
+    message: 'sugestao de fonte pesquisa exige fonte_detalhe e fonte_consultado_em',
+    path: ['fonte_detalhe'],
+  })
+
+export const ChecklistSugestoesBatchSchema = z.object({
+  viagem: Texto,
+  gerado_em: Data,
+  sugestoes: z.array(ChecklistSugestaoSchema).default([]),
+})
+
 export const DocumentoSchema = z.object({
   id: Id.optional(),
   titulo: Texto,
