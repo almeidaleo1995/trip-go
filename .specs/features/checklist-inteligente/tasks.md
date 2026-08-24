@@ -40,7 +40,9 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 | --- | --- | --- |
 | Quick | Depois de tarefas só com teste unitário (schema, `lib/checklist.ts`, `lib/derive.ts`) | `npm test` |
 | Full | Depois de tarefas que tocam banco, rota ou UI | `npm run build && npm test` |
-| Build | Fechamento de fase ou tarefas só de config/arquivo estático | `npm run build && npm run lint && npm test` |
+| Build | Fechamento de fase ou tarefas só de config/arquivo estático | `npm run build && npm test` (ver nota) |
+
+**Nota (achada em T11):** `npm run lint` já falha com 110 erros num checkout limpo desta branch, quase todo `@typescript-eslint/no-explicit-any` em `components/tabs/Roteiro.tsx` e `lib/derive.ts`, nenhum deles tocado por esta feature. Confirmado via `git stash` + lint antes/depois: T11 reduziu de 110 para 106 (limpou imports que ficaram sem uso), não piorou nada. Lint fica informativo, não bloqueante, pro resto desta lista — corrigir a dívida pré-existente é fora de escopo.
 
 ---
 
@@ -351,7 +353,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T12: Tipo de campo `'multiopcao'` no `EditorSheet`
+### T12: Tipo de campo `'multiopcao'` no `EditorSheet` ✅ (verificação visual em conjunto com T13, que é quem primeiro usa esse tipo)
 
 **What**: Novo tipo de campo genérico — lista de checkboxes, valor `string[]`, a partir de `campo.opcoes` estático ou `useOpcoesDaFonte(campo.fonte)` dinâmico (mesma fonte de dados que o tipo `'opcao'` já usa).
 **Where**: `components/EditorSheet.tsx`
