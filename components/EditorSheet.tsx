@@ -24,7 +24,16 @@ import { paraCampoDinheiro, parseData } from '@/lib/derive.ts'
 import { TIPOS_EVENTO, MODOS_TRANSPORTE } from '@/lib/schema.ts'
 import { type Papel } from '@/config/navigation.ts'
 
-type TipoCampo = 'texto' | 'area' | 'data' | 'datahora' | 'numero' | 'dinheiro' | 'bool' | 'opcao'
+type TipoCampo =
+  | 'texto'
+  | 'area'
+  | 'data'
+  | 'datahora'
+  | 'numero'
+  | 'dinheiro'
+  | 'bool'
+  | 'opcao'
+  | 'multiopcao'
 
 type Campo = {
   chave: string
@@ -38,7 +47,7 @@ type Campo = {
    * fixa. É o que transforma "reserva_id" de um campo de id digitado à mão —
    * inusável — numa seleção de "Motel One Hamburg · 01 jan".
    */
-  fonte?: 'reservas' | 'documentos'
+  fonte?: 'reservas' | 'documentos' | 'participantes'
   /** Seção do formulário. Campos sem grupo caem em "Informações básicas". */
   grupo?: string
 }
@@ -443,11 +452,15 @@ export function EditorSheet({
   const def = CAMPOS[entidade]
   const criando = !registro?.id
 
-  const [valores, setValores] = useState<Record<string, string | boolean>>(() =>
+  const [valores, setValores] = useState<Record<string, string | boolean | string[]>>(() =>
     Object.fromEntries(
       def.campos.map((c) => [
         c.chave,
-        c.tipo === 'bool' ? Boolean(registro?.[c.chave]) : paraInput(registro?.[c.chave], c.tipo),
+        c.tipo === 'bool'
+          ? Boolean(registro?.[c.chave])
+          : c.tipo === 'multiopcao'
+            ? (Array.isArray(registro?.[c.chave]) ? (registro![c.chave] as string[]) : [])
+            : paraInput(registro?.[c.chave], c.tipo),
       ]),
     ),
   )
@@ -480,6 +493,12 @@ export function EditorSheet({
       const v = valores[c.chave]
       if (c.tipo === 'bool') {
         campos[c.chave] = Boolean(v)
+        continue
+      }
+      if (c.tipo === 'multiopcao') {
+        // Vazio aqui é dado de verdade ("todos"), não "campo não preenchido" —
+        // por isso sempre entra no payload, ao contrário do texto vazio abaixo.
+        campos[c.chave] = Array.isArray(v) ? v : []
         continue
       }
       const s = String(v ?? '').trim()
@@ -637,6 +656,14 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
       })),
     ]
   }
+  if (fonte === 'participantes') {
+    // Sem "— nenhum —": aqui a lista É o conjunto de opções marcáveis, não a
+    // escolha de um valor único (ver tipo 'multiopcao').
+    return (snapshot?.participantes ?? []).map((p) => ({
+      valor: String(p.id),
+      nome: String(p.nome),
+    }))
+  }
   return [
     vazio,
     ...((snapshot?.documentos ?? []) as Record<string, any>[]).map((d) => ({
@@ -653,9 +680,9 @@ function CampoEditor({
   aoMudar,
 }: {
   campo: Campo
-  valor: string | boolean
+  valor: string | boolean | string[]
   erro?: string
-  aoMudar: (v: string | boolean) => void
+  aoMudar: (v: string | boolean | string[]) => void
 }) {
   const daFonte = useOpcoesDaFonte(campo.fonte)
   const idErro = `erro-${campo.chave}`
@@ -677,6 +704,52 @@ function CampoEditor({
         />
         <span className="text-sm font-medium">{campo.rotulo}</span>
       </label>
+    )
+  }
+
+  if (campo.tipo === 'multiopcao') {
+    const selecionados = Array.isArray(valor) ? valor : []
+    const opcoes = daFonte ?? campo.opcoes ?? []
+    return (
+      <div>
+        <span className="flex items-baseline gap-2">
+          <RotuloCampo>
+            {campo.rotulo}
+            {campo.obrigatorio ? ' *' : ''}
+          </RotuloCampo>
+          {campo.dica && <span className="text-[12px] text-(--color-tinta-3)">{campo.dica}</span>}
+        </span>
+        <div className="mt-1 space-y-1.5">
+          {opcoes.length === 0 && (
+            <span className="text-[13px] text-(--color-tinta-3)">Nenhuma opção disponível.</span>
+          )}
+          {opcoes.map((o) => (
+            <label
+              key={o.valor}
+              className="toque flex cursor-pointer items-center gap-3 rounded-xl border border-(--color-borda-forte) px-3 transition-colors hover:bg-(--color-superficie-2)"
+            >
+              <input
+                type="checkbox"
+                checked={selecionados.includes(o.valor)}
+                onChange={(e) =>
+                  aoMudar(
+                    e.target.checked
+                      ? [...selecionados, o.valor]
+                      : selecionados.filter((v) => v !== o.valor),
+                  )
+                }
+                className="h-5 w-5 accent-(--color-destaque)"
+              />
+              <span className="text-sm">{o.nome}</span>
+            </label>
+          ))}
+        </div>
+        {erro && (
+          <span id={idErro} className="mt-1 block text-[13px] text-(--color-perigo-ink)">
+            {erro}
+          </span>
+        )}
+      </div>
     )
   }
 
