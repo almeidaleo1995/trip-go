@@ -494,7 +494,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T18: "Por que estou vendo isso?"
+### T18: "Por que estou vendo isso?" ✅ (verificado no navegador: some sem fonte_tipo, expande com fonte+data quando presente)
 
 **What**: Quando o item tem `fonte_tipo`/`fonte_detalhe`, um elemento expansível mostra a fonte e a data de consulta (se houver).
 **Where**: `components/tabs/Checklist.tsx`

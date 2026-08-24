@@ -149,7 +149,7 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-18 | P2: assigned_to não resolvido rejeita import | Tasks | Implementing (T9, T16) |
 | CHK-19 | P2: pessoal sem assigned_to rejeita import | Tasks | Implementing (T9, T16) |
 | CHK-20 | P2: nenhuma sugestão confirma sozinha | Tasks | Implementing (T17) |
-| CHK-21 | P3: "por que estou vendo isso" | Tasks | In Tasks |
+| CHK-21 | P3: "por que estou vendo isso" | Tasks | Implementing (T18) |
 | CHK-22 | P3: dicas reaproveitadas do roteiro | Tasks | In Tasks |
 | CHK-23 | P3: clima ao vivo com fallback de ocultar | Tasks | In Tasks |
 | CHK-24 | P3: skillVersion/schemaVersion + changelog | Tasks | In Tasks |

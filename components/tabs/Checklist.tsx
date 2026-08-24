@@ -419,65 +419,91 @@ function ItemChecklist({
   const vencido = !feito && limite !== null && limite.getTime() < Date.now()
 
   return (
-    <button
-      onClick={onToggle}
-      className="quebra-evitar flex w-full cursor-pointer items-start gap-3 rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-3.5 text-left transition-colors"
-      aria-pressed={feito}
-    >
-      <span
-        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2"
-        style={{
-          borderColor: feito ? 'var(--destaque)' : 'var(--color-borda-forte)',
-          background: feito ? 'var(--destaque)' : 'transparent',
-          transition: 'all var(--transicao)',
-        }}
+    <div className="quebra-evitar rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-3.5 transition-colors">
+      <button
+        onClick={onToggle}
+        className="flex w-full cursor-pointer items-start gap-3 text-left"
+        aria-pressed={feito}
       >
-        {/* O check cresce ao entrar: é o único sinal de que a marcação pegou,
-            já que a escrita é otimista e não há espera pela rede. */}
-        {feito && <Check size={15} className="anim-subir text-white" strokeWidth={3} />}
-      </span>
+        <span
+          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2"
+          style={{
+            borderColor: feito ? 'var(--destaque)' : 'var(--color-borda-forte)',
+            background: feito ? 'var(--destaque)' : 'transparent',
+            transition: 'all var(--transicao)',
+          }}
+        >
+          {/* O check cresce ao entrar: é o único sinal de que a marcação pegou,
+              já que a escrita é otimista e não há espera pela rede. */}
+          {feito && <Check size={15} className="anim-subir text-white" strokeWidth={3} />}
+        </span>
 
-      <span className="min-w-0 flex-1">
-        <span className={`block font-medium ${feito ? 'text-(--color-tinta-3) line-through' : ''}`}>
-          {String(item.titulo)}
-        </span>
-        {item.detalhe && (
-          <span className="mt-1 block text-[13px] text-(--color-tinta-2)">
-            {String(item.detalhe)}
+        <span className="min-w-0 flex-1">
+          <span className={`block font-medium ${feito ? 'text-(--color-tinta-3) line-through' : ''}`}>
+            {String(item.titulo)}
           </span>
-        )}
-        <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
-          {item.categoria && (
-            <span className="rounded-full bg-(--color-fundo) px-2 py-0.5 text-(--color-tinta-3)">
-              {String(item.categoria)}
+          {item.detalhe && (
+            <span className="mt-1 block text-[13px] text-(--color-tinta-2)">
+              {String(item.detalhe)}
             </span>
           )}
-          {item.prazo_ideal && (
-            <span className="tab-num text-(--color-tinta-3)">
-              ideal até {formatarData(item.prazo_ideal)}
-            </span>
-          )}
-          {item.prazo_maximo &&
-            (vencido ? (
-              // Vencido é etiqueta com ícone, não só texto vermelho: cor sozinha
-              // não é informação para quem não a distingue.
-              <Badge
-                tipo="perigo"
-                icone={<AlertTriangle size={11} />}
-                texto={`Vencido · ${formatarData(item.prazo_maximo)}`}
-              />
-            ) : (
-              <span className="tab-num font-semibold text-(--color-tinta-3)">
-                limite {formatarData(item.prazo_maximo)}
+          <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
+            {item.categoria && (
+              <span className="rounded-full bg-(--color-fundo) px-2 py-0.5 text-(--color-tinta-3)">
+                {String(item.categoria)}
               </span>
-            ))}
-          {grupo && (
-            <span className="tab-num rounded-full bg-(--color-destaque-fraco) px-2 py-0.5 font-semibold text-(--color-voo-ink)">
-              {grupo} do grupo
-            </span>
-          )}
+            )}
+            {item.prazo_ideal && (
+              <span className="tab-num text-(--color-tinta-3)">
+                ideal até {formatarData(item.prazo_ideal)}
+              </span>
+            )}
+            {item.prazo_maximo &&
+              (vencido ? (
+                // Vencido é etiqueta com ícone, não só texto vermelho: cor sozinha
+                // não é informação para quem não a distingue.
+                <Badge
+                  tipo="perigo"
+                  icone={<AlertTriangle size={11} />}
+                  texto={`Vencido · ${formatarData(item.prazo_maximo)}`}
+                />
+              ) : (
+                <span className="tab-num font-semibold text-(--color-tinta-3)">
+                  limite {formatarData(item.prazo_maximo)}
+                </span>
+              ))}
+            {grupo && (
+              <span className="tab-num rounded-full bg-(--color-destaque-fraco) px-2 py-0.5 font-semibold text-(--color-voo-ink)">
+                {grupo} do grupo
+              </span>
+            )}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+
+      {item.fonte_tipo && <ExplicacaoFonte item={item} />}
+    </div>
+  )
+}
+
+/** "Por que estou vendo isso?" — só existe quando o item carrega fonte (CHK-21). */
+function ExplicacaoFonte({ item }: { item: ChecklistItem }) {
+  const [aberto, setAberto] = useState(false)
+  return (
+    <div className="mt-2 border-t border-(--color-borda) pt-2 pl-9">
+      <button
+        onClick={() => setAberto((a) => !a)}
+        className="cursor-pointer text-[12px] font-medium text-(--destaque)"
+      >
+        Por que estou vendo isso?
+      </button>
+      {aberto && (
+        <p className="mt-1 text-[12px] text-(--color-tinta-3)">
+          {NOME_FONTE[item.fonte_tipo ?? ''] ?? 'Sugestão'}
+          {item.fonte_detalhe && <> · {item.fonte_detalhe}</>}
+          {item.fonte_consultado_em && <> · consultado em {formatarData(item.fonte_consultado_em)}</>}
+        </p>
+      )}
+    </div>
   )
 }
