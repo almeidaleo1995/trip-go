@@ -152,8 +152,8 @@ Explicitamente excluído. Documentado para evitar scope creep.
 | CHK-21 | P3: "por que estou vendo isso" | Tasks | Implementing (T18) |
 | CHK-22 | P3: dicas reaproveitadas do roteiro | Tasks | Implementing (T19) |
 | CHK-23 | P3: clima ao vivo com fallback de ocultar | Tasks | Implementing (T20) |
-| CHK-24 | P3: skillVersion/schemaVersion + changelog | Tasks | In Tasks |
-| CHK-25 | P3: proposta de versão nunca autoaplica | Tasks | In Tasks |
+| CHK-24 | P3: skillVersion/schemaVersion + changelog | Tasks | Implementing (T21-T27) |
+| CHK-25 | P3: proposta de versão nunca autoaplica | Tasks | Implementing (T21, T24) |
 
 **Coverage:** 25 total, 0 mapped to tasks, 25 unmapped ⚠️ (esperado antes da fase Tasks)
 

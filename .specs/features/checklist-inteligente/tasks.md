@@ -688,7 +688,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T27: `validators/validar-sugestoes.mjs`
+### T27: `validators/validar-sugestoes.mjs` ✅ (rodado contra o fixture válido de T16 — aprovado com aviso correto — e contra um arquivo inválido — reprovado com o campo exato apontado)
 
 **What**: Script irmão de `scripts/validar.mjs`, mas valida um arquivo de lote de sugestões contra `ChecklistSugestoesBatchSchema` (o zod real, não o JSON Schema de T23) e imprime contagem + erro de campo exato.
 **Where**: `.claude/skills/viagem-para-json/validators/validar-sugestoes.mjs`
