@@ -21,7 +21,7 @@ import {
 } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
 import { paraCampoDinheiro, parseData } from '@/lib/derive.ts'
-import { TIPOS_EVENTO, MODOS_TRANSPORTE } from '@/lib/schema.ts'
+import { TIPOS_EVENTO, MODOS_TRANSPORTE, PRIORIDADES_CHECKLIST } from '@/lib/schema.ts'
 import { type Papel } from '@/config/navigation.ts'
 
 type TipoCampo =
@@ -47,7 +47,7 @@ type Campo = {
    * fixa. É o que transforma "reserva_id" de um campo de id digitado à mão —
    * inusável — numa seleção de "Motel One Hamburg · 01 jan".
    */
-  fonte?: 'reservas' | 'documentos' | 'participantes'
+  fonte?: 'reservas' | 'documentos' | 'participantes' | 'roteiro' | 'voos' | 'cruzeiros'
   /** Seção do formulário. Campos sem grupo caem em "Informações básicas". */
   grupo?: string
 }
@@ -64,6 +64,8 @@ const CHEGAR = 'Como chegar'
 const VINCULOS = 'Reserva, documento e custo'
 const DIA = 'O dia'
 const RITUAIS = 'Antes de sair e antes de dormir'
+const DESTINO = 'Destino'
+const VINCULO_ROTEIRO = 'Vínculo com o roteiro'
 
 /** Nome de exibição de cada tipo de item. Espelha NOMES em ui.tsx. */
 const NOME_TIPO: Record<string, string> = {
@@ -97,6 +99,13 @@ const NOME_MODO: Record<string, string> = {
   carro: 'Carro',
   barco: 'Barco / balsa',
   aviao: 'Avião',
+}
+
+const NOME_PRIORIDADE: Record<string, string> = {
+  obrigatorio: 'Obrigatório',
+  importante: 'Importante',
+  recomendado: 'Recomendado',
+  opcional: 'Opcional',
 }
 
 /** Entidade -> campos editáveis. Espelha os schemas zod de lib/schema.ts. */
@@ -375,6 +384,19 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
           { valor: 'pessoal', nome: 'Pessoal (cada um)' },
         ],
       },
+      {
+        chave: 'prioridade',
+        rotulo: 'Prioridade',
+        tipo: 'opcao',
+        opcoes: PRIORIDADES_CHECKLIST.map((v) => ({ valor: v, nome: NOME_PRIORIDADE[v] })),
+      },
+      {
+        chave: 'assigned_to',
+        rotulo: 'De quem é',
+        tipo: 'multiopcao',
+        fonte: 'participantes',
+        dica: 'Ninguém marcado = todos (só faz sentido em item da viagem)',
+      },
       { chave: 'prazo_ideal', rotulo: 'Prazo ideal', tipo: 'data', grupo: DATAS },
       { chave: 'prazo_maximo', rotulo: 'Prazo máximo', tipo: 'data', grupo: DATAS },
       {
@@ -383,6 +405,11 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
         tipo: 'dinheiro',
         grupo: DATAS,
       },
+      { chave: 'pais', rotulo: 'País', tipo: 'texto', grupo: DESTINO },
+      { chave: 'cidade', rotulo: 'Cidade', tipo: 'texto', grupo: DESTINO },
+      { chave: 'itinerary_event_id', rotulo: 'Passeio/hospedagem', tipo: 'opcao', fonte: 'roteiro', grupo: VINCULO_ROTEIRO },
+      { chave: 'flight_id', rotulo: 'Voo', tipo: 'opcao', fonte: 'voos', grupo: VINCULO_ROTEIRO },
+      { chave: 'cruise_id', rotulo: 'Cruzeiro', tipo: 'opcao', fonte: 'cruzeiros', grupo: VINCULO_ROTEIRO },
       { chave: 'detalhe', rotulo: 'Detalhe', tipo: 'area', grupo: OBS },
     ],
   },
@@ -535,6 +562,17 @@ export function EditorSheet({
       }
     }
 
+    // Espelha a constraint checklist_pessoal_tem_dono do banco (T3): barrar aqui
+    // poupa a viagem até o servidor pro caso comum, não substitui a constraint.
+    if (
+      entidade === 'checklist_item' &&
+      campos.escopo === 'pessoal' &&
+      Array.isArray(campos.assigned_to) &&
+      campos.assigned_to.length === 0
+    ) {
+      novosErros.assigned_to = 'Item pessoal precisa de pelo menos um dono.'
+    }
+
     setErros(novosErros)
     if (Object.keys(novosErros).length > 0) {
       avisar('erro', 'Confira os campos marcados.')
@@ -663,6 +701,33 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
       valor: String(p.id),
       nome: String(p.nome),
     }))
+  }
+  if (fonte === 'roteiro') {
+    return [
+      vazio,
+      ...((snapshot?.roteiro ?? []) as Record<string, any>[]).map((e) => ({
+        valor: String(e.id),
+        nome: String(e.titulo),
+      })),
+    ]
+  }
+  if (fonte === 'voos') {
+    return [
+      vazio,
+      ...((snapshot?.voos ?? []) as Record<string, any>[]).map((v) => ({
+        valor: String(v.id),
+        nome: [v.companhia, v.numero].filter(Boolean).join(' '),
+      })),
+    ]
+  }
+  if (fonte === 'cruzeiros') {
+    return [
+      vazio,
+      ...((snapshot?.cruzeiros ?? []) as Record<string, any>[]).map((c) => ({
+        valor: String(c.id),
+        nome: String(c.navio),
+      })),
+    ]
   }
   return [
     vazio,

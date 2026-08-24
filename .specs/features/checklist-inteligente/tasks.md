@@ -376,7 +376,7 @@ T21 → T22 → T23 → T24 → T25 → T26 → T27
 
 ---
 
-### T13: Campos de atribuição/prioridade/vínculo no editor de item
+### T13: Campos de atribuição/prioridade/vínculo no editor de item ✅ (verificado ponta-a-ponta no navegador contra a viagem Europa 2027 real; achou e corrigiu um bug pré-existente não relacionado em app/api/mutate/route.ts, commit em separado)
 
 **What**: A configuração de campos do `checklist_item` (usada pelo `AdminAcoes`/`EditorSheet`) ganha `assigned_to` (`multiopcao` de participantes), `prioridade` (`opcao`), `pais`/`cidade` (texto), e seletor de vínculo com evento/voo/cruzeiro do roteiro.
 **Where**: `components/tabs/Checklist.tsx`
