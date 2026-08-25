@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>Europa 2027 — locais das paradas</name>
+  <Placemark>
+    <name><![CDATA[Chegada em Santiago · conexão de 10h40]]></name>
+    <Point><coordinates>-70.79,-33.38927,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Chegada em Madri · entrada no Schengen (EES)]]></name>
+    <Point><coordinates>-3.59213,40.49136,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Bagagem e encontro com o Uber]]></name>
+    <Point><coordinates>-3.59213,40.49136,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Voo Madri → Hamburgo (Iberia) — ainda não comprado]]></name>
+    <Point><coordinates>-3.57337,40.49523,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Chegada em Hamburgo]]></name>
+    <Point><coordinates>9.99455,53.63636,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Dia cheio: Rathaus, Binnenalster, St. Michaelis, Speicherstadt, Elbphilharmonie]]></name>
+    <Point><coordinates>9.9929,53.55086,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Bruges (shuttle/trem a partir de Zeebrugge)]]></name>
+    <Point><coordinates>3.2244,51.20871,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Amsterdã (trem, ida e volta na hora)]]></name>
+    <Point><coordinates>4.90058,52.3789,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Paris (excursão do navio)]]></name>
+    <Point><coordinates>2.32004,48.85889,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Londres · ETA aprovado + passaporte físico obrigatórios]]></name>
+    <Point><coordinates>-0.12777,51.50745,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Chegada em Roma (voo easyJet 15:00)]]></name>
+    <Point><coordinates>12.22648,41.81539,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Museus Vaticanos, Capela Sistina, São Pedro, Coliseu, Fórum, Palatino]]></name>
+    <Point><coordinates>12.45466,41.90496,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Chegada em Barcelona (voo Vueling 09:40)]]></name>
+    <Point><coordinates>2.07905,41.29694,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Park Güell, Passeig de Gràcia, Montjuïc]]></name>
+    <Point><coordinates>2.15246,41.41423,0</coordinates></Point>
+  </Placemark>
+  <Placemark>
+    <name><![CDATA[Saída do Schengen (EES) · voo ao Brasil 23:35]]></name>
+    <Point><coordinates>-3.57337,40.49523,0</coordinates></Point>
+  </Placemark>
+</Document>
+</kml>
