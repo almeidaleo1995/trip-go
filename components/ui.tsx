@@ -222,7 +222,8 @@ export function Falha({ texto, aoTentar }: { texto: string; aoTentar?: () => voi
 
 // ================================================================ badge
 
-const TONS: Record<string, { bg: string; ink: string }> = {
+/** Exportados para o roteiro colorir o círculo do ícone da timeline com o mesmo par tom/tinta do badge. */
+export const TONS: Record<string, { bg: string; ink: string }> = {
   voo: { bg: 'var(--color-voo-bg)', ink: 'var(--color-voo-ink)' },
   hospedagem: { bg: 'var(--color-hosp-bg)', ink: 'var(--color-hosp-ink)' },
   cruzeiro: { bg: 'var(--color-cruz-bg)', ink: 'var(--color-cruz-ink)' },
@@ -231,6 +232,7 @@ const TONS: Record<string, { bg: string; ink: string }> = {
   documento: { bg: 'var(--color-perigo-bg)', ink: 'var(--color-perigo-ink)' },
   refeicao: { bg: 'var(--color-hosp-bg)', ink: 'var(--color-hosp-ink)' },
   // estados, não tipos de evento
+  destaque: { bg: 'var(--color-destaque-fraco)', ink: 'var(--destaque)' },
   sucesso: { bg: 'var(--color-sucesso-bg)', ink: 'var(--color-sucesso-ink)' },
   atencao: { bg: 'var(--color-atencao-bg)', ink: 'var(--color-atencao-ink)' },
   perigo: { bg: 'var(--color-perigo-bg)', ink: 'var(--color-perigo-ink)' },
@@ -246,7 +248,7 @@ const TONS: Record<string, { bg: string; ink: string }> = {
  * mapa, cada tipo novo cairia no cinza neutro e a linha do tempo perderia a
  * única pista de cor que ela tem.
  */
-const ALIAS_TOM: Record<string, string> = {
+export const ALIAS_TOM: Record<string, string> = {
   trem: 'traslado',
   onibus: 'traslado',
   caminhada: 'traslado',
