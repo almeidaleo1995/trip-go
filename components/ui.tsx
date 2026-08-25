@@ -429,8 +429,24 @@ function Girando() {
 }
 
 /** Copiar sem depender de rede nem de permissão especial. */
-export function Copiar({ valor, rotulo }: { valor: string; rotulo?: string }) {
+/**
+ * Copia um valor com um toque. Duas formas, porque o que se copia num app de
+ * viagem é de duas naturezas: `codigo` para localizador e assento — curto, lido
+ * em voz alta na fila do check-in, merece tabular e negrito — e `texto` para
+ * endereço, que é longo, entra cortado na linha e é lido pelo aplicativo de
+ * carro, não pela pessoa.
+ */
+export function Copiar({
+  valor,
+  rotulo,
+  variante = 'codigo',
+}: {
+  valor: string
+  rotulo?: string
+  variante?: 'codigo' | 'texto'
+}) {
   const [feito, setFeito] = useState(false)
+  const texto = variante === 'texto'
   return (
     <button
       onClick={async () => {
@@ -443,13 +459,24 @@ export function Copiar({ valor, rotulo }: { valor: string; rotulo?: string }) {
         }
       }}
       aria-label={feito ? 'Copiado' : `Copiar ${rotulo ?? valor}`}
-      className="toque inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2 text-sm transition-colors hover:bg-(--color-superficie-2)"
+      // Endereço cortado precisa do texto inteiro em algum lugar alcançável: o
+      // `title` serve o mouse, o `aria-label` serve o leitor de tela, e a cópia
+      // leva o valor completo de qualquer jeito.
+      title={texto ? valor : undefined}
+      className={
+        texto
+          ? 'flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-lg bg-(--color-superficie-2) px-2 text-left text-[12px] text-(--color-tinta-2) transition-colors hover:bg-(--color-destaque-tenue)'
+          : 'toque inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2 text-sm transition-colors hover:bg-(--color-superficie-2)'
+      }
     >
-      <span className="tab-num font-semibold tracking-wider">{valor}</span>
+      <span className={texto ? 'truncate' : 'tab-num font-semibold tracking-wider'}>{valor}</span>
       {feito ? (
-        <Check size={14} className="text-(--color-sucesso-ink)" />
+        <Check
+          size={14}
+          className={`shrink-0 text-(--color-sucesso-ink) ${texto ? 'ml-auto' : ''}`}
+        />
       ) : (
-        <Copy size={14} className="text-(--color-tinta-3)" />
+        <Copy size={14} className={`shrink-0 text-(--color-tinta-3) ${texto ? 'ml-auto' : ''}`} />
       )}
     </button>
   )

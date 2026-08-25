@@ -81,6 +81,7 @@ import {
   Umbrella,
   Maximize2,
   Upload,
+  Search,
   type LucideIcon,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
@@ -97,12 +98,16 @@ import {
   AppModal,
   BotaoIcone,
   useAviso,
+  Selecao,
+  CLASSE_CAMPO,
   TONS,
   ALIAS_TOM,
 } from '../ui.tsx'
 import { MapaRota } from '../MapaRota.tsx'
 import { buscarClima, buscarClimaAgora, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 import { DiaSchema, EventoSchema, formatarErroZod } from '@/lib/schema.ts'
+import { lerArquivoDeMapa, casarPontos, type PontoKml } from '@/lib/kml.ts'
+import { buscarLugar, consultaDaParada, temCampoDeLugar, type Achado } from '@/lib/localizar.ts'
 import {
   montarDias,
   resumoDoDia,
@@ -2065,58 +2070,73 @@ function tipoEspecialDoDia(derivadas: Derivada[]): { Icone: LucideIcon; rotulo: 
 // ---------------------------------------------------------------- mapas
 
 /**
- * Mapa do dia: os pontos do roteiro que têm coordenada, na ordem em que
- * acontecem, com a distância/tempo total do dia no rodapé. Reaproveita o mesmo
- * mapa (ladrilho real + Mercator) do Início — só que numerado, porque aqui a
- * sequência de visita é a informação, não as pontas de início e fim de uma rota
- * entre cidades.
+ * Mapa do dia: as paradas do dia sobre o mapa e em lista, com a distância e o
+ * tempo total de deslocamento no rodapé. Reaproveita o mesmo mapa (ladrilho
+ * real + Mercator) do Início — só que numerado, porque aqui a sequência de
+ * visita é a informação, não as pontas de início e fim de uma rota entre
+ * cidades.
  *
- * Sem coordenada cadastrada em nenhum item do dia, o cartão nem aparece.
+ * A LISTA É O DIA INTEIRO; O MAPA É A PARTE QUE TEM COORDENADA. Listar só as
+ * paradas localizadas fazia o cartão mentir por omissão: um pino, uma linha, e
+ * as outras seis paradas do dia sumiam sem avisar que existiam. A parada sem
+ * coordenada aparece na lista sem número — o número É o pino — e o rodapé conta
+ * quantas faltam, que é a pergunta que leva ao botão de importar o KML.
+ *
+ * Sem nenhuma coordenada e sem cidade conhecida, o cartão não aparece.
  */
 function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
-  const { snapshot } = useTrip()
+  const { snapshot, posso } = useTrip()
   const [ampliado, setAmpliado] = useState(false)
+  const [importando, setImportando] = useState(false)
   const resumo = resumoDoDia(dia.itens)
 
-  const comCoordenada = dia.itens
-    .filter((e) => e.lat != null && e.lon != null)
-    .map((e) => ({
+  const paradas = dia.itens.map((e) => {
+    const lat = e.lat != null ? Number(e.lat) : null
+    const lon = e.lon != null ? Number(e.lon) : null
+    return {
       titulo: String(e.titulo ?? e.local ?? ''),
       hora: formatarHora(paraCampo(e.ocorre_em)),
       modo: modoDoPonto(e),
-      lat: Number(e.lat),
-      lon: Number(e.lon),
+      lat,
+      lon,
+      // O que se cola no Uber. O endereço quando existe; senão a coordenada,
+      // que todo aplicativo de mapa aceita e é o que uma parada trazida de um
+      // arquivo KML tem para oferecer. Uma linha só: duas caixas de copiar na
+      // mesma parada viram a pergunta "qual das duas?" a cada toque.
+      copiavel:
+        String(e.endereco ?? '').trim() || (lat != null && lon != null ? `${lat}, ${lon}` : null),
       distancia: formatarDistancia(e.distancia_m),
       duracao: formatarDuracao(e.duracao_min),
-    }))
+    }
+  })
 
-  // Sem coordenada por item, o mapa cai para as CIDADES do dia, na ordem em que
-  // acontecem — a coordenada real que `lugares` já guarda. Não se inventa um
-  // ponto por item a partir do centro da cidade: cinco pinos empilhados no
-  // mesmo lugar seriam um mapa que mente sobre a distância entre eles. A hora é
-  // a do primeiro item naquela cidade — a que responde "quando eu chego lá".
+  const localizadas = paradas.filter((p) => p.lat != null && p.lon != null)
+
+  // Sem coordenada em NENHUM item, o mapa cai para as CIDADES do dia, na ordem
+  // em que acontecem — a coordenada real que `lugares` já guarda. Não se
+  // inventa um ponto por item a partir do centro da cidade: cinco pinos
+  // empilhados no mesmo lugar seriam um mapa que mente sobre a distância entre
+  // eles. Nesse caso os pinos não são numerados, porque não correspondem um a
+  // um às linhas da lista.
   const lugares = (snapshot?.lugares as Record<string, any>[] | undefined) ?? []
   const porCidade = locaisDoDia(dia, snapshot)
-    .cidades.map((c) => ({
-      cidade: c,
-      lugar: lugares.find((l) => mesmaCidade(l.cidade, c)),
-      primeiro: dia.itens.find((e) => mesmaCidade(e.cidade, c)),
-    }))
-    .filter((p) => p.lugar?.lat != null && p.lugar?.lon != null)
-    .map((p) => ({
-      titulo: p.cidade,
-      hora: p.primeiro ? formatarHora(paraCampo(p.primeiro.ocorre_em)) : '',
-      modo: p.primeiro ? modoDoPonto(p.primeiro) : null,
-      lat: Number(p.lugar!.lat),
-      lon: Number(p.lugar!.lon),
-      distancia: '',
-      duracao: '',
-    }))
+    .cidades.map((c) => lugares.find((l) => mesmaCidade(l.cidade, c)))
+    .filter((l) => l?.lat != null && l?.lon != null)
+    .map((l) => ({ cidade: String(l!.cidade), lat: Number(l!.lat), lon: Number(l!.lon) }))
 
-  const pontos = comCoordenada.length > 0 ? comCoordenada : porCidade
-  if (pontos.length === 0) return null
+  const numerado = localizadas.length > 0
+  const pinos = numerado
+    ? localizadas.map((p) => ({ cidade: p.titulo, lat: p.lat!, lon: p.lon! }))
+    : porCidade
 
-  const pinos = pontos.map((p) => ({ cidade: p.titulo, lat: p.lat, lon: p.lon }))
+  if (pinos.length === 0 || paradas.length === 0) return null
+
+  // O número da linha é a posição do pino no mapa — quem não tem pino não tem
+  // número, senão a lista contaria uma sequência que o mapa não mostra.
+  let contador = 0
+  const numeros = paradas.map((p) => (p.lat != null && p.lon != null ? ++contador : null))
+  const semLocal = paradas.length - localizadas.length
+  const podeEditar = posso('editor')
 
   return (
     <>
@@ -2128,22 +2148,41 @@ function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
           </Botao>
         </div>
         <div className="h-56">
-          <MapaRota lugares={pinos} numerados />
+          <MapaRota lugares={pinos} numerados={numerado} />
         </div>
 
-        {/* Uma linha por parada: número, o que é e a que horas, o modo de
-            chegar até ela e quanto custa em distância e tempo. */}
+        {!numerado && (
+          <p className="border-b border-(--color-borda) px-4 py-2 text-[12px] text-(--color-tinta-3)">
+            Pinos pela cidade — nenhuma parada deste dia tem local exato.
+          </p>
+        )}
+
+        {/* Uma linha por parada: o número dela no mapa, o que é e a que horas, o
+            modo de chegar até ela e quanto custa em distância e tempo. */}
         <ol className="divide-y divide-(--color-borda)">
-          {pontos.map((p, i) => {
-            const modo = p.modo
+          {paradas.map((p, i) => {
+            const numero = numeros[i]
             return (
               <li key={`${p.titulo}-${i}`} className="flex items-center gap-2.5 px-4 py-2.5">
-                <span
-                  className="tab-num flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                  style={{ background: 'var(--destaque)' }}
-                >
-                  {i + 1}
-                </span>
+                {/* Círculo vazio contra círculo cheio é a única marca de "sem local"
+                    na linha: escrever isso em cada parada repetia a mesma
+                    palavra seis vezes num cartão de sete linhas, e a contagem
+                    no rodapé já ensina a ler o símbolo. */}
+                {numero == null ? (
+                  <span
+                    title="Sem local no mapa"
+                    className="h-[18px] w-[18px] shrink-0 rounded-full border border-dashed border-(--color-borda-forte)"
+                  >
+                    <span className="sr-only">Sem local no mapa</span>
+                  </span>
+                ) : (
+                  <span
+                    className="tab-num flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                    style={{ background: 'var(--destaque)' }}
+                  >
+                    {numero}
+                  </span>
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium">{p.titulo}</span>
                   {p.hora && (
@@ -2151,11 +2190,20 @@ function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
                       {p.hora}
                     </span>
                   )}
+                  {p.copiavel && (
+                    <span className="mt-1 block">
+                      <Copiar
+                        valor={p.copiavel}
+                        rotulo={`endereço de ${p.titulo}`}
+                        variante="texto"
+                      />
+                    </span>
+                  )}
                 </span>
-                {modo && (
+                {p.modo && (
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-(--color-superficie-2)">
-                    <modo.Icone size={14} className="text-(--color-tinta-3)" aria-hidden />
-                    <span className="sr-only">{modo.nome}</span>
+                    <p.modo.Icone size={14} className="text-(--color-tinta-3)" aria-hidden />
+                    <span className="sr-only">{p.modo.nome}</span>
                   </span>
                 )}
                 <span className="tab-num w-14 shrink-0 text-right text-[12px] text-(--color-tinta-3)">
@@ -2184,6 +2232,27 @@ function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
           </p>
         )}
 
+        {/* A contagem é o que explica o botão ao lado: o mapa está incompleto e
+            este é o caminho de fora dele. */}
+        {(semLocal > 0 || podeEditar) && (
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-t border-(--color-borda) px-4 py-2.5">
+            <span className="text-[12px] text-(--color-tinta-3)">
+              {semLocal > 0
+                ? `${semLocal} de ${paradas.length} ${paradas.length === 1 ? 'parada' : 'paradas'} sem local no mapa`
+                : `Todas as ${paradas.length} paradas com local no mapa`}
+            </span>
+            {podeEditar && (
+              <button
+                onClick={() => setImportando(true)}
+                className="flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg text-[12px] font-medium transition-colors hover:underline"
+                style={{ color: 'var(--destaque)' }}
+              >
+                <MapPin size={13} aria-hidden /> Localizar paradas
+              </button>
+            )}
+          </div>
+        )}
+
         {lugares.length > 1 && (
           <div className="border-t border-(--color-borda) p-2.5">
             <MapaGeralBotao />
@@ -2194,10 +2263,12 @@ function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
       {ampliado && (
         <AppModal titulo="Mapa do dia" tamanho="grande" aoFechar={() => setAmpliado(false)}>
           <div className="h-[60dvh]">
-            <MapaRota lugares={pinos} numerados />
+            <MapaRota lugares={pinos} numerados={numerado} />
           </div>
         </AppModal>
       )}
+
+      {importando && <LocalizarParadasModal dia={dia} aoFechar={() => setImportando(false)} />}
     </>
   )
 }
@@ -2231,6 +2302,441 @@ function MapaGeralBotao() {
         </AppModal>
       )}
     </>
+  )
+}
+
+/** Uma coordenada candidata para uma parada, com de onde ela veio. */
+type Candidato = { id: string; nome: string; lat: number; lon: number; fonte: string }
+
+/** Uma parada sem local, com o que já se sabe sobre onde ela pode ser. */
+type LinhaLocal = {
+  id: string
+  chaveDia: string
+  dia: string
+  titulo: string
+  hora: string
+  consulta: string
+  /** A consulta saiu de um campo de lugar, não raspada do título — só essas
+      entram na busca em massa. */
+  temLugar: boolean
+  /** Já tem pino no mapa: a busca completa o endereço e não encosta na
+      coordenada, que alguém pode ter posto na mão. */
+  temPino: boolean
+  temEndereco: boolean
+  /** O que a busca no mapa devolveu para ESTA parada. */
+  achados: Achado[]
+  buscou: boolean
+  buscando: boolean
+  /** `a<i>` para ponto do arquivo, `b<j>` para achado da busca, '' para nenhum. */
+  escolhido: string
+}
+
+/**
+ * Localizar paradas: dar coordenada para os itens do roteiro que não têm, que é
+ * o que decide se eles aparecem ou não no mapa do dia.
+ *
+ * DUAS ENTRADAS, UMA LISTA SÓ. O arquivo de mapa do Google (.kml/.kmz) e a busca
+ * no OpenStreetMap alimentam o mesmo seletor por parada — são duas maneiras de
+ * responder à mesma pergunta, e duas telas separadas fariam a pessoa escolher a
+ * ferramenta antes de saber qual delas conhece o lugar dela.
+ *
+ * A LISTA É DE PARADAS, NÃO DE PONTOS DO ARQUIVO. O que se quer completar é o
+ * roteiro; um ponto do arquivo que não casou com nada continua alcançável no
+ * seletor de qualquer parada, então nada do arquivo se perde por causa de um
+ * palpite de nome que errou.
+ *
+ * NADA É GRAVADO SEM ALGUÉM OLHAR. Nem o casamento por nome nem o primeiro
+ * resultado do Nominatim são prova de lugar — os dois são palpite, e palpite que
+ * vira coordenada sozinho põe o pino no lugar errado sem fazer barulho.
+ */
+function LocalizarParadasModal({ dia, aoFechar }: { dia: DiaRoteiro; aoFechar: () => void }) {
+  const { snapshot, mutate } = useTrip()
+  const avisar = useAviso()
+  const [erro, setErro] = useState<string | null>(null)
+  const [pontosArquivo, setPontosArquivo] = useState<PontoKml[]>([])
+  const [nomeArquivo, setNomeArquivo] = useState<string | null>(null)
+  const [linhas, setLinhas] = useState<LinhaLocal[]>(() => paradasSemLocal(snapshot))
+  const [viagemToda, setViagemToda] = useState(false)
+  const [ocupado, setOcupado] = useState(false)
+  const [progresso, setProgresso] = useState<{ feito: number; total: number } | null>(null)
+
+  // A tela pode fechar no meio de uma varredura de vinte buscas; sem isto o
+  // laço continua rodando e escrevendo estado num componente que já saiu.
+  //
+  // O `true` é remarcado NA MONTAGEM, não só na declaração do ref: em modo
+  // estrito o React monta, desmonta e remonta: a limpeza da primeira passagem
+  // deixaria `vivo` em falso para sempre, e toda busca voltaria sem efeito.
+  const vivo = useRef(true)
+  useEffect(() => {
+    vivo.current = true
+    return () => {
+      vivo.current = false
+    }
+  }, [])
+
+  const mexer = (id: string, mudanca: Partial<LinhaLocal>) =>
+    setLinhas((atual) => atual.map((l) => (l.id === id ? { ...l, ...mudanca } : l)))
+
+  const doDia = linhas.filter((l) => l.chaveDia === dia.chave)
+  const visiveis = viagemToda ? linhas : doDia
+  const escolhidas = linhas.filter((l) => mudancasDe(l, pontosArquivo))
+
+  async function carregarArquivo(arquivo: File) {
+    setErro(null)
+    let pontos: PontoKml[]
+    try {
+      pontos = await lerArquivoDeMapa(arquivo)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não consegui ler este arquivo de mapa.')
+      return
+    }
+    if (pontos.length === 0) {
+      setErro('Nenhum lugar neste arquivo — confira se a camada exportada tem pontos marcados.')
+      return
+    }
+
+    // O casamento corre sobre a viagem inteira, não sobre o dia aberto: um mapa
+    // do My Maps cobre a viagem toda, e casar dia a dia seria subir o mesmo
+    // arquivo dezessete vezes.
+    const palpite = casarPontos(
+      pontos,
+      linhas.map((l) => ({ id: l.id, texto: l.consulta + ' ' + l.titulo })),
+    )
+    const porParada = new Map(
+      palpite.flatMap((idParada, i) => (idParada ? [[idParada, `a${i}`] as const] : [])),
+    )
+
+    setPontosArquivo(pontos)
+    setNomeArquivo(arquivo.name)
+    setLinhas((atual) =>
+      atual.map((l) => (porParada.has(l.id) ? { ...l, escolhido: porParada.get(l.id)! } : l)),
+    )
+    // O arquivo fala da viagem inteira; esconder atrás do filtro do dia o que
+    // ele acabou de casar seria gravar em silêncio o que ninguém viu.
+    setViagemToda(true)
+  }
+
+  async function buscar(linha: LinhaLocal) {
+    mexer(linha.id, { buscando: true })
+    const achados = await buscarLugar(linha.consulta)
+    if (!vivo.current) return
+    mexer(linha.id, {
+      achados,
+      buscou: true,
+      buscando: false,
+      // O primeiro resultado entra escolhido para o caso fácil não virar dois
+      // cliques — e continua trocável, com o nome completo à vista.
+      ...(achados.length > 0 && !linha.escolhido ? { escolhido: 'b0' } : {}),
+    })
+  }
+
+  /** Varre as paradas que ainda não têm palpite. Só as que têm campo de lugar:
+      buscar um título como "Volta a pé para o hotel" devolve um lugar qualquer,
+      e um lugar qualquer é pior do que nenhum. */
+  async function buscarTodas() {
+    const alvos = visiveis.filter((l) => !l.escolhido && l.temLugar)
+    setProgresso({ feito: 0, total: alvos.length })
+    for (const [i, l] of alvos.entries()) {
+      if (!vivo.current) return
+      await buscar(l)
+      setProgresso({ feito: i + 1, total: alvos.length })
+    }
+    if (vivo.current) setProgresso(null)
+  }
+
+  async function gravar() {
+    setOcupado(true)
+    setErro(null)
+    const ts = agora()
+    let feito = 0
+    try {
+      for (const l of escolhidas) {
+        const campos = mudancasDe(l, pontosArquivo)
+        if (!campos) continue
+        await mutate({ op: 'editar', entidade: 'roteiro', id: l.id, campos, client_ts: ts })
+        feito++
+        setProgresso({ feito, total: escolhidas.length })
+      }
+      avisar('sucesso', `${feito} ${feito === 1 ? 'parada gravada' : 'paradas gravadas'}.`)
+      aoFechar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falhou ao gravar os locais. Tente de novo.')
+    } finally {
+      setOcupado(false)
+      setProgresso(null)
+    }
+  }
+
+  const chip = (ligado: boolean) =>
+    `toque cursor-pointer rounded-xl border px-3 text-[13px] font-medium transition-colors ${
+      ligado
+        ? 'border-transparent text-white'
+        : 'border-(--color-borda-forte) bg-(--color-cartao) text-(--color-tinta) hover:bg-(--color-superficie-2)'
+    }`
+
+  // O cabeçalho de dia sai calculado antes do JSX: contar "mudou o dia?" com uma
+  // variável que o próprio map reatribui é estado escondido dentro do render.
+  const comCabecalho = visiveis.map((l, i) => ({
+    linha: l,
+    cabecalho: viagemToda && (i === 0 || visiveis[i - 1].dia !== l.dia) ? l.dia : null,
+  }))
+
+  return (
+    <AppModal
+      titulo="Localizar paradas"
+      descricao="Toda parada com local vira um pino no mapa do dia. Busque pelo nome ou traga os pontos de um mapa do Google — nada é gravado antes de você conferir."
+      tamanho="grande"
+      aoFechar={aoFechar}
+      acoes={
+        <>
+          <Botao variante="secundario" onClick={aoFechar} desabilitado={ocupado}>
+            Fechar
+          </Botao>
+          <Botao onClick={gravar} carregando={ocupado} desabilitado={escolhidas.length === 0}>
+            {ocupado && progresso
+              ? `Gravando… ${progresso.feito}/${progresso.total}`
+              : `Gravar ${escolhidas.length} ${escolhidas.length === 1 ? 'parada' : 'paradas'}`}
+          </Botao>
+        </>
+      }
+    >
+      {erro && (
+        <p className="mb-3 flex items-start gap-2 rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-sm text-(--color-perigo-ink)">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {erro}
+        </p>
+      )}
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <label className="toque inline-flex cursor-pointer items-center gap-2 rounded-xl border border-(--color-borda-forte) px-3 text-[13px] font-medium">
+          <Upload size={15} /> {nomeArquivo ?? 'Importar mapa (KML/KMZ)'}
+          <input
+            type="file"
+            accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              if (!f) return
+              await carregarArquivo(f)
+              e.target.value = ''
+            }}
+          />
+        </label>
+        <Botao
+          variante="secundario"
+          tamanho="pequeno"
+          onClick={buscarTodas}
+          desabilitado={Boolean(progresso) || ocupado}
+        >
+          <Search size={14} />
+          {progresso && !ocupado
+            ? `Buscando… ${progresso.feito}/${progresso.total}`
+            : 'Buscar as que faltam'}
+        </Botao>
+      </div>
+
+      {pontosArquivo.length > 0 && (
+        <p className="mb-4 text-[13px] text-(--color-tinta-3)">
+          {pontosArquivo.length} {pontosArquivo.length === 1 ? 'lugar' : 'lugares'} no arquivo. Os
+          que não casaram com nenhuma parada continuam na lista de cada uma.
+        </p>
+      )}
+
+      <div className="mb-4 flex gap-2">
+        <button
+          className={chip(!viagemToda)}
+          style={viagemToda ? undefined : { background: 'var(--destaque)' }}
+          onClick={() => setViagemToda(false)}
+        >
+          Só este dia ({doDia.length})
+        </button>
+        <button
+          className={chip(viagemToda)}
+          style={viagemToda ? { background: 'var(--destaque)' } : undefined}
+          onClick={() => setViagemToda(true)}
+        >
+          Viagem inteira ({linhas.length})
+        </button>
+      </div>
+
+      {visiveis.length === 0 && (
+        <p className="py-6 text-center text-sm text-(--color-tinta-3)">
+          {linhas.length === 0
+            ? 'Todas as paradas da viagem já estão no mapa.'
+            : 'Todas as paradas deste dia já estão no mapa.'}
+        </p>
+      )}
+
+      <ul className="space-y-2 pb-2">
+        {comCabecalho.map(({ linha, cabecalho }) => (
+          <li key={linha.id}>
+            {cabecalho && (
+              <div className="mt-4 mb-2 first:mt-0">
+                <Rotulo>{cabecalho}</Rotulo>
+              </div>
+            )}
+            <LinhaParada
+              linha={linha}
+              arquivo={pontosArquivo}
+              aoMudar={(m) => mexer(linha.id, m)}
+              aoBuscar={() => buscar(linha)}
+            />
+          </li>
+        ))}
+      </ul>
+    </AppModal>
+  )
+}
+
+/** As paradas da viagem que não têm coordenada, na ordem do roteiro. */
+function paradasSemLocal(snapshot: Record<string, unknown> | null | undefined): LinhaLocal[] {
+  return (
+    ((snapshot?.roteiro ?? []) as Record<string, unknown>[])
+      // Falta pino OU falta endereço. O endereço é o que se cola no aplicativo de
+      // carro, então uma parada com pino e sem endereço continua pela metade — e
+      // sem entrar nesta lista não haveria por onde completá-la.
+      .filter((e) => e.lat == null || e.lon == null || !String(e.endereco ?? '').trim())
+      .map((e) => {
+        const quando = paraCampo(e.ocorre_em)
+        return {
+          temPino: e.lat != null && e.lon != null,
+          temEndereco: Boolean(String(e.endereco ?? '').trim()),
+          id: String(e.id),
+          chaveDia: chaveDia(quando) ?? '',
+          dia: formatarData(quando, { weekday: 'short', day: '2-digit', month: 'short' }),
+          titulo: String(e.titulo ?? e.local ?? ''),
+          hora: formatarHora(quando),
+          consulta: consultaDaParada(e),
+          temLugar: temCampoDeLugar(e),
+          achados: [],
+          buscou: false,
+          buscando: false,
+          escolhido: '',
+        }
+      })
+  )
+}
+
+/**
+ * O que esta linha grava — `null` quando não grava nada.
+ *
+ * Coordenada só entra em parada que ainda não tem pino: a busca aqui existe
+ * para completar, nunca para mudar em silêncio um lugar que alguém já acertou.
+ *
+ * Endereço só sai de resultado de BUSCA. O nome de um ponto de KML é um rótulo
+ * que a pessoa escreveu no mapa dela ("Hotel", "Jantar") — colar isso num
+ * aplicativo de carro não leva ninguém a lugar nenhum.
+ */
+function mudancasDe(
+  linha: LinhaLocal,
+  arquivo: PontoKml[],
+): { lat?: number; lon?: number; endereco?: string } | null {
+  const i = Number(linha.escolhido.slice(1))
+  const doArquivo = linha.escolhido.startsWith('a') ? (arquivo[i] ?? null) : null
+  const daBusca = linha.escolhido.startsWith('b') ? (linha.achados[i] ?? null) : null
+  const achado = doArquivo ?? daBusca
+  if (!achado) return null
+
+  const campos: { lat?: number; lon?: number; endereco?: string } = {}
+  if (!linha.temPino) {
+    campos.lat = achado.lat
+    campos.lon = achado.lon
+  }
+  if (!linha.temEndereco && daBusca) campos.endereco = daBusca.nome
+  return Object.keys(campos).length > 0 ? campos : null
+}
+
+/** Uma parada da lista: o que ela é, o texto que vai ao mapa, e de onde sai a
+    coordenada dela. */
+function LinhaParada({
+  linha,
+  arquivo,
+  aoMudar,
+  aoBuscar,
+}: {
+  linha: LinhaLocal
+  arquivo: PontoKml[]
+  aoMudar: (m: Partial<LinhaLocal>) => void
+  aoBuscar: () => void
+}) {
+  const candidatos: Candidato[] = [
+    ...linha.achados.map((a, j) => ({ id: `b${j}`, ...a, fonte: 'mapa' })),
+    ...arquivo.map((p, i) => ({
+      id: `a${i}`,
+      nome: p.nome || 'Lugar sem nome',
+      lat: p.lat,
+      lon: p.lon,
+      fonte: 'arquivo',
+    })),
+  ]
+  const escolhido = candidatos.find((c) => c.id === linha.escolhido)
+
+  return (
+    <div className="rounded-xl border border-(--color-borda) p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">{linha.titulo}</span>
+        <span className="tab-num shrink-0 text-[12px] text-(--color-tinta-3)">{linha.hora}</span>
+      </div>
+
+      {linha.temPino && (
+        <p className="mt-1 text-[12px] text-(--color-tinta-3)">
+          Já tem pino no mapa — a busca preenche só o endereço.
+        </p>
+      )}
+
+      <div className="mt-2 flex gap-2">
+        <input
+          value={linha.consulta}
+          onChange={(e) => aoMudar({ consulta: e.target.value })}
+          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), aoBuscar())}
+          placeholder="Nome ou endereço do lugar"
+          aria-label={`Onde fica "${linha.titulo}"`}
+          className={`toque ${CLASSE_CAMPO}`}
+        />
+        <Botao
+          variante="secundario"
+          onClick={aoBuscar}
+          carregando={linha.buscando}
+          desabilitado={linha.consulta.trim().length < 3}
+        >
+          {!linha.buscando && <Search size={15} />}
+          <span className="sr-only">Buscar no mapa</span>
+        </Botao>
+      </div>
+
+      {candidatos.length > 0 && (
+        <div className="mt-2">
+          <Selecao
+            compacto
+            rotulo={`Local de "${linha.titulo}"`}
+            valor={linha.escolhido}
+            aoMudar={(v) => aoMudar({ escolhido: v })}
+            opcoes={[
+              { valor: '', nome: linha.temPino ? 'Deixar sem endereço' : 'Deixar sem local' },
+              ...candidatos.map((c) => ({
+                valor: c.id,
+                // A origem escrita por extenso, não por emoji: um ícone dentro
+                // de <option> depende da fonte do sistema e some em metade dos
+                // aparelhos — e é ele que diz se a coordenada veio do arquivo
+                // de alguém ou de um palpite de busca.
+                nome: `${c.fonte === 'arquivo' ? 'Do arquivo' : 'Do mapa'}: ${c.nome}`,
+              })),
+            ]}
+          />
+        </div>
+      )}
+
+      {escolhido && (
+        <p className="tab-num mt-1.5 text-[12px] text-(--color-tinta-3)">
+          {escolhido.lat.toFixed(4)}, {escolhido.lon.toFixed(4)}
+        </p>
+      )}
+
+      {linha.buscou && linha.achados.length === 0 && (
+        <p className="mt-1.5 text-[12px] text-(--color-tinta-3)">
+          Nada encontrado. Tente o nome do lugar como ele aparece no mapa, com a cidade.
+        </p>
+      )}
+    </div>
   )
 }
 
