@@ -1,13 +1,17 @@
 ---
 name: viagem-para-json
-description: Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, atualizar a viagem, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí".
+description: Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Também gera lotes de sugestão de checklist (ver reference/checklist-sugestoes.md e a árvore schema/rules/templates/mappings/validators) para viagens já existentes no app. Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, atualizar a viagem, sugerir itens de checklist, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí", "sugere checklist".
+skillVersion: 1.1.0
+schemaVersion: 3
 ---
 
 # Documentos de viagem → JSON de importação
 
-Transforma o que o usuário já tem (caderno de viagem, lista de prazos, voucher, bilhete emitido) no arquivo que a tela **Dados → Importar** do app aceita.
+Transforma o que o usuário já tem (caderno de viagem, lista de prazos, voucher, bilhete emitido) no arquivo que a tela **Dados → Importar** do app aceita — e, para uma viagem que já existe no app, num lote de sugestões de checklist (ver [reference/checklist-sugestoes.md](reference/checklist-sugestoes.md)).
 
 O app nunca lê PDF. Esta conversão acontece aqui fora, com julgamento, e o resultado é um JSON validado contra o schema de verdade do projeto.
+
+`schemaVersion` acima espelha `SCHEMA_VERSION` de `lib/schema.ts` no app — é assim que esta skill sabe se está desatualizada em relação ao contrato do app (ver `CHANGELOG.md` e a regra de nunca reescrever a si mesma, no fim deste arquivo).
 
 ## Regra que governa tudo
 
@@ -91,3 +95,25 @@ Entregue junto com o arquivo:
 - **`Number(null)` é `0`.** Coordenada ausente vira ilha nula no golfo da Guiné. Omita o campo em vez de mandar `null` dentro de um objeto de coordenadas.
 - **Cidade citada não é cidade visitada.** "Amsterdã fica a 40 min de trem" é uma sugestão de passeio, não uma parada da rota. Só entra em `lugares[]` o que a viagem realmente inclui.
 - **Um cruzeiro não é uma hospedagem.** Vai em `cruzeiros[]`, com os portos em ordem.
+
+## Sugestões de checklist para uma viagem que já existe
+
+Formato completo, regras de deduplicação/prioridade e o mapeamento nome→campo estão em:
+
+- [reference/checklist-sugestoes.md](reference/checklist-sugestoes.md) — o processo
+- [schema/checklist-sugestoes.schema.json](schema/checklist-sugestoes.schema.json) — leitura humana do formato (a fonte real continua sendo `lib/schema.ts` no app)
+- [rules/dedup-e-prioridade.md](rules/dedup-e-prioridade.md) — normalização de título, prioridade, fonte obrigatória
+- [templates/categorias-e-fases.md](templates/categorias-e-fases.md) — categorias sugeridas e por que não existe campo `fase`
+- [mappings/campo-para-app.md](mappings/campo-para-app.md) — `assigned_to_nomes`/`evento`/`voo`/`cruzeiro` por nome
+- `validators/validar-sugestoes.mjs` — validação obrigatória antes de entregar um lote, igual ao passo 5 acima
+
+## Versionamento — nunca reescreve a si mesma
+
+Este `SKILL.md` declara `skillVersion`/`schemaVersion` no topo. Se o schema do app mudar de um jeito que quebra o contrato desta skill (campo renomeado, novo campo obrigatório, entidade removida), a skill **nunca edita este arquivo sozinha**. Ela propõe, em texto, no relatório final:
+
+```
+Nova versão sugerida: 1.2.0
+Alterações: [o que mudou no schema do app e por quê isso afeta a skill]
+```
+
+Quem revisa decide se aplica. Cada versão aplicada ganha uma linha em [CHANGELOG.md](CHANGELOG.md).

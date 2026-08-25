@@ -21,10 +21,19 @@ import {
 } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
 import { paraCampoDinheiro, parseData } from '@/lib/derive.ts'
-import { TIPOS_EVENTO, MODOS_TRANSPORTE } from '@/lib/schema.ts'
+import { TIPOS_EVENTO, MODOS_TRANSPORTE, PRIORIDADES_CHECKLIST } from '@/lib/schema.ts'
 import { type Papel } from '@/config/navigation.ts'
 
-type TipoCampo = 'texto' | 'area' | 'data' | 'datahora' | 'numero' | 'dinheiro' | 'bool' | 'opcao'
+type TipoCampo =
+  | 'texto'
+  | 'area'
+  | 'data'
+  | 'datahora'
+  | 'numero'
+  | 'dinheiro'
+  | 'bool'
+  | 'opcao'
+  | 'multiopcao'
 
 type Campo = {
   chave: string
@@ -38,7 +47,7 @@ type Campo = {
    * fixa. É o que transforma "reserva_id" de um campo de id digitado à mão —
    * inusável — numa seleção de "Motel One Hamburg · 01 jan".
    */
-  fonte?: 'reservas' | 'documentos'
+  fonte?: 'reservas' | 'documentos' | 'participantes' | 'roteiro' | 'voos' | 'cruzeiros'
   /** Seção do formulário. Campos sem grupo caem em "Informações básicas". */
   grupo?: string
 }
@@ -55,6 +64,8 @@ const CHEGAR = 'Como chegar'
 const VINCULOS = 'Reserva, documento e custo'
 const DIA = 'O dia'
 const RITUAIS = 'Antes de sair e antes de dormir'
+const DESTINO = 'Destino'
+const VINCULO_ROTEIRO = 'Vínculo com o roteiro'
 
 /** Nome de exibição de cada tipo de item. Espelha NOMES em ui.tsx. */
 const NOME_TIPO: Record<string, string> = {
@@ -88,6 +99,13 @@ const NOME_MODO: Record<string, string> = {
   carro: 'Carro',
   barco: 'Barco / balsa',
   aviao: 'Avião',
+}
+
+const NOME_PRIORIDADE: Record<string, string> = {
+  obrigatorio: 'Obrigatório',
+  importante: 'Importante',
+  recomendado: 'Recomendado',
+  opcional: 'Opcional',
 }
 
 /** Entidade -> campos editáveis. Espelha os schemas zod de lib/schema.ts. */
@@ -366,6 +384,19 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
           { valor: 'pessoal', nome: 'Pessoal (cada um)' },
         ],
       },
+      {
+        chave: 'prioridade',
+        rotulo: 'Prioridade',
+        tipo: 'opcao',
+        opcoes: PRIORIDADES_CHECKLIST.map((v) => ({ valor: v, nome: NOME_PRIORIDADE[v] })),
+      },
+      {
+        chave: 'assigned_to',
+        rotulo: 'De quem é',
+        tipo: 'multiopcao',
+        fonte: 'participantes',
+        dica: 'Ninguém marcado = todos (só faz sentido em item da viagem)',
+      },
       { chave: 'prazo_ideal', rotulo: 'Prazo ideal', tipo: 'data', grupo: DATAS },
       { chave: 'prazo_maximo', rotulo: 'Prazo máximo', tipo: 'data', grupo: DATAS },
       {
@@ -374,6 +405,11 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
         tipo: 'dinheiro',
         grupo: DATAS,
       },
+      { chave: 'pais', rotulo: 'País', tipo: 'texto', grupo: DESTINO },
+      { chave: 'cidade', rotulo: 'Cidade', tipo: 'texto', grupo: DESTINO },
+      { chave: 'itinerary_event_id', rotulo: 'Passeio/hospedagem', tipo: 'opcao', fonte: 'roteiro', grupo: VINCULO_ROTEIRO },
+      { chave: 'flight_id', rotulo: 'Voo', tipo: 'opcao', fonte: 'voos', grupo: VINCULO_ROTEIRO },
+      { chave: 'cruise_id', rotulo: 'Cruzeiro', tipo: 'opcao', fonte: 'cruzeiros', grupo: VINCULO_ROTEIRO },
       { chave: 'detalhe', rotulo: 'Detalhe', tipo: 'area', grupo: OBS },
     ],
   },
@@ -443,11 +479,15 @@ export function EditorSheet({
   const def = CAMPOS[entidade]
   const criando = !registro?.id
 
-  const [valores, setValores] = useState<Record<string, string | boolean>>(() =>
+  const [valores, setValores] = useState<Record<string, string | boolean | string[]>>(() =>
     Object.fromEntries(
       def.campos.map((c) => [
         c.chave,
-        c.tipo === 'bool' ? Boolean(registro?.[c.chave]) : paraInput(registro?.[c.chave], c.tipo),
+        c.tipo === 'bool'
+          ? Boolean(registro?.[c.chave])
+          : c.tipo === 'multiopcao'
+            ? (Array.isArray(registro?.[c.chave]) ? (registro![c.chave] as string[]) : [])
+            : paraInput(registro?.[c.chave], c.tipo),
       ]),
     ),
   )
@@ -482,6 +522,12 @@ export function EditorSheet({
         campos[c.chave] = Boolean(v)
         continue
       }
+      if (c.tipo === 'multiopcao') {
+        // Vazio aqui é dado de verdade ("todos"), não "campo não preenchido" —
+        // por isso sempre entra no payload, ao contrário do texto vazio abaixo.
+        campos[c.chave] = Array.isArray(v) ? v : []
+        continue
+      }
       const s = String(v ?? '').trim()
       if (!s) {
         if (c.obrigatorio) {
@@ -514,6 +560,17 @@ export function EditorSheet({
       for (const chave of ['event_id', 'flight_id', 'cruise_id', 'expense_id']) {
         if (registro?.[chave]) campos[chave] = registro[chave]
       }
+    }
+
+    // Espelha a constraint checklist_pessoal_tem_dono do banco (T3): barrar aqui
+    // poupa a viagem até o servidor pro caso comum, não substitui a constraint.
+    if (
+      entidade === 'checklist_item' &&
+      campos.escopo === 'pessoal' &&
+      Array.isArray(campos.assigned_to) &&
+      campos.assigned_to.length === 0
+    ) {
+      novosErros.assigned_to = 'Item pessoal precisa de pelo menos um dono.'
     }
 
     setErros(novosErros)
@@ -637,6 +694,43 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
       })),
     ]
   }
+  if (fonte === 'participantes') {
+    // Sem "— nenhum —": aqui a lista É o conjunto de opções marcáveis, não a
+    // escolha de um valor único (ver tipo 'multiopcao').
+    return (snapshot?.participantes ?? []).map((p) => ({
+      valor: String(p.id),
+      nome: String(p.nome),
+    }))
+  }
+  if (fonte === 'roteiro') {
+    return [
+      vazio,
+      ...((snapshot?.roteiro ?? []) as { id: string; titulo: string }[]).map((e) => ({
+        valor: String(e.id),
+        nome: String(e.titulo),
+      })),
+    ]
+  }
+  if (fonte === 'voos') {
+    return [
+      vazio,
+      ...((snapshot?.voos ?? []) as { id: string; companhia: string; numero?: string | null }[]).map(
+        (v) => ({
+          valor: String(v.id),
+          nome: [v.companhia, v.numero].filter(Boolean).join(' '),
+        }),
+      ),
+    ]
+  }
+  if (fonte === 'cruzeiros') {
+    return [
+      vazio,
+      ...((snapshot?.cruzeiros ?? []) as { id: string; navio: string }[]).map((c) => ({
+        valor: String(c.id),
+        nome: String(c.navio),
+      })),
+    ]
+  }
   return [
     vazio,
     ...((snapshot?.documentos ?? []) as Record<string, any>[]).map((d) => ({
@@ -653,9 +747,9 @@ function CampoEditor({
   aoMudar,
 }: {
   campo: Campo
-  valor: string | boolean
+  valor: string | boolean | string[]
   erro?: string
-  aoMudar: (v: string | boolean) => void
+  aoMudar: (v: string | boolean | string[]) => void
 }) {
   const daFonte = useOpcoesDaFonte(campo.fonte)
   const idErro = `erro-${campo.chave}`
@@ -677,6 +771,52 @@ function CampoEditor({
         />
         <span className="text-sm font-medium">{campo.rotulo}</span>
       </label>
+    )
+  }
+
+  if (campo.tipo === 'multiopcao') {
+    const selecionados = Array.isArray(valor) ? valor : []
+    const opcoes = daFonte ?? campo.opcoes ?? []
+    return (
+      <div>
+        <span className="flex items-baseline gap-2">
+          <RotuloCampo>
+            {campo.rotulo}
+            {campo.obrigatorio ? ' *' : ''}
+          </RotuloCampo>
+          {campo.dica && <span className="text-[12px] text-(--color-tinta-3)">{campo.dica}</span>}
+        </span>
+        <div className="mt-1 space-y-1.5">
+          {opcoes.length === 0 && (
+            <span className="text-[13px] text-(--color-tinta-3)">Nenhuma opção disponível.</span>
+          )}
+          {opcoes.map((o) => (
+            <label
+              key={o.valor}
+              className="toque flex cursor-pointer items-center gap-3 rounded-xl border border-(--color-borda-forte) px-3 transition-colors hover:bg-(--color-superficie-2)"
+            >
+              <input
+                type="checkbox"
+                checked={selecionados.includes(o.valor)}
+                onChange={(e) =>
+                  aoMudar(
+                    e.target.checked
+                      ? [...selecionados, o.valor]
+                      : selecionados.filter((v) => v !== o.valor),
+                  )
+                }
+                className="h-5 w-5 accent-(--color-destaque)"
+              />
+              <span className="text-sm">{o.nome}</span>
+            </label>
+          ))}
+        </div>
+        {erro && (
+          <span id={idErro} className="mt-1 block text-[13px] text-(--color-perigo-ink)">
+            {erro}
+          </span>
+        )}
+      </div>
     )
   }
 
@@ -748,14 +888,19 @@ export function AdminAcoes({
   entidade,
   registro,
   children,
+  permitirTambem = false,
 }: {
   entidade: string
   registro?: Record<string, unknown> | null
   children?: ReactNode
+  /** Libera o botão pra quem não alcança o papel mínimo em casos pontuais de
+      dono do próprio registro (ex.: item pessoal do checklist) — o servidor
+      é quem decide de verdade (`autorizar` em `/api/mutate`), isto é só a UI. */
+  permitirTambem?: boolean
 }) {
   const { posso } = useTrip()
   const [aberto, setAberto] = useState(false)
-  if (!posso(MINIMO[entidade] ?? 'editor')) return null
+  if (!posso(MINIMO[entidade] ?? 'editor') && !permitirTambem) return null
 
   const criando = !registro?.id
   const nome = CAMPOS[entidade]?.nome.toLowerCase() ?? 'registro'

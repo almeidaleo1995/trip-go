@@ -63,13 +63,14 @@ if (semCoord.length > 0) {
   avisos.push(`${semCoord.length} lugar(es) sem coordenada nao aparecem no mapa: ` +
     semCoord.map((l) => l.cidade).join(', '))
 }
-const semPin = r.dados.viajantes.filter((v) => !v.pin)
-if (semPin.length > 0) {
-  avisos.push(`${semPin.length} viajante(s) sem PIN nao conseguem entrar ate o admin definir um: ` +
-    semPin.map((v) => v.nome).join(', '))
+const semEmail = r.dados.participantes.filter((p) => !p.email)
+if (semEmail.length > 0) {
+  avisos.push(`${semEmail.length} participante(s) sem e-mail nao se vinculam a uma conta sozinhos ` +
+    `(precisam se cadastrar em /register com esse e-mail depois): ` +
+    semEmail.map((p) => p.nome).join(', '))
 }
-if (r.dados.viajantes.length > 0 && !r.dados.viajantes.some((v) => v.papel === 'admin')) {
-  avisos.push('nenhum viajante tem papel admin - ninguem vai conseguir editar nem ver o Financeiro')
+if (r.dados.participantes.length > 0 && !r.dados.participantes.some((p) => p.papel === 'proprietario')) {
+  avisos.push('nenhum participante tem papel proprietario - ninguem vai conseguir editar nem ver o Financeiro completo')
 }
 for (const c of r.dados.cruzeiros) {
   if (c.portos.length === 0) avisos.push(`cruzeiro "${c.navio}" sem nenhum porto cadastrado`)

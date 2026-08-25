@@ -6,6 +6,8 @@ import {
   validarCampos,
   MutationSchema,
   SCHEMA_VERSION,
+  ChecklistSugestaoSchema,
+  ChecklistSugestoesBatchSchema,
 } from './schema.ts'
 
 /** Importacao minima valida: so viagem, nenhuma lista. */
@@ -215,4 +217,91 @@ test('validarCampos aceita edicao parcial, so o campo que mudou', () => {
 
 test('validarCampos rejeita papel invalido em participante', () => {
   assert.equal(validarCampos('participante', { papel: 'dono' }).sucesso, false)
+})
+
+// ---------------------------------------------------------------- checklist
+
+test('checklist_item aceita edicao parcial sem prioridade nem assigned_to', () => {
+  const r = validarCampos('checklist_item', { titulo: 'Passaporte' })
+  assert.equal(r.sucesso, true)
+})
+
+test('checklist_item aplica prioridade padrao importante quando criado sem o campo', () => {
+  const r = validarImportacao({
+    ...MINIMA,
+    checklist: [{ titulo: 'Passaporte' }],
+  })
+  assert.equal(r.sucesso, true)
+  assert.equal(r.sucesso && r.dados.checklist[0].prioridade, 'importante')
+})
+
+test('checklist_item rejeita prioridade fora do enum', () => {
+  const r = validarCampos('checklist_item', { prioridade: 'urgente' })
+  assert.equal(r.sucesso, false)
+  assert.match(r.sucesso === false ? r.erro : '', /prioridade/)
+})
+
+test('checklist_item aceita default de assigned_to vazio (todos)', () => {
+  const r = validarImportacao({ ...MINIMA, checklist: [{ titulo: 'Seguro viagem' }] })
+  assert.equal(r.sucesso, true)
+  assert.deepEqual(r.sucesso && r.dados.checklist[0].assigned_to, [])
+})
+
+test('checklist_item rejeita fonte_tipo fora do enum', () => {
+  const r = validarCampos('checklist_item', { fonte_tipo: 'chute' })
+  assert.equal(r.sucesso, false)
+  assert.match(r.sucesso === false ? r.erro : '', /fonte_tipo/)
+})
+
+const SUGESTAO_DOCUMENTO = {
+  titulo: 'Conferir validade do passaporte',
+  fonte_tipo: 'documento' as const,
+}
+
+test('ChecklistSugestaoSchema aceita sugestao com fonte documento sem detalhe', () => {
+  const r = ChecklistSugestaoSchema.safeParse(SUGESTAO_DOCUMENTO)
+  assert.equal(r.success, true)
+})
+
+test('ChecklistSugestaoSchema rejeita fonte pesquisa sem fonte_detalhe e sem data', () => {
+  const r = ChecklistSugestaoSchema.safeParse({ ...SUGESTAO_DOCUMENTO, fonte_tipo: 'pesquisa' })
+  assert.equal(r.success, false)
+  assert.match(r.success ? '' : r.error.issues[0].path.join('.'), /fonte_detalhe/)
+})
+
+test('ChecklistSugestaoSchema aceita fonte pesquisa com detalhe e data', () => {
+  const r = ChecklistSugestaoSchema.safeParse({
+    ...SUGESTAO_DOCUMENTO,
+    fonte_tipo: 'pesquisa',
+    fonte_detalhe: 'site oficial do consulado',
+    fonte_consultado_em: '2026-08-20',
+  })
+  assert.equal(r.success, true)
+})
+
+test('ChecklistSugestoesBatchSchema aceita lote com uma sugestao valida', () => {
+  const r = ChecklistSugestoesBatchSchema.safeParse({
+    viagem: 'Europa 2027',
+    gerado_em: '2026-08-20',
+    sugestoes: [SUGESTAO_DOCUMENTO],
+  })
+  assert.equal(r.success, true)
+  assert.equal(r.success && r.data.sugestoes.length, 1)
+})
+
+test('checklist_item aceita assigned_to_nomes vindo de um arquivo exportado', () => {
+  const r = validarImportacao({
+    ...MINIMA,
+    checklist: [
+      { titulo: 'Remédio', escopo: 'pessoal', assigned_to_nomes: ['Leonardo'], prioridade: 'obrigatorio' },
+    ],
+  })
+  assert.equal(r.sucesso, true)
+  assert.deepEqual(r.sucesso && r.dados.checklist[0].assigned_to_nomes, ['Leonardo'])
+})
+
+test('ChecklistSugestoesBatchSchema aceita lote vazio', () => {
+  const r = ChecklistSugestoesBatchSchema.safeParse({ viagem: 'Europa 2027', gerado_em: '2026-08-20' })
+  assert.equal(r.success, true)
+  assert.deepEqual(r.success && r.data.sugestoes, [])
 })

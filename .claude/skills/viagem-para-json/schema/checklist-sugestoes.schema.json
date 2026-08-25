@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Espelho legível de ChecklistSugestaoSchema/ChecklistSugestoesBatchSchema em lib/schema.ts no app — quem manda é o zod real, validado por validators/validar-sugestoes.mjs. Se este arquivo e lib/schema.ts divergirem, lib/schema.ts vence (mesma regra do formato.md: 'o schema vence a documentação').",
+  "title": "TripGo Checklist Sugestões",
+  "type": "object",
+  "required": ["viagem", "gerado_em", "sugestoes"],
+  "additionalProperties": false,
+  "properties": {
+    "viagem": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Nome da viagem — só para conferência humana, não é usado para achar o trip_id."
+    },
+    "gerado_em": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Data em que a skill gerou este lote."
+    },
+    "sugestoes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sugestao" }
+    }
+  },
+  "$defs": {
+    "sugestao": {
+      "type": "object",
+      "required": ["titulo", "fonte_tipo"],
+      "additionalProperties": false,
+      "properties": {
+        "titulo": { "type": "string", "minLength": 1 },
+        "categoria": { "type": ["string", "null"] },
+        "escopo": { "type": "string", "enum": ["global", "pessoal"], "default": "global" },
+        "assigned_to_nomes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": [],
+          "description": "Nomes de participante, exatamente como cadastrados na viagem. Resolvidos para assigned_to (ids) na importação — ver mappings/campo-para-app.md."
+        },
+        "prioridade": {
+          "type": "string",
+          "enum": ["obrigatorio", "importante", "recomendado", "opcional"],
+          "default": "importante"
+        },
+        "pais": { "type": ["string", "null"] },
+        "cidade": { "type": ["string", "null"] },
+        "evento": {
+          "type": ["string", "null"],
+          "description": "Título do passeio/hospedagem no roteiro — por nome, resolvido na importação."
+        },
+        "voo": {
+          "type": ["string", "null"],
+          "description": "\"Companhia número\", ex. \"LATAM 719\" — por nome, resolvido na importação."
+        },
+        "cruzeiro": {
+          "type": ["string", "null"],
+          "description": "Nome do navio — por nome, resolvido na importação."
+        },
+        "prazo_ideal": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "prazo_maximo": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "fonte_tipo": {
+          "type": "string",
+          "enum": ["documento", "pesquisa", "sugestao", "manual"],
+          "description": "documento = extraído de arquivo enviado. pesquisa = achado na internet (exige fonte_detalhe + fonte_consultado_em). sugestao = inferência da skill sem fonte específica. manual = a skill só está registrando algo que o usuário pediu por texto."
+        },
+        "fonte_detalhe": { "type": ["string", "null"] },
+        "fonte_consultado_em": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+      },
+      "if": {
+        "properties": { "fonte_tipo": { "const": "pesquisa" } }
+      },
+      "then": {
+        "required": ["fonte_detalhe", "fonte_consultado_em"]
+      }
+    }
+  }
+}

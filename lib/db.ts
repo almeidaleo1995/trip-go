@@ -311,7 +311,18 @@ export async function getSnapshot(
                p.passaporte, p.ordem, p.updated_at, u.avatar_url
         from travelers p left join users u on u.id = p.user_id
         where p.trip_id = ${tripId} order by p.ordem, p.nome`,
-    sql`select * from itinerary_events where trip_id = ${tripId} order by ocorre_em, ordem`,
+    // `ocorre_em`/`fim_em` saem como TEXTO, não como Date — mesmo motivo do `dia`
+    // do itinerary_days logo abaixo: `timestamp` sem fuso é lido pelo driver como
+    // hora LOCAL DO SERVIDOR, e a serialização para JSON devolve UTC. Num servidor
+    // rodando fora de UTC (qualquer dev fora de Greenwich) isso desloca a hora
+    // exibida — e o roteiro é a aba que perde voo se a hora estiver errada. Mesma
+    // correção do `dia`, extendida a toda coluna `timestamp` com hora do schema.
+    sql`select id, trip_id, to_char(ocorre_em, 'YYYY-MM-DD"T"HH24:MI:SS') as ocorre_em,
+               to_char(fim_em, 'YYYY-MM-DD"T"HH24:MI:SS') as fim_em,
+               cidade, local, endereco, lat, lon, titulo, descricao, tipo, ancora,
+               distancia_m, duracao_min, transporte, como_chegar, dicas, links,
+               custo_centavos, reserva_id, documento_id, nota, ordem, updated_at
+        from itinerary_events where trip_id = ${tripId} order by ocorre_em, ordem`,
     sql`select o.* from itinerary_options o
         join itinerary_events e on e.id = o.event_id
         where e.trip_id = ${tripId} order by o.ordem`,
@@ -324,17 +335,34 @@ export async function getSnapshot(
     sql`select id, trip_id, to_char(dia, 'YYYY-MM-DD') as dia, titulo, cidade, pais,
                resumo, ancora, alertas, antes_sair, antes_dormir, links, mapa_url, updated_at
         from itinerary_days where trip_id = ${tripId} order by dia`,
-    sql`select * from flights where trip_id = ${tripId} order by ordem, parte_em`,
+    sql`select id, trip_id, companhia, numero, origem_iata, origem_cidade, destino_iata,
+               destino_cidade, to_char(parte_em, 'YYYY-MM-DD"T"HH24:MI:SS') as parte_em,
+               to_char(chega_em, 'YYYY-MM-DD"T"HH24:MI:SS') as chega_em,
+               duracao_min, localizador, terminal, portao, assento, bagagem, nota, ordem,
+               updated_at
+        from flights where trip_id = ${tripId} order by ordem, parte_em`,
     sql`select s.* from flight_stops s
         join flights f on f.id = s.flight_id
         where f.trip_id = ${tripId} order by s.ordem`,
-    sql`select * from cruises where trip_id = ${tripId}`,
-    sql`select p.* from cruise_ports p
+    sql`select id, trip_id, navio, companhia,
+               to_char(embarque_em, 'YYYY-MM-DD"T"HH24:MI:SS') as embarque_em,
+               to_char(desembarque_em, 'YYYY-MM-DD"T"HH24:MI:SS') as desembarque_em,
+               porto_embarque, porto_desembarque, cabine, localizador, terminal, nota, updated_at
+        from cruises where trip_id = ${tripId}`,
+    sql`select p.id, p.cruise_id, p.porto, p.cidade, p.pais,
+               to_char(p.chega_em, 'YYYY-MM-DD"T"HH24:MI:SS') as chega_em,
+               to_char(p.sai_em, 'YYYY-MM-DD"T"HH24:MI:SS') as sai_em,
+               p.dia_no_mar, p.ordem, p.nota, p.updated_at
+        from cruise_ports p
         join cruises c on c.id = p.cruise_id
         where c.trip_id = ${tripId} order by p.ordem`,
-    sql`select * from reservations where trip_id = ${tripId} order by inicio_em, ordem`,
+    sql`select id, trip_id, tipo, nome, cidade,
+               to_char(inicio_em, 'YYYY-MM-DD"T"HH24:MI:SS') as inicio_em,
+               to_char(fim_em, 'YYYY-MM-DD"T"HH24:MI:SS') as fim_em,
+               endereco, link, telefone, localizador, valor_centavos, nota, ordem, updated_at
+        from reservations where trip_id = ${tripId} order by inicio_em, ordem`,
     sql`select * from places where trip_id = ${tripId} order by ordem`,
-    sql`select * from checklist_items where trip_id = ${tripId} order by ordem`,
+    checklistDaViagem(tripId, papel, participanteId),
     sql`select e.* from checklist_state e
         join checklist_items i on i.id = e.item_id
         where i.trip_id = ${tripId}`,
@@ -382,6 +410,26 @@ export async function getSnapshot(
     financeiro,
     server_time: new Date().toISOString(),
   }
+}
+
+// ---------------------------------------------------------------- checklist
+
+/**
+ * O checklist que este papel pode ver — decidido na query, nao filtrado depois de
+ * buscar (mesmo principio de `financeiroDaViagem`, adaptado: aqui a FORMA da linha
+ * nao muda com o papel, so a contagem, entao uma query com WHERE condicional basta).
+ *
+ * `proprietario` ve tudo. `editor`/`visualizador` veem todo item `global` mais os
+ * `pessoal` em que sao dono (CHK-01..04) — um item pessoal alheio nunca sai daqui.
+ */
+export async function checklistDaViagem(tripId: string, papel: Papel, participanteId: string) {
+  if (papelAlcanca(papel, 'proprietario')) {
+    return sql`select * from checklist_items where trip_id = ${tripId} order by ordem`
+  }
+  return sql`select * from checklist_items
+      where trip_id = ${tripId}
+        and (escopo = 'global' or ${participanteId} = any(assigned_to))
+      order by ordem`
 }
 
 // ---------------------------------------------------------------- financeiro

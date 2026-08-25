@@ -18,7 +18,9 @@ const BANCO = 'viagem'
 //           formatos por papel ({ admin: true, ... } / { admin: false, ... })
 //   2 -> 3  o roteiro virou dia a dia: o snapshot ganhou `dias`, e cada evento
 //           ganhou `opcoes` e uma dúzia de campos (fim_em, dicas, links...)
-const VERSAO = 3
+//   3 -> 4  cada item de checklist ganhou assigned_to, prioridade, pais/cidade,
+//           os três vínculos de roteiro, pendente e os três campos de fonte
+const VERSAO = 4
 const SNAPSHOT = 'snapshot'
 const FILA = 'fila'
 

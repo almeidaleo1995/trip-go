@@ -77,7 +77,7 @@ export const POST = rota(async (req) => {
 
   for (const op of parsed.data.ops) {
     try {
-      await autorizar(acesso, op.entidade, op.op, op.campos)
+      await autorizar(acesso, op.entidade, op.op, op.campos, op.id)
       const mudou = await aplicar(acesso, op)
       if (mudou) aplicadas.push(op.id ?? 'novo')
       else rejeitadas.push({ id: op.id ?? undefined, motivo: 'versão do servidor é mais nova' })
@@ -119,11 +119,25 @@ async function autorizar(
   entidade: Entidade,
   op: string,
   campos: Record<string, unknown>,
+  id?: string | null,
 ) {
   const meta = TABELA[entidade]
   if (!meta) throw new ErroHttp(400, `Entidade desconhecida: ${entidade}`)
 
-  if (!papelAlcanca(acesso.papel, meta.minimo)) {
+  // Item pessoal do checklist: quem está em assigned_to edita/apaga o próprio
+  // mesmo como visualizador (única exceção ao mínimo 'editor' da tabela) — mas
+  // ninguém além do dono ou do proprietário mexe nele, nem um editor comum.
+  let itemChecklist: { escopo: string; assigned_to: string[] } | undefined
+  if (entidade === 'checklist_item' && (op === 'editar' || op === 'remover') && id) {
+    const r = await sql`
+      select escopo, assigned_to from checklist_items where id = ${id} and trip_id = ${acesso.tripId}
+    `
+    itemChecklist = r[0] as { escopo: string; assigned_to: string[] } | undefined
+  }
+  const souDonoDoItem =
+    itemChecklist?.escopo === 'pessoal' && itemChecklist.assigned_to.includes(acesso.participanteId)
+
+  if (!papelAlcanca(acesso.papel, meta.minimo) && !souDonoDoItem) {
     throw new ErroHttp(
       403,
       meta.minimo === 'proprietario'
@@ -136,6 +150,20 @@ async function autorizar(
     if (campos.traveler_id !== acesso.participanteId) {
       throw new ErroHttp(403, 'Você só pode marcar o seu próprio checklist.')
     }
+  }
+
+  // Um item pessoal so pode ser editado/apagado por quem esta em assigned_to ou
+  // pelo proprietario — do contrario um editor poderia mexer no item pessoal de
+  // outro participante mesmo sem poder VE-LO (checklistDaViagem ja o esconde na
+  // leitura; isto fecha o mesmo buraco na escrita).
+  if (
+    entidade === 'checklist_item' &&
+    (op === 'editar' || op === 'remover') &&
+    !papelAlcanca(acesso.papel, 'proprietario') &&
+    itemChecklist?.escopo === 'pessoal' &&
+    !souDonoDoItem
+  ) {
+    throw new ErroHttp(403, 'Este item pessoal é de outro participante.')
   }
 
   // O último proprietário não pode sumir, senão a viagem fica sem quem a gerencie.
@@ -173,13 +201,13 @@ function recorte(entidade: Entidade, tripId: string, posicao: number) {
   }
   if (meta.via === 'expense') {
     return {
-      sql: `and expense_id in (select id from expenses where trip_id = ${posicao})`,
+      sql: `and expense_id in (select id from expenses where trip_id = $${posicao})`,
       params: [tripId],
     }
   }
   if (meta.via === 'event') {
     return {
-      sql: `and event_id in (select id from itinerary_events where trip_id = ${posicao})`,
+      sql: `and event_id in (select id from itinerary_events where trip_id = $${posicao})`,
       params: [tripId],
     }
   }
@@ -503,7 +531,9 @@ async function aplicar(
         : ''
     await sql.query(
       `insert into ${meta.nome} (${nomes.join(', ')})
-       values (${nomes.map((_, i) => `${i + 1}`).join(', ')})${conflito}`,
+       values (${nomes
+         .map((_, i) => `$${i + 1}${Array.isArray(valores[i]) ? '::text[]' : ''}`)
+         .join(', ')})${conflito}`,
       valores,
     )
     await registrarAlteracao(
@@ -544,7 +574,9 @@ async function aplicar(
   if (!anterior) throw new Error('registro não encontrado')
 
   // Last-write-wins: a escrita só passa se o servidor não tiver versão mais nova.
-  const sets = cols.map((c, i) => `${c} = $${i + 2}`).join(', ')
+  const sets = cols
+    .map((c, i) => `${c} = $${i + 2}${Array.isArray(campos[c]) ? '::text[]' : ''}`)
+    .join(', ')
   const posTs = cols.length + 2
   const rec = recorte(op.entidade, tripId, posTs + 1)
   const r = await sql.query(
