@@ -1,5 +1,5 @@
 // Resolucao e deduplicacao de sugestoes de checklist vindas da skill
-// viagem-para-json. Zero I/O, zero React, zero rede - so entra dado e sai dado,
+// roteiro-trip-go. Zero I/O, zero React, zero rede - so entra dado e sai dado,
 // no mesmo espirito de lib/derive.ts.
 import type { z } from 'zod'
 import type { ChecklistSugestaoSchema } from './schema.ts'

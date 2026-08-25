@@ -11,6 +11,13 @@ falta preparar/levar/verificar — não para gerar a viagem inteira de novo.
 
 ## Processo
 
+### 0. Perguntar primeiro
+
+Vale o **passo 0 do `SKILL.md`** aqui também: antes de sugerir qualquer coisa,
+pergunte quais cidades/lugares interessam de verdade, o que já está pago e
+quem é quem. Sugestão de checklist para um passeio que a pessoa não vai fazer
+é ruído que ela precisa rejeitar item a item.
+
 ### 1. Reunir o contexto da viagem
 
 Peça (ou já tenha em mãos) um export recente da viagem (`Dados → Exportar` no
@@ -21,7 +28,7 @@ sem isso, todo `assigned_to_nomes` vira erro na importação.
 ### 2. Ler os documentos
 
 Mesmo processo do fluxo principal: extrair texto
-(`.claude/skills/viagem-para-json/scripts/extrair.mjs`), ler tudo antes de
+(`.claude/skills/roteiro-trip-go/scripts/extrair.mjs`), ler tudo antes de
 escrever, reconciliar conflitos entre documentos por data de revisão.
 
 ### 3. Identificar o que vira sugestão
@@ -89,7 +96,7 @@ em `lib/schema.ts` na raiz do projeto.
 ### 6. Validar — obrigatório antes de entregar
 
 ```bash
-node --experimental-strip-types .claude/skills/viagem-para-json/validators/validar-sugestoes.mjs <arquivo.json>
+node --experimental-strip-types .claude/skills/roteiro-trip-go/validators/validar-sugestoes.mjs <arquivo.json>
 ```
 
 Saída diferente de zero significa não entregar. Confira também os avisos

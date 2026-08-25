@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Valida um JSON de importacao contra o schema REAL do projeto.
-// Uso: node .claude/skills/viagem-para-json/scripts/validar.mjs <arquivo.json>
+// Uso: node .claude/skills/roteiro-trip-go/scripts/validar.mjs <arquivo.json>
 //
 // Importa lib/schema.ts diretamente em vez de reimplementar as regras: assim a
 // skill nunca sai de sincronia com o app. Se o schema mudar, este script muda junto.

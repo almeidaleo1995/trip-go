@@ -6,7 +6,7 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
 
 ```jsonc
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
 
   "viagem": {
     "nome": "Europa 2027",
@@ -17,12 +17,13 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
     "cor_destaque": "#0F766E"                         // hex de 6 dígitos
   },
 
-  "viajantes": [
+  "participantes": [
     {
       "nome": "Leonardo Almeida",   // exatamente como está no passaporte
-      "papel": "admin",             // "admin" | "viajante"; ao menos um admin
-      "pin": "4831",                // 4 dígitos; vira hash no import, some do JSON
+      "email": "leo@exemplo.com",   // vincula a conta; a pessoa se cadastra sozinha
+      "papel": "proprietario",      // "proprietario" | "editor" | "visualizador"
       "telefone": "+55 47 90000-0000",
+      "passaporte": null, "documento": null, "nascimento": null,
       "ordem": 0
     }
   ],
@@ -73,10 +74,11 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
     }
   ],
 
-  "hospedagens": [
-    { "nome": "Hotel em Madri", "cidade": "Madri",
-      "checkin": "2026-12-31", "checkout": "2027-01-01",   // noites são calculadas
-      "endereco": null, "link": null }
+  "reservas": [
+    { "tipo": "hospedagem",   // hospedagem|restaurante|passeio|ingresso|carro|transporte|outro
+      "nome": "Hotel em Madri", "cidade": "Madri",
+      "inicio_em": "2026-12-31T15:00", "fim_em": "2027-01-01T11:00",  // noites são calculadas
+      "endereco": null, "link": null, "localizador": null }
   ],
 
   "lugares": [
@@ -93,6 +95,11 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
       "prazo_maximo": "2026-12-15",
       "valor_estimado_centavos": 55000,
       "detalhe": "Só no site gov.uk. Morre junto se o passaporte for renovado.",
+      "prioridade": "obrigatorio",     // obrigatorio|importante|recomendado|opcional
+      "assigned_to_nomes": [],         // nomes de participante; vazio = todos
+      "pais": "Reino Unido", "cidade": null,
+      "fonte_tipo": "documento",       // documento|pesquisa|sugestao|manual
+      "fonte_detalhe": "Caderno de viagem, pág. 12", "fonte_consultado_em": "2026-08-24",
       "ordem": 0 }
   ],
 
@@ -114,10 +121,17 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
   "custos": [
     { "categoria": "Passagens",          // casa por NOME com categorias[]
       "descricao": "Madri → Hamburgo, Iberia, 01/01",
-      "valor_centavos": 96700,           // valor POR PESSOA, em centavos
-      "pessoas": 5,                      // o app multiplica; não pré-multiplique
+      "valor_centavos": 483500,          // TOTAL da despesa, em centavos (v3)
       "estimado": true,                  // "≈" ou "EST." no documento
-      "pago": false }
+      "pagador": "Leonardo Almeida",     // quem pagou o fornecedor, por NOME
+      "divisao": "igual",                // igual | peso | personalizado
+      "divisoes": [                      // participantes por NOME; vazio = a dividir
+        { "participante": "Leonardo Almeida", "peso": 1 }
+      ],
+      "parcelas": [                      // à vista = uma parcela só
+        { "numero": 1, "vence_em": "2026-11-10",
+          "valor_centavos": 483500, "pago_centavos": 0 }
+      ] }
   ]
 }
 ```
@@ -129,6 +143,6 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
 | `"valor_centavos": 967.00` | `custos[0].valor_centavos: use centavos inteiros, nao reais` |
 | `"parte_em": "2026-12-30T10:30:00Z"` | `voos[0].parte_em: use o formato AAAA-MM-DDTHH:MM` |
 | `"data_partida": "2026-13-05"` | `viagem.data_partida: data inexistente no calendario` |
-| `"pin": "123"` | `viajantes[0].pin: o PIN precisa ter exatamente 4 digitos` |
+| `"papel": "admin"` | `participantes[0].papel: Invalid option` (hoje é `proprietario`/`editor`/`visualizador`) |
 | `"lat": 120` | `lugares[0].lat: Too big` |
-| `"pessoas": 0` | `custos[0].pessoas: precisa ser pelo menos 1` |
+| `"parcelas": [{ "numero": 0 }]` | `custos[0].parcelas[0].numero: a primeira parcela e a 1` |

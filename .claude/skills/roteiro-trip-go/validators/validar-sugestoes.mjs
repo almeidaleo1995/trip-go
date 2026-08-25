@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Valida um lote de sugestoes de checklist contra o schema REAL do projeto.
-// Uso: node .claude/skills/viagem-para-json/validators/validar-sugestoes.mjs <arquivo.json>
+// Uso: node .claude/skills/roteiro-trip-go/validators/validar-sugestoes.mjs <arquivo.json>
 //
 // Importa lib/schema.ts diretamente (ChecklistSugestoesBatchSchema), igual ao
 // scripts/validar.mjs irmao: nunca reimplementa a regra, so confere contra ela.

@@ -398,7 +398,7 @@ export const ChecklistItemSchema = z.object({
 })
 
 /**
- * Formato de saida da skill viagem-para-json para sugestoes de checklist — nunca
+ * Formato de saida da skill roteiro-trip-go para sugestoes de checklist — nunca
  * gravado como esta. `resolverSugestoes` (lib/checklist.ts) resolve os campos por
  * nome para os ids reais antes de criar um ChecklistItemSchema de verdade.
  */
