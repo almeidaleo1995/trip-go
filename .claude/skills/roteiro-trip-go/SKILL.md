@@ -1,7 +1,7 @@
 ---
 name: roteiro-trip-go
-description: Monta e atualiza a viagem do TripGo. Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Também gera lotes de sugestão de checklist (ver reference/checklist-sugestoes.md e a árvore schema/rules/templates/mappings/validators) para viagens já existentes no app. Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, atualizar a viagem, sugerir itens de checklist, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí", "sugere checklist".
-skillVersion: 1.2.0
+description: Monta e atualiza a viagem do TripGo. Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app, e entrega junto um PDF do roteiro para usar sem sinal. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Para viagem que já existe no app, escreve direto nas tabelas em vez de gerar arquivo — importar sempre cria viagem nova. Também gera lotes de sugestão de checklist (ver reference/checklist-sugestoes.md e a árvore schema/rules/templates/mappings/validators). Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, montar ou detalhar um dia do roteiro, atualizar a viagem, sugerir itens de checklist, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí", "sugere checklist".
+skillVersion: 1.3.0
 schemaVersion: 3
 ---
 
@@ -41,10 +41,14 @@ perguntas em **uma única mensagem**, numeradas, e espere a resposta:
 4. **Quem vai** — os nomes exatos dos participantes, do jeito que já estão no
    app (a divisão de despesa e o `assigned_to_nomes` do checklist casam **por
    nome**; nome errado importa como despesa sem dono).
+5. **Onde salvar** — a pasta do `.json` e do `.pdf`. **Nunca escolha sozinha**:
+   scratchpad de sessão some, a raiz do repositório entra no git sem ninguém
+   pedir. Ofereça opções concretas e aceite um caminho digitado.
 
 Se a pessoa responder "tanto faz, decide você", grave só o que o documento
 sustenta e liste o resto em **"Faltando nos documentos"**. Não preencha o
-silêncio com plausível.
+silêncio com plausível. **A exceção é a pergunta 5**: destino de arquivo não
+tem padrão seguro, então insista uma vez em vez de adivinhar.
 
 ### 1. Extrair o texto
 
@@ -94,7 +98,39 @@ usuário) e compare. Item que já está lá vira atualização ou nada — não 
 segunda cópia. As regras de deduplicação estão em
 [rules/dedup-e-prioridade.md](rules/dedup-e-prioridade.md).
 
-### 5. Montar o JSON
+### 5. Arquivo ou escrita direta — decidir antes de montar
+
+**`/api/import` SEMPRE cria uma viagem nova. Ele nunca soma numa existente.**
+Isso é decisão de projeto, não bug — está escrito em `app/api/import/route.ts`:
+substituir seria destruição silenciosa, então a pessoa passa a ter duas e
+escolhe qual manter. `importarViagem` começa com `randomUUID()`.
+
+A consequência governa esta skill inteira:
+
+| A viagem… | O que entregar |
+| --- | --- |
+| ainda não existe no app | **arquivo de importação** — é exatamente para isso |
+| já existe, e o pedido é adicionar/detalhar (um dia, um voo, um lote de checklist) | **escrita direta** nas tabelas da viagem, pelo `trip_id` |
+| já existe, e o pedido é backup/portabilidade | **Dados → Exportar** no app; não replique o mapeamento de `/api/export` |
+
+Entregar um arquivo para o segundo caso é o erro mais caro desta skill: o
+usuário importa achando que soma, e ganha uma viagem duplicada pela metade.
+Se ele pedir o arquivo mesmo assim, gere — e diga numa frase o que vai
+acontecer se ele subir.
+
+Para escrita direta, ache o `trip_id` antes de qualquer coisa e **enriqueça o
+que já existe em vez de inserir parecido** (regras em
+[rules/dedup-e-prioridade.md](rules/dedup-e-prioridade.md)):
+
+```bash
+node --env-file=.env.local --experimental-strip-types <script>.mjs
+```
+
+Uma transação só (`sql.transaction`), e apague o script depois — ele não é
+parte do projeto. Grave em `itinerary_events`/`itinerary_days`, nunca em
+`travelers` sem pedir: nome de participante é chave de dinheiro.
+
+### 6. Montar o JSON
 
 Formato completo em [reference/formato.md](reference/formato.md). O contrato executável é `lib/schema.ts` na raiz do projeto — em qualquer divergência, **o schema vence a documentação**.
 
@@ -122,7 +158,7 @@ Mapeamentos que exigem atenção:
 - **Nomes de participante casam por nome exato** — em `custos[].divisoes[].participante`, `custos[].pagador` e `checklist[].assigned_to_nomes`. Confirme a grafia com o usuário (passo 0) antes de gravar.
 - **Coordenadas**: só de cidade que você sabe onde fica. Cidade sem `lat`/`lon` continua aparecendo na aba Lugares, apenas não entra no mapa — isso é aceitável, chute não é.
 
-### 6. Validar — obrigatório antes de entregar
+### 7. Validar — obrigatório antes de entregar
 
 ```bash
 node --experimental-strip-types .claude/skills/roteiro-trip-go/scripts/validar.mjs <arquivo.json>
@@ -132,14 +168,48 @@ Valida contra o `TripImportSchema` real e imprime a contagem por seção. **Saí
 
 Confira também a contagem impressa contra o documento: se o caderno fala em 6 portos e o resumo mostra 4, faltou coisa.
 
-### 7. Relatório final
+### 8. Gerar o PDF — junto com o JSON, sempre
 
-Entregue junto com o arquivo:
+O objetivo do produto é **funcionar sem sinal**. Um JSON não se lê no
+aeroporto, então a entrega padrão são **dois arquivos**, na pasta que o
+usuário deu no passo 0:
+
+```
+<destino>/roteiro-<recorte>.json   # o registro, validado
+<destino>/roteiro-<recorte>.pdf    # o que vai na mochila
+<destino>/roteiro-<recorte>.html   # fonte do PDF, para reimprimir depois de editar
+```
+
+Monte um HTML próprio a partir do JSON e imprima com Chrome headless — o app
+não tem lib de PDF de propósito, e esta skill não deve adicionar uma:
+
+```bash
+"/c/Program Files/Google/Chrome/Application/chrome.exe" --headless --disable-gpu \
+  --no-pdf-header-footer --print-to-pdf="<abs>/roteiro.pdf" "file:///<abs>/roteiro.html"
+```
+
+- **Caminhos absolutos, e `file:///` na entrada.** Caminho relativo dá
+  "Acesso negado" ao escrever. Se a pasta de destino recusar a escrita,
+  imprima no scratchpad e copie.
+- **Confira antes de entregar**: `--screenshot` do mesmo HTML e olhe. Acento
+  quebrado e bloco cortado só aparecem assim.
+- **Não use `render_pdf.py` da skill `roteiro-viagem`.** O formato dele é um
+  dossiê inteiro (clima, gastronomia, golpes, consulado); preencher aquilo
+  para um recorte menor é inventar dado — a regra que governa esta skill.
+- Cores e nome do produto vêm de `config/theme.ts` e `config/site.ts`, não
+  escritos à mão.
+
+### 9. Relatório final
+
+Entregue junto com os arquivos:
 
 - **Contagem por seção** (a saída do validador).
+- **Onde ficaram os arquivos** — caminho completo do `.json` e do `.pdf`.
 - **Conflitos encontrados** e como foram resolvidos.
 - **Faltando nos documentos** — o que o app vai mostrar vazio e por quê.
 - **Não verificado** — o que veio de estimativa e deve ser confirmado na fonte oficial.
+- **Se foi escrita direta**: o que foi inserido e o que foi *atualizado* em
+  linha existente, para a pessoa poder desfazer.
 
 ## Armadilhas já pagas
 
@@ -148,6 +218,7 @@ Entregue junto com o arquivo:
 - **`Number(null)` é `0`.** Coordenada ausente vira ilha nula no golfo da Guiné. Omita o campo em vez de mandar `null` dentro de um objeto de coordenadas.
 - **Cidade citada não é cidade visitada.** "Amsterdã fica a 40 min de trem" é uma sugestão de passeio, não uma parada da rota. Só entra em `lugares[]` o que a viagem realmente inclui.
 - **Um cruzeiro não é uma hospedagem.** Vai em `cruzeiros[]`, com os portos em ordem.
+- **O driver do Neon materializa `timestamp` como `Date`, e imprimir desloca o fuso.** Conferindo o estado da viagem, um evento gravado às `17:30` sai no console como `2026-12-31T20:30:00.000Z` — três horas a mais, porque o `Date` foi construído na hora local. Quem lê isso como verdade "corrige" um roteiro que estava certo. Ao inspecionar, peça texto ao Postgres: `to_char(ocorre_em, 'YYYY-MM-DD"T"HH24:MI')`. É o mesmo motivo pelo qual `/api/export` usa os getters locais e não `toISOString()`.
 
 ## Sugestões de checklist para uma viagem que já existe
 
@@ -158,14 +229,17 @@ Formato completo, regras de deduplicação/prioridade e o mapeamento nome→camp
 - [rules/dedup-e-prioridade.md](rules/dedup-e-prioridade.md) — normalização de título, prioridade, fonte obrigatória
 - [templates/categorias-e-fases.md](templates/categorias-e-fases.md) — categorias sugeridas e por que não existe campo `fase`
 - [mappings/campo-para-app.md](mappings/campo-para-app.md) — `assigned_to_nomes`/`evento`/`voo`/`cruzeiro` por nome
-- `validators/validar-sugestoes.mjs` — validação obrigatória antes de entregar um lote, igual ao passo 6 acima
+- `validators/validar-sugestoes.mjs` — validação obrigatória antes de entregar um lote, igual ao passo 7 acima
+
+Lote de sugestão é quase sempre o caso "a viagem já existe" do passo 5: o
+destino natural é escrita direta em `checklist_items`, não um arquivo.
 
 ## Versionamento — nunca reescreve a si mesma
 
 Este `SKILL.md` declara `skillVersion`/`schemaVersion` no topo. Se o schema do app mudar de um jeito que quebra o contrato desta skill (campo renomeado, novo campo obrigatório, entidade removida), a skill **nunca edita este arquivo sozinha**. Ela propõe, em texto, no relatório final:
 
 ```
-Nova versão sugerida: 1.2.0
+Nova versão sugerida: 1.4.0
 Alterações: [o que mudou no schema do app e por quê isso afeta a skill]
 ```
 

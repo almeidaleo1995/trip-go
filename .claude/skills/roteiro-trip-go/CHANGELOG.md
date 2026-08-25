@@ -4,6 +4,31 @@ Uma entrada por versão aplicada. Uma proposta de versão que ainda não foi
 revisada/aplicada não entra aqui — ela vive só no relatório da skill até
 alguém aceitar.
 
+## 1.3.0 — 2026-08-25
+
+A skill entregava só um arquivo, e para viagem que já existe o arquivo é a
+ferramenta errada. Descoberto montando o dia 31/12 da Europa 2027.
+
+- **Passo 5 novo — arquivo ou escrita direta**: `/api/import` sempre cria
+  viagem nova (`importarViagem` abre com `randomUUID()`), de propósito. Para
+  viagem que já existe no app, o caminho é escrever nas tabelas pelo
+  `trip_id`; para backup, é **Dados → Exportar**, sem replicar as 324 linhas
+  de mapeamento de `/api/export`. Entregar arquivo no caso errado duplica a
+  viagem pela metade. Renumera montar/validar/relatório para 6/7/8.
+- **Passo 8 novo — PDF junto com o JSON**, sempre, via HTML próprio + Chrome
+  headless. O produto existe para funcionar sem sinal, e JSON não se lê no
+  aeroporto. Inclui a exigência de conferir por `--screenshot` antes de
+  entregar, e a proibição de usar o `render_pdf.py` da skill `roteiro-viagem`
+  (formato de dossiê inteiro — preenchê-lo para um dia seria inventar dado).
+- **Passo 0 ganha a pergunta 5 — onde salvar.** Era a única decisão que a
+  skill vinha tomando sozinha, e nenhum padrão é seguro: scratchpad some, raiz
+  do repo entra no git. É também a única pergunta que não aceita "decide você".
+- **Armadilha nova**: o driver do Neon materializa `timestamp` como `Date` e
+  imprimir desloca o fuso — `17:30` aparece como `20:30Z`. Conferir o estado
+  da viagem com `to_char`, senão a skill "corrige" um roteiro que estava certo.
+- Passo 9 (relatório) passa a exigir o caminho dos arquivos e, quando houve
+  escrita direta, o que foi inserido vs. atualizado — para dar como desfazer.
+
 ## 1.2.0 — 2026-08-25
 
 Renomeada de `viagem-para-json` para `roteiro-trip-go`.
