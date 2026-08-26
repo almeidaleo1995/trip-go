@@ -48,6 +48,7 @@ export type AbaId =
   | 'lugares'
   | 'checklist'
   | 'documentos'
+  | 'documentacao'
   | 'emergencia'
   | 'financeiro'
   | 'dados'
@@ -70,6 +71,22 @@ const ABAS: Aba[] = [
   { id: 'dados', nome: 'Participantes e dados', icone: Database, grupo: 'Gestão' },
 ]
 
+/**
+ * Ids que NÃO são abas próprias: abrem uma aba existente já numa sub-visão.
+ *
+ * `documentacao` foi uma aba vizinha de `documentos` até virar a chave "Exigidos"
+ * lá dentro. O id sobreviveu porque meia dúzia de botões espalhados pelo app
+ * ("Resolver", "Abrir minha documentação") apontam para ele, e porque ele pode
+ * estar salvo em `?aba=` de um link ou na sessão de quem já usava o app.
+ */
+const ALIAS: Partial<Record<AbaId, AbaId>> = { documentacao: 'documentos' }
+
+/** A aba que de fato acende na navegação para um id — o alias, se houver. */
+const abaDe = (a: AbaId): AbaId => ALIAS[a] ?? a
+
+const conhecida = (a: string | null | undefined): a is AbaId =>
+  Boolean(a) && (a! in ALIAS || ABAS.some((x) => x.id === a))
+
 /** As quatro que ficam na barra do celular. O resto vive em "Mais". */
 const NO_CELULAR: AbaId[] = ['inicio', 'roteiro', 'voos', 'emergencia']
 
@@ -88,6 +105,10 @@ export function Shell({
   const [montado, setMontado] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
 
+  // A aba que ACENDE. Nem sempre é a que está no estado: `documentacao` acende
+  // `documentos`, que é onde ela passou a morar.
+  const ativa = abaDe(aba)
+
   const temCruzeiro = (snapshot?.cruzeiros?.length ?? 0) > 0
   // O Financeiro existe para todo mundo, mas com CONTEÚDO diferente: quem
   // administra vê a viagem inteira; um viajante comum vê só o que deve. Quem
@@ -98,9 +119,10 @@ export function Shell({
     if (a.id === 'dados') return papel === 'proprietario'
     if (a.id === 'cruzeiro') return temCruzeiro
     return true
-  }).map((a) =>
-    a.id === 'financeiro' && !financeiroCompleto ? { ...a, nome: 'Meus pagamentos' } : a,
-  )
+  }).map((a) => {
+    if (a.id === 'financeiro' && !financeiroCompleto) return { ...a, nome: 'Meus pagamentos' }
+    return a
+  })
 
   // Restaura a aba escolhida (UI-06). Só depois de montar, para não divergir do
   // HTML renderizado no servidor.
@@ -113,7 +135,7 @@ export function Shell({
     try {
       const pedida = new URLSearchParams(window.location.search).get('aba') as AbaId | null
       const salva = sessionStorage.getItem(CHAVE_ABA) as AbaId | null
-      const alvo = [pedida, salva].find((a) => a && ABAS.some((x) => x.id === a))
+      const alvo = [pedida, salva].find(conhecida)
       if (alvo) setAba(alvo as AbaId)
     } catch {
       /* sessionStorage bloqueado: começa no Início, sem drama */
@@ -131,12 +153,12 @@ export function Shell({
 
   // Aba que deixou de existir (virou viajante, ou a viagem perdeu o cruzeiro).
   useEffect(() => {
-    if (montado && !visiveis.some((a) => a.id === aba)) setAba('inicio')
-  }, [aba, visiveis, montado, setAba])
+    if (montado && !visiveis.some((a) => a.id === ativa)) setAba('inicio')
+  }, [ativa, visiveis, montado, setAba])
 
   const destaque = snapshot?.viagem?.cor_destaque ?? '#0F766E'
   const eu = snapshot?.eu?.usuario
-  const atual = visiveis.find((a) => a.id === aba)
+  const atual = visiveis.find((a) => a.id === ativa)
 
   // Anota onde a pessoa esteve, para o Início oferecer o caminho de volta.
   const viagemId = String(snapshot?.viagem?.id ?? '')
@@ -149,7 +171,7 @@ export function Shell({
 
   const naBarra = visiveis.filter((a) => NO_CELULAR.includes(a.id))
   const emMais = visiveis.filter((a) => !NO_CELULAR.includes(a.id))
-  const abaOcultaAtiva = emMais.some((a) => a.id === aba)
+  const abaOcultaAtiva = emMais.some((a) => a.id === ativa)
 
   // Agrupa preservando a ordem de ABAS.
   const grupos = new Map<string, Aba[]>()
@@ -197,7 +219,7 @@ export function Shell({
               <p className="t-legenda px-3 pb-1.5">{grupo}</p>
               <div className="space-y-0.5">
                 {abas.map((a) => (
-                  <ItemLateral key={a.id} aba={a} ativo={a.id === aba} onClick={() => ir(a.id)} />
+                  <ItemLateral key={a.id} aba={a} ativo={a.id === ativa} onClick={() => ir(a.id)} />
                 ))}
               </div>
             </div>
@@ -282,7 +304,7 @@ export function Shell({
               key={a.id}
               icone={a.icone}
               nome={a.nome}
-              ativo={a.id === aba}
+              ativo={a.id === ativa}
               onClick={() => ir(a.id)}
             />
           ))}
@@ -302,7 +324,7 @@ export function Shell({
           <div className="grid grid-cols-3 gap-2 pb-2">
             {emMais.map((a) => {
               const Icone = a.icone
-              const ativo = a.id === aba
+              const ativo = a.id === ativa
               return (
                 <button
                   key={a.id}

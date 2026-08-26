@@ -18,6 +18,7 @@ import { sql } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { gravarViagemAtual, ErroHttp } from '@/lib/session.ts'
 import { rota, lerJson } from '@/lib/api.ts'
+import { CATEGORIAS_DOCUMENTO } from '@/lib/schema.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -60,6 +61,13 @@ export const POST = rota(async (req) => {
   `
 
   const d = deslocamento
+
+  // A lista fechada de categorias, para o Postgres. Mesma razao da normalizacao
+  // no /api/export: `documents.categoria` foi texto livre, a constraint que a
+  // fechou e `not valid`, e ela tolera a linha antiga mas RECUSA o INSERT que a
+  // copia. Fora da lista vira 'outro' e a palavra original vai para `tags` —
+  // duplicar uma viagem nao e hora de apagar o que alguem escreveu.
+  const CATS = [...CATEGORIAS_DOCUMENTO]
 
   if (copiar('roteiro')) {
     // O id derivado (md5) é o que permite copiar as opções de transporte logo
@@ -150,11 +158,51 @@ export const POST = rota(async (req) => {
   }
 
   if (copiar('documentos')) {
+    // SO os documentos do grupo. Um documento `pessoal` pertence a uma pessoa
+    // DAQUELA viagem, e a copia nasce sem participante nenhum: nao ha onde ele
+    // aterrissar, e copia-lo sem dono publicaria o passaporte de outra pessoa numa
+    // viagem que quem duplicou controla. O filtro fecha as duas coisas de uma vez
+    // — a constraint `documento_pessoal_tem_dono` e a privacidade.
+    //
+    // id deterministico (o mesmo md5 dos voos e cruzeiros) porque os BYTES sao
+    // copiados logo abaixo e precisam reencontrar a linha. Sem isso, um documento
+    // com arquivo viraria na copia um cartao que nao abre.
     await sql`
-    insert into documents (trip_id, titulo, valor, tipo, categoria, arquivo_url, arquivo_mime,
-                           arquivo_bytes, obs, ordem)
-    select ${novo}, titulo, valor, tipo, categoria, arquivo_url, arquivo_mime, arquivo_bytes, obs, ordem
-    from documents where trip_id = ${corpo.id}
+    insert into documents (id, trip_id, titulo, valor, tipo, categoria, arquivo_url, arquivo_nome,
+                           arquivo_mime, arquivo_bytes, obs, ordem, escopo, tags, importante,
+                           offline, validade, pais, cidade, dia, criado_por)
+    select md5(id || ${novo}), ${novo}, titulo, valor, tipo,
+           case when categoria = any(${CATS}) then categoria
+                when categoria is null then null
+                else 'outro' end,
+           arquivo_url, arquivo_nome, arquivo_mime, arquivo_bytes, obs, ordem, 'global',
+           case when categoria is null or categoria = any(${CATS}) then tags
+                else tags || categoria end,
+           importante, offline, validade, pais, cidade, dia + ${d}::interval, null
+    from documents where trip_id = ${corpo.id} and escopo = 'global'
+  `
+    await sql`
+    insert into document_files (document_id, bytes, mime)
+    select md5(f.document_id || ${novo}), f.bytes, f.mime
+    from document_files f
+    join documents d on d.id = f.document_id
+    where d.trip_id = ${corpo.id} and d.escopo = 'global'
+  `
+    // A EXIGENCIA acompanha a viagem: quem duplica "Europa 2027" para 2028 quer o
+    // passaporte exigido de novo. As ENTREGAS nao — elas sao de pessoas daquela
+    // viagem, e a copia comeca sem participantes, pelo mesmo motivo de
+    // `checklist_state` nao ser copiado.
+    //
+    // `aplica_todos` vira true na copia: `assigned_to` guarda ids de participantes
+    // que nao existem aqui, e um requisito restrito a fantasmas nao se aplica a
+    // ninguem. Quem duplicou restringe de novo pela tela.
+    await sql`
+    insert into document_requirements (trip_id, nome, descricao, categoria, obrigatorio,
+                                       aplica_todos, assigned_to, exige_numero, exige_validade,
+                                       exige_arquivo, campo_perfil, prazo, obs, ordem)
+    select ${novo}, nome, descricao, categoria, obrigatorio, true, '{}', exige_numero,
+           exige_validade, exige_arquivo, campo_perfil, prazo + ${d}::interval, obs, ordem
+    from document_requirements where trip_id = ${corpo.id}
   `
     await sql`
     insert into emergency_contacts (trip_id, titulo, telefone, detalhe, ordem)

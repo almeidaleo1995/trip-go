@@ -176,6 +176,45 @@ test('resumirImportacao conta por secao, incluindo portos aninhados', () => {
   assert.equal(resumo.voos, 0)
 })
 
+// A documentacao exigida e o caso classico do "backup que perde um campo em
+// silencio": ela passa por schema.ts, /api/export, importar.ts e este resumo, e
+// esquecer QUALQUER um dos quatro nao da erro nenhum — so entrega menos.
+test('a documentacao exigida entra no resumo da importacao', () => {
+  const r = validarImportacao({
+    ...MINIMA,
+    participantes: [{ nome: 'Leo' }],
+    requisitos: [
+      { nome: 'Passaporte', exige_numero: true, exige_validade: true, exige_arquivo: true },
+      { nome: 'Seguro viagem' },
+    ],
+    entregas: [
+      { requirement_id: 'x', traveler_id: 'y', requisito_nome: 'Passaporte', dono_nome: 'Leo' },
+    ],
+  })
+  assert.equal(r.sucesso, true)
+  if (!r.sucesso) return
+  const resumo = resumirImportacao(r.dados)
+  assert.equal(resumo.requisitos, 2)
+  assert.equal(resumo.entregas, 1)
+})
+
+test('requisito sem nada exigido e valido: existe requisito que so pede o de-acordo', () => {
+  const r = validarImportacao({ ...MINIMA, requisitos: [{ nome: 'Comprovante de vacinacao' }] })
+  assert.equal(r.sucesso, true)
+  if (!r.sucesso) return
+  assert.equal(r.dados.requisitos[0].obrigatorio, true)
+  assert.equal(r.dados.requisitos[0].aplica_todos, true)
+  assert.equal(r.dados.requisitos[0].exige_arquivo, false)
+})
+
+test('entrega recusa status fora da lista de revisao', () => {
+  const r = validarImportacao({
+    ...MINIMA,
+    entregas: [{ requirement_id: 'x', traveler_id: 'y', status: 'quase' }],
+  })
+  assert.equal(r.sucesso, false)
+})
+
 // ---------------------------------------------------------------- mutacoes
 
 test('recusa mutacao em entidade desconhecida', () => {

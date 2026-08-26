@@ -178,12 +178,76 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
   for (const doc of d.documentos) {
     const documentoId = randomUUID()
     idPorDocumento.set(doc.titulo, documentoId)
+    // Dono e compartilhamento chegam por NOME. Um nome que nao bate vira null, e
+    // ai o `escopo` cai para 'global': a constraint documento_pessoal_tem_dono
+    // recusaria um pessoal sem dono e derrubaria a importacao inteira por causa
+    // de um participante renomeado.
+    const dono = doc.dono_nome ? (idPorNome.get(doc.dono_nome) ?? null) : null
+    const compartilhado = (doc.assigned_to_nomes ?? [])
+      .map((nome) => idPorNome.get(nome))
+      .filter((id): id is NonNullable<typeof id> => Boolean(id))
+    const escopo = doc.escopo === 'pessoal' && dono ? 'pessoal' : 'global'
+    // O CONTEUDO do arquivo nao vem no JSON (ver /api/export) — so a ficha dele.
+    // Documento que era um upload chega sem bytes e a tela pede o arquivo de novo.
     q.push(sql`
       insert into documents (id, trip_id, titulo, valor, tipo, categoria, arquivo_url,
-                             arquivo_mime, arquivo_bytes, obs, ordem)
+                             arquivo_nome, arquivo_mime, arquivo_bytes, obs, ordem,
+                             escopo, traveler_id, assigned_to, tags, importante, offline,
+                             validade, pais, cidade, dia, reservation_id)
       values (${documentoId}, ${tripId}, ${doc.titulo}, ${doc.valor ?? null}, ${doc.tipo},
-              ${doc.categoria ?? null}, ${doc.arquivo_url ?? null}, ${doc.arquivo_mime ?? null},
-              ${doc.arquivo_bytes ?? null}, ${doc.obs ?? null}, ${doc.ordem})
+              ${doc.categoria ?? null}, ${doc.arquivo_url ?? null}, ${doc.arquivo_nome ?? null},
+              ${doc.arquivo_mime ?? null}, ${doc.arquivo_bytes ?? null}, ${doc.obs ?? null},
+              ${doc.ordem}, ${escopo}, ${dono}, ${compartilhado}, ${doc.tags},
+              ${doc.importante}, ${doc.offline}, ${doc.validade ?? null}, ${doc.pais ?? null},
+              ${doc.cidade ?? null}, ${doc.dia ?? null},
+              ${idPorReserva.get(doc.reserva ?? '') ?? null})
+    `)
+  }
+
+  // A documentação EXIGIDA. Vem depois dos documentos porque uma entrega pode
+  // apontar para um arquivo do cofre, e antes do roteiro por nada em especial.
+  //
+  // Requisito primeiro, entrega depois: a entrega referencia o requisito por
+  // NOME, pelo mesmo motivo de sempre — id não sobrevive a exportar de uma
+  // viagem e importar noutra.
+  const idPorRequisito = new Map<string, string>()
+  for (const r of d.requisitos) {
+    const requisitoId = randomUUID()
+    idPorRequisito.set(r.nome, requisitoId)
+    const alvos = (r.assigned_to_nomes ?? [])
+      .map((nome) => idPorNome.get(nome))
+      .filter((id): id is NonNullable<typeof id> => Boolean(id))
+    // Requisito que era "só para fulano e beltrano" e chega sem nenhum nome que
+    // bate viraria uma linha que não se aplica a ninguém — e a constraint
+    // `requisito_pessoal_tem_dono` derrubaria a importação inteira. Vale para
+    // todos é o único fallback seguro: a exigência continua existindo, e quem
+    // organiza restringe de novo pela tela.
+    const paraTodos = r.aplica_todos !== false || alvos.length === 0
+    q.push(sql`
+      insert into document_requirements (id, trip_id, nome, descricao, categoria, obrigatorio,
+                                         aplica_todos, assigned_to, exige_numero, exige_validade,
+                                         exige_arquivo, campo_perfil, prazo, obs, ordem)
+      values (${requisitoId}, ${tripId}, ${r.nome}, ${r.descricao ?? null},
+              ${r.categoria ?? null}, ${r.obrigatorio}, ${paraTodos},
+              ${paraTodos ? [] : alvos}, ${r.exige_numero}, ${r.exige_validade},
+              ${r.exige_arquivo}, ${r.campo_perfil ?? null}, ${r.prazo ?? null},
+              ${r.obs ?? null}, ${r.ordem})
+    `)
+  }
+
+  for (const e of d.entregas) {
+    const requisitoId = idPorRequisito.get(e.requisito_nome ?? '')
+    const dono = idPorNome.get(e.dono_nome ?? '')
+    // Entrega órfã é descartada em silêncio, não importada com null: a coluna é
+    // `not null` nos dois lados, e uma entrega sem requisito ou sem pessoa não é
+    // uma entrega parcial — é uma entrega de ninguém.
+    if (!requisitoId || !dono) continue
+    q.push(sql`
+      insert into document_submissions (id, requirement_id, traveler_id, numero, validade,
+                                        emitido_em, documento_id, status, comentario)
+      values (${randomUUID()}, ${requisitoId}, ${dono}, ${e.numero ?? null},
+              ${e.validade ?? null}, ${e.emitido_em ?? null}, null, ${e.status},
+              ${e.comentario ?? null})
     `)
   }
 

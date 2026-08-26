@@ -96,6 +96,12 @@ export type Snapshot = {
   checklist: Record<string, unknown>[]
   checklist_state: Record<string, unknown>[]
   documentos: Record<string, unknown>[]
+  /** O que a viagem EXIGE de cada pessoa. Ver `documentacaoDaViagem`. */
+  requisitos: Record<string, unknown>[]
+  /** O que cada pessoa entregou. Recortado e redigido pelo papel. */
+  entregas: Record<string, unknown>[]
+  /** Quais campos do perfil de cada participante estao preenchidos. Nunca os valores. */
+  perfis: Record<string, unknown>[]
   emergencia: Record<string, unknown>[]
   mensagens: Record<string, unknown>[]
   alteracoes: Record<string, unknown>[]
@@ -302,6 +308,7 @@ export async function getSnapshot(
     checklist,
     estado,
     documentos,
+    documentacao,
     emergencia,
     mensagens,
     alteracoes,
@@ -366,7 +373,8 @@ export async function getSnapshot(
     sql`select e.* from checklist_state e
         join checklist_items i on i.id = e.item_id
         where i.trip_id = ${tripId}`,
-    sql`select * from documents where trip_id = ${tripId} order by ordem`,
+    documentosDaViagem(tripId, papel, participanteId),
+    documentacaoDaViagem(tripId, papel, participanteId),
     sql`select * from emergency_contacts where trip_id = ${tripId} order by ordem`,
     sql`select m.*, u.nome as autor, u.avatar_url as autor_avatar from messages m
         left join users u on u.id = m.user_id
@@ -404,12 +412,206 @@ export async function getSnapshot(
     checklist,
     checklist_state: estado,
     documentos,
+    requisitos: documentacao.requisitos,
+    entregas: documentacao.entregas,
+    perfis: documentacao.perfis,
     emergencia,
     mensagens: mensagens.reverse(),
     alteracoes,
     financeiro,
     server_time: new Date().toISOString(),
   }
+}
+
+// ---------------------------------------------------------------- documentos
+
+/**
+ * O cofre que este papel pode ver — recortado na QUERY, nao filtrado depois de
+ * buscar (mesmo principio de `financeiroDaViagem` e `checklistDaViagem`).
+ *
+ * `proprietario` ve tudo. Todo mundo mais ve os documentos `global` do grupo,
+ * mais os `pessoal` de que e dono, mais os que o dono compartilhou com ele.
+ * O passaporte de outra pessoa nunca sai daqui — esconder o campo no React
+ * publicaria o arquivo para quem soubesse abrir a aba de rede.
+ *
+ * Editor NAO ve documento pessoal alheio de proposito: editar o roteiro nao da
+ * direito de ler o passaporte de ninguem. Mesma regra do checklist pessoal.
+ */
+export async function documentosDaViagem(tripId: string, papel: Papel, participanteId: string) {
+  if (papelAlcanca(papel, 'proprietario')) {
+    return sql`select * from documents where trip_id = ${tripId} order by ordem`
+  }
+  return sql`select * from documents
+      where trip_id = ${tripId}
+        and (escopo = 'global'
+             or traveler_id = ${participanteId}
+             or ${participanteId} = any(assigned_to))
+      order by ordem`
+}
+
+/**
+ * "Meus documentos" da tela de perfil (§23): os documentos PESSOAIS desta conta,
+ * em todas as viagens de que ela participa.
+ *
+ * O recorte e por `travelers.user_id`, nao por participante escolhido na tela: a
+ * pessoa ve o que e dela, e nada mais. Documento do grupo nao entra — ele ja tem
+ * lugar, que e o cofre da viagem. Os BYTES nao saem daqui; a tela busca por
+ * /api/documento, que refaz a checagem de permissao por conta propria.
+ */
+export async function documentosPessoais(userId: string) {
+  return sql`
+    select d.id, d.titulo, d.tipo, d.categoria, d.arquivo_nome, d.arquivo_mime,
+           d.arquivo_bytes, d.validade, d.offline, d.importante, d.valor,
+           t.nome as viagem, t.id as trip_id
+    from documents d
+    join travelers p on p.id = d.traveler_id
+    join trips t on t.id = d.trip_id
+    where p.user_id = ${userId} and d.escopo = 'pessoal'
+    order by t.nome, d.ordem, d.titulo
+  `
+}
+
+// ---------------------------------------------------------------- documentacao exigida
+
+/**
+ * O centro de documentacao que este papel pode ver — recortado e REDIGIDO na
+ * query, nunca escondido na tela.
+ *
+ * Tres coisas diferentes com tres regras diferentes:
+ *
+ *   requisitos  todo mundo ve. Saber o que a viagem exige nao expoe ninguem, e um
+ *               viajante que nao enxerga a exigencia nao tem como cumpri-la.
+ *
+ *   entregas    `proprietario` ve tudo. `editor` ve o ESTADO de todo mundo (e o
+ *               painel de cobranca do §14 nao existiria sem isso) mas NAO o numero
+ *               do passaporte alheio nem o id do arquivo — ele cobra, nao le.
+ *               `visualizador` ve so as proprias.
+ *
+ *   perfis      quais campos estao preenchidos, nunca os valores. Uma bolinha
+ *               verde nao justifica mandar o CPF de cinco pessoas para o
+ *               navegador de todas elas.
+ *
+ * `tem_arquivo` existe justamente por causa da redacao: sem ele, esconder o
+ * `documento_id` do editor faria toda a viagem aparecer como pendente no painel —
+ * a protecao de privacidade viraria um bug de status. Ver `Submissao` em
+ * lib/documentacao.ts.
+ */
+export async function documentacaoDaViagem(tripId: string, papel: Papel, participanteId: string) {
+  const dono = papelAlcanca(papel, 'proprietario')
+  const revisor = papelAlcanca(papel, 'editor')
+
+  const [requisitos, entregas, participantes] = await Promise.all([
+    sql`select * from document_requirements where trip_id = ${tripId} order by ordem, nome`,
+
+    // O `case` e a redacao, e ela roda no Postgres de proposito: apagar o campo em
+    // JavaScript protegeria a tela e continuaria mandando o numero pela rede, onde
+    // a aba de rede do navegador o mostra inteiro.
+    dono
+      ? sql`select s.*, (s.documento_id is not null) as tem_arquivo
+            from document_submissions s
+            join document_requirements r on r.id = s.requirement_id
+            where r.trip_id = ${tripId}`
+      : revisor
+        ? sql`select s.id, s.requirement_id, s.traveler_id,
+                   case when s.traveler_id = ${participanteId} then s.numero end as numero,
+                   case when s.traveler_id = ${participanteId} then s.emitido_em end as emitido_em,
+                   case when s.traveler_id = ${participanteId} then s.documento_id end as documento_id,
+                   (s.documento_id is not null) as tem_arquivo,
+                   s.validade, s.status, s.comentario, s.revisado_por, s.revisado_em,
+                   s.enviado_em, s.updated_at
+            from document_submissions s
+            join document_requirements r on r.id = s.requirement_id
+            where r.trip_id = ${tripId}`
+        : sql`select s.*, (s.documento_id is not null) as tem_arquivo
+            from document_submissions s
+            join document_requirements r on r.id = s.requirement_id
+            where r.trip_id = ${tripId} and s.traveler_id = ${participanteId}`,
+
+    // `travelers.passaporte` e `travelers.documento` sao as colunas ANTIGAS, de
+    // antes de o perfil existir. Continuam contando: uma viagem em uso ja tem esses
+    // campos preenchidos, e ignora-los marcaria como pendente quem ja cadastrou.
+    revisor
+      ? sql`select p.id, u.cpf, u.rg, u.nacionalidade, u.nascimento,
+                   u.passaporte_numero, u.passaporte_validade, u.emergencia_telefone,
+                   p.passaporte as passaporte_antigo, p.documento as documento_antigo,
+                   p.nascimento as nascimento_antigo
+            from travelers p left join users u on u.id = p.user_id
+            where p.trip_id = ${tripId}`
+      : sql`select p.id, u.cpf, u.rg, u.nacionalidade, u.nascimento,
+                   u.passaporte_numero, u.passaporte_validade, u.emergencia_telefone,
+                   p.passaporte as passaporte_antigo, p.documento as documento_antigo,
+                   p.nascimento as nascimento_antigo
+            from travelers p left join users u on u.id = p.user_id
+            where p.trip_id = ${tripId} and p.id = ${participanteId}`,
+  ])
+
+  const cheio = (v: unknown) => Boolean(v && String(v).trim())
+
+  return {
+    requisitos,
+    entregas,
+    perfis: participantes.map((p) => ({
+      traveler_id: String(p.id),
+      campos: {
+        cpf: cheio(p.cpf) || cheio(p.documento_antigo),
+        rg: cheio(p.rg),
+        passaporte: cheio(p.passaporte_numero) || cheio(p.passaporte_antigo),
+        nascimento: cheio(p.nascimento) || cheio(p.nascimento_antigo),
+        nacionalidade: cheio(p.nacionalidade),
+        emergencia: cheio(p.emergencia_telefone),
+      },
+      passaporte_validade: p.passaporte_validade
+        ? String(p.passaporte_validade).slice(0, 10)
+        : null,
+    })),
+  }
+}
+
+/** Os dados de viagem da conta (§6). Só a própria conta lê os próprios valores. */
+export async function perfilDeViagem(userId: string) {
+  const r = await sql`
+    select nome_completo, nome_social, to_char(nascimento, 'YYYY-MM-DD') as nascimento,
+           cpf, rg, nacionalidade, passaporte_numero, passaporte_nome,
+           to_char(passaporte_emissao, 'YYYY-MM-DD') as passaporte_emissao,
+           to_char(passaporte_validade, 'YYYY-MM-DD') as passaporte_validade,
+           passaporte_pais, emergencia_nome, emergencia_telefone, emergencia_parentesco
+    from users where id = ${userId}
+  `
+  return (r[0] as Record<string, unknown> | undefined) ?? null
+}
+
+/**
+ * Grava os dados de viagem da conta.
+ *
+ * Campo em branco vira NULL, nunca string vazia: no banco isso e "nao informado",
+ * e e exatamente o que `documentacaoDaViagem` conta para decidir se o requisito
+ * esta cumprido. Uma string vazia gravada faria uma bolinha verde mentir.
+ */
+export async function atualizarPerfilViagem(userId: string, d: Record<string, unknown>) {
+  const v = (c: string) => {
+    const x = d[c]
+    return x === null || x === undefined || String(x).trim() === '' ? null : String(x).trim()
+  }
+  await sql`
+    update users set
+      nome_completo = ${v('nome_completo')},
+      nome_social = ${v('nome_social')},
+      nascimento = ${v('nascimento')},
+      cpf = ${v('cpf')},
+      rg = ${v('rg')},
+      nacionalidade = ${v('nacionalidade')},
+      passaporte_numero = ${v('passaporte_numero')},
+      passaporte_nome = ${v('passaporte_nome')},
+      passaporte_emissao = ${v('passaporte_emissao')},
+      passaporte_validade = ${v('passaporte_validade')},
+      passaporte_pais = ${v('passaporte_pais')},
+      emergencia_nome = ${v('emergencia_nome')},
+      emergencia_telefone = ${v('emergencia_telefone')},
+      emergencia_parentesco = ${v('emergencia_parentesco')},
+      updated_at = now()
+    where id = ${userId}
+  `
+  return perfilDeViagem(userId)
 }
 
 // ---------------------------------------------------------------- checklist

@@ -37,7 +37,11 @@ export const dynamic = 'force-dynamic'
  */
 const TABELA: Record<
   Entidade,
-  { nome: string; via: 'trip' | 'flight' | 'cruise' | 'expense' | 'event' | 'self'; minimo: Papel }
+  {
+    nome: string
+    via: 'trip' | 'flight' | 'cruise' | 'expense' | 'event' | 'requisito' | 'self'
+    minimo: Papel
+  }
 > = {
   viagem: { nome: 'trips', via: 'self', minimo: 'editor' },
   participante: { nome: 'travelers', via: 'trip', minimo: 'proprietario' },
@@ -54,6 +58,12 @@ const TABELA: Record<
   // A única entidade que visualizador escreve — e só a própria linha.
   checklist_state: { nome: 'checklist_state', via: 'trip', minimo: 'visualizador' },
   documento: { nome: 'documents', via: 'trip', minimo: 'editor' },
+  // A EXIGENCIA e configuracao da viagem: quem organiza define o que e preciso ter.
+  requisito: { nome: 'document_requirements', via: 'trip', minimo: 'editor' },
+  // A ENTREGA e do viajante — como `checklist_state`, ele escreve a PROPRIA linha
+  // mesmo como visualizador. `autorizar` e que separa o que ele pode escrever
+  // (o dado) do que so quem revisa escreve (o veredito).
+  entrega: { nome: 'document_submissions', via: 'requisito', minimo: 'visualizador' },
   emergencia: { nome: 'emergency_contacts', via: 'trip', minimo: 'editor' },
   categoria: { nome: 'expense_categories', via: 'trip', minimo: 'editor' },
   // A despesa passa pelo caminho transacional em `gravarDespesa`; a entrada aqui
@@ -137,7 +147,29 @@ async function autorizar(
   const souDonoDoItem =
     itemChecklist?.escopo === 'pessoal' && itemChecklist.assigned_to.includes(acesso.participanteId)
 
-  if (!papelAlcanca(acesso.papel, meta.minimo) && !souDonoDoItem) {
+  // Documento PESSOAL do próprio viajante: mesma exceção do item de checklist
+  // acima. Um `visualizador` guarda e substitui o próprio passaporte — é o que a
+  // palavra "cofre" promete, e recusar isso deixaria a única pessoa que tem o
+  // documento dependendo de quem organiza a viagem para subi-lo.
+  //
+  // `documento` continua com mínimo 'editor' na TABELA de propósito: a exceção é
+  // ESTA linha, não a entidade. Documento do grupo, de outra pessoa, ou sem dono
+  // continua caindo no 403 logo abaixo.
+  let documentoAlvo: { escopo: string; traveler_id: string | null } | undefined
+  if (entidade === 'documento' && (op === 'editar' || op === 'remover') && id) {
+    const r = await sql`
+      select escopo, traveler_id from documents where id = ${id} and trip_id = ${acesso.tripId}
+    `
+    documentoAlvo = r[0] as { escopo: string; traveler_id: string | null } | undefined
+  }
+  const souDonoDoDocumento =
+    entidade === 'documento' &&
+    (op === 'criar'
+      ? campos.escopo === 'pessoal' && campos.traveler_id === acesso.participanteId
+      : documentoAlvo?.escopo === 'pessoal' &&
+        documentoAlvo.traveler_id === acesso.participanteId)
+
+  if (!papelAlcanca(acesso.papel, meta.minimo) && !souDonoDoItem && !souDonoDoDocumento) {
     throw new ErroHttp(
       403,
       meta.minimo === 'proprietario'
@@ -164,6 +196,54 @@ async function autorizar(
     !souDonoDoItem
   ) {
     throw new ErroHttp(403, 'Este item pessoal é de outro participante.')
+  }
+
+  // Documento pessoal só é editado/apagado pelo dono ou pelo proprietário. É o par
+  // de escrita do recorte de leitura em `documentosDaViagem`: sem isto, um editor
+  // que não PODE VER o passaporte de outra pessoa ainda poderia sobrescrevê-lo
+  // mandando o id direto.
+  if (
+    entidade === 'documento' &&
+    !papelAlcanca(acesso.papel, 'proprietario') &&
+    documentoAlvo?.escopo === 'pessoal' &&
+    documentoAlvo.traveler_id !== acesso.participanteId
+  ) {
+    throw new ErroHttp(403, 'Este documento é pessoal de outro participante.')
+  }
+
+  // A ENTREGA de um requisito tem DOIS donos, e o 403 mora exatamente entre eles.
+  //
+  //   o dado   (numero, validade, emitido_em, documento_id) e do VIAJANTE
+  //   o veredito (status de revisao, comentario)            e de quem REVISA
+  //
+  // Sem esta separacao, o mesmo endpoint que deixa a Ana cadastrar o passaporte
+  // dela deixaria a Ana se auto-aprovar — e deixaria um editor reescrever o numero
+  // do passaporte alheio, que ele nem pode LER. As duas metades sao checadas
+  // separadamente porque as duas acontecem na mesma linha da mesma tabela.
+  if (entidade === 'entrega') {
+    const dono = String(campos.traveler_id ?? '')
+    const meu = !dono || dono === acesso.participanteId
+    const revisor = papelAlcanca(acesso.papel, 'editor')
+
+    const VEREDITOS = ['aprovado', 'rejeitado', 'correcao']
+    const dandoVeredito =
+      (typeof campos.status === 'string' && VEREDITOS.includes(campos.status)) ||
+      campos.comentario !== undefined
+    const DADOS = ['numero', 'validade', 'emitido_em', 'documento_id']
+    const mexendoNoDado = DADOS.some((c) => c in campos)
+
+    if (!meu && !revisor) {
+      throw new ErroHttp(403, 'Você só pode enviar a sua própria documentação.')
+    }
+    if (!meu && mexendoNoDado) {
+      throw new ErroHttp(403, 'A documentação de outro participante é preenchida por ele.')
+    }
+    if (dandoVeredito && !revisor) {
+      throw new ErroHttp(403, 'Só quem organiza a viagem aprova ou recusa um documento.')
+    }
+    if (op === 'remover' && !meu && !revisor) {
+      throw new ErroHttp(403, 'Você só pode apagar a sua própria documentação.')
+    }
   }
 
   // O último proprietário não pode sumir, senão a viagem fica sem quem a gerencie.
@@ -208,6 +288,12 @@ function recorte(entidade: Entidade, tripId: string, posicao: number) {
   if (meta.via === 'event') {
     return {
       sql: `and event_id in (select id from itinerary_events where trip_id = $${posicao})`,
+      params: [tripId],
+    }
+  }
+  if (meta.via === 'requisito') {
+    return {
+      sql: `and requirement_id in (select id from document_requirements where trip_id = $${posicao})`,
       params: [tripId],
     }
   }
@@ -391,6 +477,24 @@ async function conferirPai(
       'despesa não encontrada nesta viagem',
     )
   }
+  if (entidade === 'entrega') {
+    await vinculo(
+      'requirement_id',
+      (id) => sql`select 1 from document_requirements where id = ${id} and trip_id = ${tripId}`,
+      'requisito nao encontrado nesta viagem',
+    )
+    await conferirParticipantes(tripId, [campos.traveler_id])
+    // O arquivo anexado tem que ser desta viagem tambem: sem isto, uma entrega
+    // apontaria para o passaporte guardado em OUTRA viagem, e /api/documento
+    // (que confere o trip do documento, nao o da entrega) o serviria.
+    if (campos.documento_id) {
+      await vinculo(
+        'documento_id',
+        (id) => sql`select 1 from documents where id = ${id} and trip_id = ${tripId}`,
+        'documento nao encontrado nesta viagem',
+      )
+    }
+  }
   if (entidade === 'pagamento') {
     await conferirParticipantes(tripId, [campos.de_id, campos.para_id])
     if (campos.parcela_id) {
@@ -493,6 +597,26 @@ async function aplicar(
   delete campos.escalas
   delete campos.portos
 
+  // Quem revisou e quando: carimbado pelo SERVIDOR, nunca aceito do cliente. Um
+  // `revisado_por` vindo do navegador deixaria qualquer aprovacao assinada por
+  // qualquer pessoa, e a assinatura e o unico registro de quem conferiu.
+  if (op.entidade === 'entrega') {
+    delete campos.revisado_por
+    delete campos.revisado_em
+    if (['aprovado', 'rejeitado', 'correcao'].includes(String(campos.status ?? ''))) {
+      campos.revisado_por = acesso.participanteId
+      campos.revisado_em = new Date().toISOString()
+    }
+    // Reenviar depois de uma recusa limpa o veredito anterior: manter o
+    // comentario "foto ilegivel" ao lado da foto nova e dizer a pessoa que ela
+    // errou de novo sem ninguem ter olhado.
+    if (campos.status === 'enviado') {
+      campos.comentario = null
+      campos.revisado_por = null
+      campos.revisado_em = null
+    }
+  }
+
   // `email` no participante liga o registro a uma conta existente. Sem conta com
   // esse e-mail, o participante fica como nome na lista — que é o comportamento
   // correto para quem viaja junto mas não usa o app.
@@ -521,14 +645,22 @@ async function aplicar(
     // O dia do roteiro é o único upsert: a tela edita "02 de janeiro" sem saber
     // se já existe linha para ele, e (trip_id, dia) é unique. Sem o on conflict,
     // anotar um dia duas vezes viraria 409 em vez de salvar.
-    const conflito =
-      op.entidade === 'dia'
-        ? ` on conflict (trip_id, dia) do update set ${cols
-            .filter((c) => c !== 'dia')
-            .map((c) => `${c} = excluded.${c}`)
-            .concat('updated_at = now()')
-            .join(', ')}`
-        : ''
+    // Dois upserts, pela mesma razao: a tela edita sem saber se a linha ja existe.
+    // O dia do roteiro e unique por (trip_id, dia); a entrega, por (requisito,
+    // pessoa). Sem o on conflict, reenviar o passaporte pela fila offline viraria
+    // 409 em vez de atualizar a entrega que ja estava la.
+    const CHAVE_UPSERT: Partial<Record<Entidade, string[]>> = {
+      dia: ['dia'],
+      entrega: ['requirement_id', 'traveler_id'],
+    }
+    const chave = CHAVE_UPSERT[op.entidade]
+    const conflito = chave
+      ? ` on conflict (${chave.join(', ')}) do update set ${cols
+          .filter((c) => !chave.includes(c))
+          .map((c) => `${c} = excluded.${c}`)
+          .concat('updated_at = now()')
+          .join(', ')}`
+      : ''
     await sql.query(
       `insert into ${meta.nome} (${nomes.join(', ')})
        values (${nomes

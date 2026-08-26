@@ -11,6 +11,7 @@
 // seis cabeçalhos de import iguais e nada mais.
 import { ExternalLink, Phone, Anchor, Waves, MapPin, Moon, Plane } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
+import { DocumentosVinculados } from '../CofreDocumento.tsx'
 import { Cartao, Vazio, Rotulo, Badge, Copiar, Titulo, Linha } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
 import {
@@ -180,6 +181,8 @@ export function Voos() {
                   {String(v.nota)}
                 </p>
               )}
+
+              <DocumentosVinculados vinculo={{ voo: String(v.id) }} titulo="Documentos do voo" />
             </Cartao>
           )
         })}
@@ -434,6 +437,8 @@ export function Hospedagem() {
                   </a>
                 )}
               </div>
+
+              <DocumentosVinculados vinculo={{ reserva: String(h.id) }} />
             </Cartao>
           )
         })}
@@ -494,68 +499,9 @@ export function Lugares() {
 }
 
 // ---------------------------------------------------------------- Documentos
-
-export function Documentos() {
-  const { snapshot } = useTrip()
-  const docs = (snapshot?.documentos ?? []) as any[]
-
-  if (docs.length === 0) {
-    return (
-      <>
-        <Titulo acao={<AdminAcoes entidade="documento">Documento</AdminAcoes>}>Documentos</Titulo>
-        <Vazio
-          titulo="Nenhum documento cadastrado"
-          texto="Localizadores, apólices e links importantes ficam aqui."
-        />
-      </>
-    )
-  }
-
-  return (
-    <>
-      <Titulo acao={<AdminAcoes entidade="documento">Documento</AdminAcoes>}>Documentos</Titulo>
-      <div className="space-y-2">
-        {docs.map((d) => (
-          <Cartao key={String(d.id)}>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-medium">{String(d.titulo)}</p>
-                {d.obs && (
-                  <p className="mt-0.5 text-[13px] text-(--color-tinta-3)">{String(d.obs)}</p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <AdminAcoes entidade="documento" registro={d} />
-                {!d.valor ? (
-                  <span className="rounded-full bg-(--color-alerta-bg) px-2.5 py-1 text-[11px] font-semibold text-(--color-alerta-ink)">
-                    A preencher
-                  </span>
-                ) : d.tipo === 'link' ? (
-                  <a
-                    href={String(d.valor)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="toque inline-flex items-center gap-1.5 text-sm font-medium"
-                    style={{ color: 'var(--destaque)' }}
-                  >
-                    Abrir <ExternalLink size={14} />
-                  </a>
-                ) : d.tipo === 'telefone' ? (
-                  <a
-                    href={`tel:${String(d.valor).replace(/\s/g, '')}`}
-                    className="tab-num toque inline-flex items-center gap-1.5 text-sm font-semibold"
-                    style={{ color: 'var(--destaque)' }}
-                  >
-                    <Phone size={14} /> {String(d.valor)}
-                  </a>
-                ) : (
-                  <Copiar valor={String(d.valor)} rotulo={String(d.titulo)} />
-                )}
-              </div>
-            </div>
-          </Cartao>
-        ))}
-      </div>
-    </>
-  )
-}
+//
+// A aba Documentos virou o Cofre (components/tabs/Cofre.tsx): a lista simples que
+// morava aqui nao sumiu, ela e o mesmo `snapshot.documentos` desenhado la, agora
+// junto dos arquivos, agrupado por destino e com estado offline. Localizador,
+// telefone e link continuam sendo editados pelo EditorSheet, pela entidade
+// `documento` — o Cofre so ganhou os campos de arquivo em volta.

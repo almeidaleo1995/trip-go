@@ -7,6 +7,7 @@ import { viagemPadrao, getSnapshot } from '@/lib/db.ts'
 import { ErroHttp } from '@/lib/session.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { SCHEMA_VERSION, validarImportacao } from '@/lib/schema.ts'
+import { normalizarCategoria, tagsComCategoria } from '@/lib/cofre.ts'
 import { rota } from '@/lib/api.ts'
 import { parseData } from '@/lib/derive.ts'
 import { NextResponse } from 'next/server'
@@ -62,6 +63,9 @@ export const GET = rota(async (req) => {
   const nomePorReserva = new Map(s.reservas.map((r) => [String(r.id), String(r.nome)]))
   const tituloPorDocumento = new Map(s.documentos.map((d) => [String(d.id), String(d.titulo)]))
   const nomePorParticipante = new Map(s.participantes.map((p) => [String(p.id), String(p.nome)]))
+  const nomePorRequisito = new Map(
+    (s.requisitos ?? []).map((r) => [String(r.id), String(r.nome)]),
+  )
   const parcelasPorDespesa = new Map<string, Record<string, unknown>[]>()
   for (const p of fin?.parcelas ?? []) {
     const chave = String(p.expense_id)
@@ -232,7 +236,8 @@ export const GET = rota(async (req) => {
       valor_estimado_centavos: numero(c.valor_estimado_centavos),
       detalhe: texto(c.detalhe),
       ordem: Number(c.ordem ?? 0),
-      assigned_to_nomes: (c.assigned_to as string[] | null)?.map((id) => nomePorParticipante.get(id))
+      assigned_to_nomes: (c.assigned_to as string[] | null)
+        ?.map((id) => nomePorParticipante.get(id))
         .filter((nome): nome is string => Boolean(nome)),
       prioridade: c.prioridade,
       pais: texto(c.pais),
@@ -242,12 +247,83 @@ export const GET = rota(async (req) => {
       fonte_detalhe: texto(c.fonte_detalhe),
       fonte_consultado_em: dia(c.fonte_consultado_em),
     })),
+    // O CONTEUDO do arquivo nao sai aqui, so o cartao de identificacao dele. Um
+    // backup com trinta PDFs em base64 deixaria de ser um arquivo que alguem abre
+    // e leria — os bytes ficam em `document_files` e saem por /api/documento.
     documentos: s.documentos.map((d) => ({
       titulo: String(d.titulo),
       valor: texto(d.valor),
-      tipo: d.tipo as 'texto' | 'link' | 'telefone',
+      tipo: d.tipo as 'texto' | 'link' | 'telefone' | 'arquivo',
+      // Normalizada, nao crua: a coluna foi texto livre, e uma categoria antiga
+      // ("Companhias aereas") passa na constraint `not valid` do banco mas nao no
+      // enum de `DocumentoSchema` — o backup falharia na propria trava de
+      // round-trip logo abaixo, com 500, so em viagem que ja estava em uso. A
+      // palavra vai junto em `tags`, entao nada se perde.
+      categoria: normalizarCategoria(d.categoria as string | null) ?? undefined,
+      arquivo_url: texto(d.arquivo_url),
+      arquivo_nome: texto(d.arquivo_nome),
+      arquivo_mime: texto(d.arquivo_mime),
+      arquivo_bytes: numero(d.arquivo_bytes),
       obs: texto(d.obs),
       ordem: Number(d.ordem ?? 0),
+      escopo: d.escopo as 'global' | 'pessoal',
+      // Dono e compartilhamento saem por NOME. Sem isto, restaurar um backup
+      // tornaria publico todo documento pessoal.
+      dono_nome: texto(nomePorParticipante.get(String(d.traveler_id))),
+      assigned_to_nomes: (d.assigned_to as string[] | null)
+        ?.map((id) => nomePorParticipante.get(id))
+        .filter((nome): nome is string => Boolean(nome)),
+      tags: tagsComCategoria(d.tags as string[] | null, d.categoria as string | null),
+      importante: Boolean(d.importante),
+      offline: Boolean(d.offline),
+      validade: dia(d.validade),
+      pais: texto(d.pais),
+      cidade: texto(d.cidade),
+      dia: dia(d.dia),
+      reserva: texto(nomePorReserva.get(String(d.reservation_id))),
+    })),
+    // A documentacao EXIGIDA. Sem ela, restaurar um backup traz os arquivos de
+    // volta e perde a pergunta que os organiza: quem ainda deve o que. Os
+    // requisitos saem antes das entregas porque elas apontam para eles por nome.
+    requisitos: (s.requisitos ?? []).map((r) => ({
+      nome: String(r.nome),
+      descricao: texto(r.descricao),
+      categoria: r.categoria as string | undefined,
+      obrigatorio: r.obrigatorio !== false,
+      aplica_todos: r.aplica_todos !== false,
+      // Vazio no arquivo: quem se aplica a quem sai por NOME logo abaixo, porque
+      // id de participante nao sobrevive a exportar de uma viagem e importar noutra.
+      assigned_to: [],
+      assigned_to_nomes: (r.assigned_to as string[] | null)
+        ?.map((id) => nomePorParticipante.get(id))
+        .filter((nome): nome is string => Boolean(nome)),
+      exige_numero: Boolean(r.exige_numero),
+      exige_validade: Boolean(r.exige_validade),
+      exige_arquivo: Boolean(r.exige_arquivo),
+      campo_perfil: r.campo_perfil as string | undefined,
+      prazo: dia(r.prazo),
+      obs: texto(r.obs),
+      ordem: Number(r.ordem ?? 0),
+    })),
+    // A ENTREGA sai sem `documento_id`: o arquivo e reapontado na importacao pelo
+    // titulo do documento, como todo vinculo deste arquivo. O `numero` sai porque
+    // ele E o dado documental — este backup so e gerado por quem ja o enxerga
+    // (`documentacaoDaViagem` redige o de terceiros antes de chegar aqui).
+    entregas: (s.entregas ?? []).map((e) => ({
+      requirement_id: '',
+      traveler_id: '',
+      requisito_nome: texto(nomePorRequisito.get(String(e.requirement_id))),
+      dono_nome: texto(nomePorParticipante.get(String(e.traveler_id))),
+      numero: texto(e.numero),
+      validade: dia(e.validade),
+      emitido_em: dia(e.emitido_em),
+      status: (e.status ?? 'enviado') as
+        | 'pendente'
+        | 'enviado'
+        | 'aprovado'
+        | 'rejeitado'
+        | 'correcao',
+      comentario: texto(e.comentario),
     })),
     emergencia: s.emergencia.map((e) => ({
       titulo: String(e.titulo),

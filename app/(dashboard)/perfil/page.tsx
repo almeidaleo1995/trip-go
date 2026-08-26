@@ -7,9 +7,10 @@
 // quatro viagens tem um perfil só.
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { KeyRound, Mail, Phone, Plus, Camera } from 'lucide-react'
+import { KeyRound, Mail, Phone, Plus, Camera, IdCard } from 'lucide-react'
 import { DashboardLayout } from '@/components/DashboardLayout.tsx'
 import { CartaoViagem, type ViagemResumo } from '@/components/CartaoViagem.tsx'
+import { formatarData } from '@/lib/derive.ts'
 import {
   Avatar,
   Botao,
@@ -28,6 +29,26 @@ import {
 } from '@/components/ui.tsx'
 import { MOEDAS } from '@/lib/schema.ts'
 
+/** Os dados documentais da conta (§12). Todos opcionais: quem viaja dentro do
+    país não precisa de passaporte, e um formulário que exige tudo não é
+    preenchido por ninguém. */
+export type DadosViagem = {
+  nome_completo?: string | null
+  nome_social?: string | null
+  nascimento?: string | null
+  cpf?: string | null
+  rg?: string | null
+  nacionalidade?: string | null
+  passaporte_numero?: string | null
+  passaporte_nome?: string | null
+  passaporte_emissao?: string | null
+  passaporte_validade?: string | null
+  passaporte_pais?: string | null
+  emergencia_nome?: string | null
+  emergencia_telefone?: string | null
+  emergencia_parentesco?: string | null
+}
+
 type Perfil = {
   id: string
   nome: string
@@ -45,6 +66,9 @@ export default function PaginaPerfil() {
   const [carregando, setCarregando] = useState(true)
   const [falhou, setFalhou] = useState(false)
   const [editando, setEditando] = useState(false)
+  const [meusDocumentos, setMeusDocumentos] = useState<Record<string, unknown>[]>([])
+  const [dadosViagem, setDadosViagem] = useState<DadosViagem>({})
+  const [editandoViagem, setEditandoViagem] = useState(false)
   const [trocandoSenha, setTrocandoSenha] = useState(false)
   const [salvandoPref, setSalvandoPref] = useState(false)
 
@@ -59,6 +83,8 @@ export default function PaginaPerfil() {
         if (!vivo.atual) return
         if (!p.usuario) throw new Error('sem usuario')
         setPerfil(p.usuario)
+        setMeusDocumentos(p.documentos ?? [])
+        setDadosViagem(p.viagem ?? {})
         setViagens(v.viagens ?? [])
         setFalhou(false)
       })
@@ -178,6 +204,103 @@ export default function PaginaPerfil() {
           </Cartao>
         </section>
 
+        {/* Dados de viagem (§12). São da CONTA, não da viagem: o CPF é o mesmo em
+            Europa 2027 e num bate-volta a Buenos Aires, e redigitá-lo a cada
+            viagem é o trabalho que este bloco existe para eliminar.
+
+            Só esta tela vê os VALORES. O snapshot de uma viagem carrega apenas
+            quais campos estão preenchidos — uma bolinha verde no painel do
+            administrador não justifica publicar o passaporte de cinco pessoas.
+            Ver `documentacaoDaViagem` em lib/db.ts. */}
+        <section className="mb-5">
+          <div className="mb-2.5 flex items-center justify-between gap-3">
+            <Rotulo>Dados de viagem</Rotulo>
+            <Botao variante="fantasma" onClick={() => setEditandoViagem(true)}>
+              {temDadosViagem(dadosViagem) ? 'Editar' : 'Preencher'}
+            </Botao>
+          </div>
+          <Cartao>
+            {!temDadosViagem(dadosViagem) ? (
+              <div className="flex items-start gap-3">
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: 'var(--color-destaque-fraco)', color: 'var(--destaque)' }}
+                >
+                  <IdCard size={18} />
+                </span>
+                <p className="t-aux">
+                  Guarde aqui CPF, passaporte e contato de emergência. Toda viagem que exigir
+                  esses dados vai encontrá-los prontos, e você não precisa digitá-los de novo.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-(--color-borda)">
+                <Linha rotulo="Nome completo" valor={dadosViagem.nome_completo} />
+                <Linha rotulo="Nome social" valor={dadosViagem.nome_social} />
+                <Linha
+                  rotulo="Nascimento"
+                  valor={dadosViagem.nascimento ? formatarData(dadosViagem.nascimento) : ''}
+                />
+                <Linha rotulo="CPF" valor={mascararCpf(dadosViagem.cpf)} />
+                <Linha rotulo="RG" valor={dadosViagem.rg} />
+                <Linha rotulo="Nacionalidade" valor={dadosViagem.nacionalidade} />
+                <Linha rotulo="Passaporte" valor={dadosViagem.passaporte_numero} />
+                <Linha
+                  rotulo="Passaporte vence em"
+                  valor={
+                    dadosViagem.passaporte_validade
+                      ? formatarData(dadosViagem.passaporte_validade, {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                        })
+                      : ''
+                  }
+                />
+                <Linha rotulo="Emitido por" valor={dadosViagem.passaporte_pais} />
+                <Linha rotulo="Contato de emergência" valor={dadosViagem.emergencia_nome} />
+                <Linha rotulo="Telefone de emergência" valor={dadosViagem.emergencia_telefone} />
+                <Linha rotulo="Parentesco" valor={dadosViagem.emergencia_parentesco} />
+              </div>
+            )}
+          </Cartao>
+        </section>
+
+        {/* Meus documentos (§23). Só os PESSOAIS desta conta, de todas as
+            viagens — o servidor recorta por `travelers.user_id`, e documento
+            pessoal de outro participante nunca chega aqui. O arquivo em si abre
+            no cofre da viagem, onde ele tem o contexto todo. */}
+        {meusDocumentos.length > 0 && (
+          <section className="mb-5">
+            <Rotulo>Meus documentos</Rotulo>
+            <Cartao className="mt-2.5">
+              <ul className="divide-y divide-(--color-borda)">
+                {meusDocumentos.map((d) => (
+                  <li
+                    key={String(d.id)}
+                    className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{String(d.titulo)}</span>
+                      <span className="block text-[13px] text-(--color-tinta-3)">
+                        {String(d.viagem)}
+                        {d.validade ? ` · vence em ${formatarData(String(d.validade))}` : ''}
+                      </span>
+                    </span>
+                    <a
+                      href={`/viagens/${String(d.trip_id)}?aba=documentos`}
+                      className="toque shrink-0 text-[13px] font-medium"
+                      style={{ color: 'var(--destaque)' }}
+                    >
+                      Abrir
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </Cartao>
+          </section>
+        )}
+
         {/* preferências */}
         <section className="mb-5">
           <Rotulo>Preferências</Rotulo>
@@ -230,7 +353,11 @@ export default function PaginaPerfil() {
         <section>
           <div className="mb-2.5 flex items-center justify-between">
             <Rotulo>Minhas viagens</Rotulo>
-            <Link href="/viagens" className="text-sm font-medium" style={{ color: 'var(--destaque)' }}>
+            <Link
+              href="/viagens"
+              className="text-sm font-medium"
+              style={{ color: 'var(--destaque)' }}
+            >
               Gerenciar →
             </Link>
           </div>
@@ -269,6 +396,18 @@ export default function PaginaPerfil() {
       )}
 
       {trocandoSenha && <FormularioSenha aoFechar={() => setTrocandoSenha(false)} />}
+
+      {editandoViagem && (
+        <FormularioDadosViagem
+          dados={dadosViagem}
+          aoFechar={() => setEditandoViagem(false)}
+          aoSalvo={(d) => {
+            setDadosViagem(d)
+            setEditandoViagem(false)
+            avisar('sucesso', 'Dados de viagem salvos.')
+          }}
+        />
+      )}
     </DashboardLayout>
   )
 }
@@ -369,7 +508,10 @@ function FormularioPerfil({
         <Linha rotulo="E-mail" valor={perfil.email} />
 
         {erro && (
-          <p role="alert" className="rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-sm text-(--color-perigo-ink)">
+          <p
+            role="alert"
+            className="rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-sm text-(--color-perigo-ink)"
+          >
             {erro}
           </p>
         )}
@@ -456,10 +598,180 @@ function FormularioSenha({ aoFechar }: { aoFechar: () => void }) {
         />
 
         {erro && (
-          <p role="alert" className="rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-sm text-(--color-perigo-ink)">
+          <p
+            role="alert"
+            className="rounded-xl bg-(--color-perigo-bg) px-3 py-2 text-sm text-(--color-perigo-ink)"
+          >
             {erro}
           </p>
         )}
+      </div>
+    </AppModal>
+  )
+}
+
+// ---------------------------------------------------------------- dados de viagem
+
+/** Algum campo preenchido? Decide entre a ficha e o convite a preencher. */
+function temDadosViagem(d: DadosViagem): boolean {
+  return Object.values(d).some((v) => Boolean(v && String(v).trim()))
+}
+
+/** CPF na tela com máscara; no banco ele é guardado só como dígitos. */
+function mascararCpf(cpf?: string | null): string {
+  const n = (cpf ?? '').replace(/\D/g, '')
+  if (n.length !== 11) return cpf ?? ''
+  return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`
+}
+
+/**
+ * O formulário dos dados documentais.
+ *
+ * Vai por POST, não pelo PATCH do perfil: são dois formulários diferentes, e um
+ * endpoint que aceitasse os dois zeraria o passaporte de quem salvasse só o
+ * apelido. Ver o comentário em /api/perfil.
+ */
+function FormularioDadosViagem({
+  dados,
+  aoFechar,
+  aoSalvo,
+}: {
+  dados: DadosViagem
+  aoFechar: () => void
+  aoSalvo: (d: DadosViagem) => void
+}) {
+  const [d, setD] = useState<DadosViagem>(dados)
+  const [erro, setErro] = useState<string | null>(null)
+  const [salvando, setSalvando] = useState(false)
+
+  const set = (k: keyof DadosViagem, v: string) => setD((r) => ({ ...r, [k]: v }))
+  const val = (k: keyof DadosViagem) => (d[k] ?? '') as string
+
+  const salvar = async () => {
+    setErro(null)
+    setSalvando(true)
+    try {
+      const r = await fetch('/api/perfil', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(d),
+      })
+      const corpo = (await r.json().catch(() => null)) as {
+        viagem?: DadosViagem
+        erro?: string
+      } | null
+      if (!r.ok) throw new Error(corpo?.erro ?? 'Não foi possível salvar.')
+      aoSalvo(corpo?.viagem ?? d)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível salvar.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <AppModal
+      titulo="Dados de viagem"
+      descricao="Ficam na sua conta e valem para todas as suas viagens. Ninguém mais vê os valores."
+      tamanho="pequeno"
+      aoFechar={aoFechar}
+      acoes={
+        <>
+          <Botao variante="secundario" onClick={aoFechar}>
+            Cancelar
+          </Botao>
+          <Botao onClick={() => void salvar()} carregando={salvando}>
+            Salvar
+          </Botao>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {erro && <Falha texto={erro} />}
+
+        <Campo rotulo="Nome completo" valor={val('nome_completo')} aoMudar={(v) => set('nome_completo', v)} />
+        <Campo
+          rotulo="Nome social ou apelido"
+          valor={val('nome_social')}
+          aoMudar={(v) => set('nome_social', v)}
+        />
+        <Campo
+          rotulo="Data de nascimento"
+          valor={val('nascimento')}
+          aoMudar={(v) => set('nascimento', v)}
+          tipo="date"
+        />
+        <Campo
+          rotulo="CPF"
+          valor={val('cpf')}
+          aoMudar={(v) => set('cpf', v)}
+          inputMode="numeric"
+          dica="Só os números"
+        />
+        <Campo rotulo="RG" valor={val('rg')} aoMudar={(v) => set('rg', v)} />
+        <Campo
+          rotulo="Nacionalidade"
+          valor={val('nacionalidade')}
+          aoMudar={(v) => set('nacionalidade', v)}
+        />
+
+        <div className="rounded-xl border border-(--color-borda) p-3">
+          <Rotulo>Passaporte</Rotulo>
+          <div className="mt-2 space-y-3">
+            <Campo
+              rotulo="Número"
+              valor={val('passaporte_numero')}
+              aoMudar={(v) => set('passaporte_numero', v)}
+            />
+            <Campo
+              rotulo="Nome como está no passaporte"
+              valor={val('passaporte_nome')}
+              aoMudar={(v) => set('passaporte_nome', v)}
+            />
+            <Campo
+              rotulo="Emitido em"
+              valor={val('passaporte_emissao')}
+              aoMudar={(v) => set('passaporte_emissao', v)}
+              tipo="date"
+            />
+            <Campo
+              rotulo="Válido até"
+              valor={val('passaporte_validade')}
+              aoMudar={(v) => set('passaporte_validade', v)}
+              tipo="date"
+              dica="É esta data que avisa você antes de vencer"
+            />
+            <Campo
+              rotulo="País emissor"
+              valor={val('passaporte_pais')}
+              aoMudar={(v) => set('passaporte_pais', v)}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-(--color-borda) p-3">
+          <Rotulo>Contato de emergência</Rotulo>
+          <div className="mt-2 space-y-3">
+            <Campo
+              rotulo="Nome"
+              valor={val('emergencia_nome')}
+              aoMudar={(v) => set('emergencia_nome', v)}
+            />
+            <Campo
+              rotulo="Telefone"
+              valor={val('emergencia_telefone')}
+              aoMudar={(v) => set('emergencia_telefone', v)}
+              tipo="tel"
+              inputMode="tel"
+            />
+            <Campo
+              rotulo="Parentesco"
+              valor={val('emergencia_parentesco')}
+              aoMudar={(v) => set('emergencia_parentesco', v)}
+              dica="Mãe, cônjuge, amigo…"
+            />
+          </div>
+        </div>
       </div>
     </AppModal>
   )

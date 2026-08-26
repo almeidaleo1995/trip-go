@@ -220,6 +220,101 @@ Entregue junto com os arquivos:
 - **Um cruzeiro não é uma hospedagem.** Vai em `cruzeiros[]`, com os portos em ordem.
 - **O driver do Neon materializa `timestamp` como `Date`, e imprimir desloca o fuso.** Conferindo o estado da viagem, um evento gravado às `17:30` sai no console como `2026-12-31T20:30:00.000Z` — três horas a mais, porque o `Date` foi construído na hora local. Quem lê isso como verdade "corrige" um roteiro que estava certo. Ao inspecionar, peça texto ao Postgres: `to_char(ocorre_em, 'YYYY-MM-DD"T"HH24:MI')`. É o mesmo motivo pelo qual `/api/export` usa os getters locais e não `toISOString()`.
 
+## Documentos para o cofre
+
+Um PDF ou uma foto que chega junto com a viagem tem dois destinos possíveis, e
+confundi-los é o erro caro: **o texto** vira roteiro, voo, reserva e custo, como
+sempre; **o arquivo em si** vira uma linha em `documentos[]` com `tipo: "arquivo"`
+— o cofre offline do app. O mesmo voucher costuma render os dois.
+
+Ao classificar um arquivo, preencha só o que ele **diz**:
+
+| Campo | De onde sai |
+|---|---|
+| `titulo` | o que a pessoa chamaria isto na tela ("Reserva Hotel Madrid"), não o nome do arquivo |
+| `arquivo_nome` | o nome do arquivo, cru (`Reserva_Hotel_Madrid.pdf`) |
+| `categoria` | uma das catorze do `lib/schema.ts`. Na dúvida, `outro` — nunca invente uma |
+| `cidade` / `pais` | só se o documento nomear o destino |
+| `dia` | a data a que ele pertence, quando houver uma |
+| `reserva` | o **nome** da hospedagem/reserva, não um id |
+| `escopo` | `pessoal` só quando o documento é de UMA pessoa (passaporte, apólice individual) |
+| `dono_nome` | obrigatório se `escopo: "pessoal"` — sem ele a importação rebaixa para `global` |
+| `validade` | a data de expiração impressa (passaporte, seguro, visto) |
+| `offline` | `true` para o que se abre em trânsito: embarque, reserva, seguro, passaporte |
+| `importante` | `true` só para o punhado que se procura correndo |
+| `tags` | palavras que aparecem no documento; não invente taxonomia |
+
+**Não invente.** Se o PDF não diz a cidade, `cidade` fica ausente — a mesma regra
+do resto da skill. Um documento categorizado errado some da busca da pessoa
+exatamente quando ela precisa dele.
+
+**Confira se já existe antes de criar.** Documento é o caso onde duplicar dói
+mais: dois "Reserva Hotel Madrid" no cofre significam que um deles está
+desatualizado e ninguém sabe qual. Compare por título normalizado
+(`normalizarTitulo`, o mesmo de `lib/checklist.ts`) contra `snapshot.documentos`
+antes de gravar — as regras de deduplicação de
+[rules/dedup-e-prioridade.md](rules/dedup-e-prioridade.md) valem aqui inteiras.
+Se bater, **atualize a linha existente** em vez de criar outra.
+
+**Os bytes não passam pelo JSON.** `documentos[]` carrega a ficha; o conteúdo do
+arquivo sobe pela tela do cofre ou por `POST /api/documento` (multipart, campo
+`arquivo` + `campos`). Um JSON de importação com PDFs em base64 dentro deixa de
+ser um arquivo que alguém consegue abrir e conferir.
+
+## Documentação exigida — o que a viagem PEDE de cada pessoa
+
+`documentos[]` guarda o que **existe** (o voucher que chegou por e-mail).
+`requisitos[]` guarda o que **falta** — e um requisito que ninguém cumpriu ainda
+é justamente o caso que importa: sem arquivo, sem entrega, e mesmo assim ele
+precisa aparecer em vermelho na frente de alguém antes do embarque.
+
+Ao processar uma viagem, proponha os requisitos que os **documentos dizem** e os
+que o **trecho** implica:
+
+| De onde vem | Exemplo |
+|---|---|
+| o bilhete | voo internacional → passaporte; cartão de embarque |
+| a reserva | hotel que pede documento na entrada → identidade |
+| o cruzeiro | a companhia lista o que exige no embarque |
+| o carro alugado | carteira de motorista, **só para quem vai dirigir** (`aplica_todos: false`) |
+| o país | exigência de entrada — **só com fonte**, ver abaixo |
+
+Campos, em `reference/formato.md`. Os que decidem o comportamento:
+
+- `obrigatorio: false` → é uma **recomendação**: aparece na lista, não conta como
+  pendência e não derruba a porcentagem de ninguém.
+- `aplica_todos: false` + `assigned_to_nomes` → vale só para as pessoas nomeadas.
+  É como "documento de menor" e "carteira de motorista" existem sem cobrar todo
+  mundo por algo que não lhes diz respeito.
+- `exige_numero` / `exige_validade` / `exige_arquivo` → o que a pessoa entrega.
+  Podem coexistir (passaporte quer os três) ou vir sozinhos (CPF quer só o número).
+  **Nenhum dos três ligado** é válido: é o requisito que só pede o de-acordo.
+- `campo_perfil` → `cpf` | `rg` | `passaporte` | `nascimento` | `nacionalidade` |
+  `emergencia`. Liga o requisito ao perfil da CONTA, para o dado não ser pedido de
+  novo a cada viagem. Use sempre que houver um campo equivalente.
+- `prazo` → data limite para **enviar**, que não é a validade do documento. Um
+  passaporte válido até 2031 ainda pode estar atrasado para entrega.
+
+### Não invente exigência legal
+
+Esta é a regra que mais custa se for quebrada: alguém pode não viajar por causa
+dela.
+
+- Exigência que o **documento em mãos afirma** (o cruzeiro lista o que pede no
+  embarque) → cadastre, com a fonte na `descricao`.
+- Exigência de **entrada em país** (visto, vacina, validade mínima de passaporte,
+  ETIAS) → **pesquise antes** em fonte oficial (consulado, chancelaria, órgão de
+  imigração), registre a fonte e a data em `obs`, e prefira `obrigatorio: true`
+  apenas quando a fonte for explícita. Regra que você não confirmou **não entra**.
+- Nunca deduza de "é Europa, então…". Regras mudam, e a que mudou é a que quebra.
+
+### Entregas
+
+`entregas[]` só faz sentido quando você está **restaurando um backup**. Ao montar
+uma viagem nova a partir de PDFs, gere `requisitos[]` e deixe `entregas[]` vazio:
+quem entrega é a pessoa, na tela, e uma entrega inventada marca como resolvido um
+passaporte que ninguém conferiu.
+
 ## Sugestões de checklist para uma viagem que já existe
 
 Formato completo, regras de deduplicação/prioridade e o mapeamento nome→campo estão em:

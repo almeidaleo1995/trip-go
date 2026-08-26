@@ -106,7 +106,75 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
   "documentos": [
     { "titulo": "Localizador LATAM", "valor": "WSZIAK", "tipo": "texto" },
     { "titulo": "Portal oficial do ETIAS", "valor": "https://travel-europe.europa.eu",
-      "tipo": "link" }
+      "tipo": "link" },
+
+    // O mesmo bloco guarda os ARQUIVOS do cofre. `tipo: "arquivo"` descreve um
+    // documento cujo conteudo e um PDF ou imagem — os BYTES nunca entram no JSON
+    // (um backup com trinta PDFs em base64 deixa de ser legivel); eles sobem pela
+    // tela, ou por POST /api/documento. Aqui vai so a ficha.
+    { "titulo": "Reserva Hotel Madrid",
+      "tipo": "arquivo",
+      "categoria": "hospedagem",     // pessoal|passaporte|seguro|voo|trem|onibus|
+                                     // hospedagem|reserva|ingresso|transfer|
+                                     // financeiro|saude|emergencia|outro
+      "arquivo_nome": "Reserva_Hotel_Madrid.pdf",
+      "cidade": "Madri", "pais": "Espanha",
+      "dia": "2027-01-01",           // dia do roteiro a que ele pertence
+      "reserva": "Hotel Riu Plaza Espana",  // por NOME; id nao sobrevive a importacao
+      "escopo": "global",            // global = do grupo | pessoal = de uma pessoa so
+      "dono_nome": null,             // obrigatorio quando escopo = "pessoal"
+      "assigned_to_nomes": [],       // com quem mais o dono compartilhou
+      "tags": ["hotel", "madri"],
+      "importante": false,
+      "offline": true,               // deve abrir sem internet durante a viagem
+      "validade": null,              // "2031-04-12" num passaporte, por exemplo
+      "obs": null },
+
+    { "titulo": "Passaporte do Leonardo",
+      "tipo": "arquivo", "categoria": "passaporte",
+      "escopo": "pessoal", "dono_nome": "Leonardo",
+      "importante": true, "offline": true,
+      "validade": "2031-04-12" }
+  ],
+
+  // O que a viagem EXIGE de cada pessoa. E o oposto de `documentos`: aquele
+  // guarda o que ja existe, este guarda a exigencia — e ela vale mesmo quando
+  // ninguem cumpriu, que e o caso interessante.
+  "requisitos": [
+    { "nome": "Passaporte",
+      "descricao": "Passaporte valido durante toda a viagem.",
+      "categoria": "passaporte",     // mesma lista de categorias de `documentos`
+      "obrigatorio": true,           // false = recomendado, nao conta como pendencia
+      "aplica_todos": true,          // true cobre quem entrar na viagem depois
+      "assigned_to_nomes": null,     // so quando aplica_todos = false; por NOME
+      "exige_numero": true,          // os tres podem coexistir ou vir sozinhos;
+      "exige_validade": true,        // nenhum ligado = requisito que so pede
+      "exige_arquivo": true,         // o de-acordo da pessoa
+      "campo_perfil": "passaporte",  // cpf|rg|passaporte|nascimento|nacionalidade|
+                                     // emergencia — puxa do perfil da CONTA, para
+                                     // o dado nao ser pedido a cada viagem
+      "prazo": "2027-11-30",         // limite para ENVIAR. Nao e a validade acima.
+      "obs": null,
+      "ordem": 0 },
+
+    { "nome": "Carteira de motorista",
+      "categoria": "pessoal", "obrigatorio": false,
+      "aplica_todos": false, "assigned_to_nomes": ["Leonardo"],
+      "exige_numero": true, "exige_validade": true, "exige_arquivo": true,
+      "descricao": "So para quem vai dirigir." }
+  ],
+
+  // A ENTREGA de um requisito por uma pessoa. So preencha ao RESTAURAR um
+  // backup: numa viagem nova quem entrega e a pessoa, na tela. Entrega inventada
+  // marca como resolvido um passaporte que ninguem conferiu.
+  "entregas": [
+    { "requisito_nome": "Passaporte",   // por NOME, como todo vinculo deste arquivo
+      "dono_nome": "Leonardo",
+      "numero": "AB123456",
+      "validade": "2031-04-12",
+      "emitido_em": "2021-04-12",
+      "status": "aprovado",             // pendente|enviado|aprovado|rejeitado|correcao
+      "comentario": null }               // o que o revisor pediu, quando recusou
   ],
 
   "emergencia": [

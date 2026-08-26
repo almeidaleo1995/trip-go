@@ -20,9 +20,15 @@ const BANCO = 'viagem'
 //           ganhou `opcoes` e uma dúzia de campos (fim_em, dicas, links...)
 //   3 -> 4  cada item de checklist ganhou assigned_to, prioridade, pais/cidade,
 //           os três vínculos de roteiro, pendente e os três campos de fonte
-const VERSAO = 4
+//   4 -> 5  `documents` virou o cofre: escopo/assigned_to, categoria fechada,
+//           tags, importante, offline, validade e os vinculos com a viagem
+//   5 -> 6  o cofre virou centro de documentacao: o snapshot ganhou `requisitos`,
+//           `entregas` e `perfis`. Sem a subida, a aba Documentos pinta pelo cache
+//           antigo, nao acha nenhum dos tres e quebra antes de a rede responder.
+const VERSAO = 6
 const SNAPSHOT = 'snapshot'
 const FILA = 'fila'
+const ARQUIVOS = 'arquivos'
 
 export type Operacao = {
   op: 'criar' | 'editar' | 'remover'
@@ -51,6 +57,11 @@ function abrir(): Promise<IDBDatabase | null> {
         // A fila SOBREVIVE: são escritas que a pessoa fez e ainda não subiram.
         // Apagá-la perderia trabalho de verdade.
         if (!db.objectStoreNames.contains(FILA)) db.createObjectStore(FILA, { autoIncrement: true })
+        // Os arquivos do cofre também SOBREVIVEM, e pelo motivo mais forte de
+        // todos: são o que a pessoa vai abrir no aeroporto sem sinal. Apagá-los
+        // numa subida de versão esvaziaria o cofre exatamente quando o app
+        // atualiza — e sem rede não há como baixar de novo.
+        if (!db.objectStoreNames.contains(ARQUIVOS)) db.createObjectStore(ARQUIVOS)
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => resolve(null)
@@ -119,4 +130,44 @@ export function tamanhoFila(): Promise<number> {
 
 export function limparFila(): Promise<unknown> {
   return transacao(FILA, 'readwrite', (s) => s.clear(), null)
+}
+
+// ---------------------------------------------------------------- cofre offline
+
+/**
+ * Um arquivo do cofre guardado NESTE aparelho.
+ *
+ * `documents.offline` no servidor e a INTENCAO ("este documento deve estar
+ * disponivel offline"); isto aqui e o FATO ("este aparelho ja tem os bytes").
+ * Os dois nao andam juntos de proposito: o mesmo documento pode estar baixado no
+ * celular e nao no notebook, e e o celular que vai para o aeroporto.
+ *
+ * `erro` guarda a ultima falha de download para a tela poder mostrar o estado
+ * vermelho e um botao de tentar de novo, em vez de um cartao que so nao abre.
+ */
+export type ArquivoOffline = {
+  blob: Blob
+  mime: string
+  nome: string
+  bytes: number
+  salvo_em: string
+}
+
+export function lerArquivo(documentoId: string): Promise<ArquivoOffline | null> {
+  return transacao<ArquivoOffline | null>(ARQUIVOS, 'readonly', (s) => s.get(documentoId), null)
+}
+
+export function gravarArquivo(documentoId: string, arquivo: ArquivoOffline): Promise<unknown> {
+  return transacao(ARQUIVOS, 'readwrite', (s) => s.put(arquivo, documentoId), null)
+}
+
+export function removerArquivo(documentoId: string): Promise<unknown> {
+  return transacao(ARQUIVOS, 'readwrite', (s) => s.delete(documentoId), null)
+}
+
+/** Ids do que ja esta baixado. E so o que a tela precisa para pintar os semaforos. */
+export function arquivosSalvos(): Promise<string[]> {
+  return transacao<string[]>(ARQUIVOS, 'readonly', (s) => s.getAllKeys(), []).then((ks) =>
+    ks.map(String),
+  )
 }

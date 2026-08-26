@@ -61,6 +61,9 @@ export type Snapshot = {
   checklist: Record<string, any>[]
   checklist_state: Record<string, any>[]
   documentos: Record<string, any>[]
+  requisitos: Record<string, any>[]
+  entregas: Record<string, any>[]
+  perfis: Record<string, any>[]
   emergencia: Record<string, any>[]
   mensagens: Record<string, any>[]
   alteracoes: Record<string, any>[]
@@ -255,6 +258,7 @@ const LISTA: Record<string, keyof Snapshot> = {
   lugar: 'lugares',
   checklist_item: 'checklist',
   documento: 'documentos',
+  requisito: 'requisitos',
   emergencia: 'emergencia',
   participante: 'participantes',
 }
@@ -282,8 +286,18 @@ const FINANCEIRO_VAZIO: FinanceiroPessoal = {
  */
 function normalizar(s: Snapshot): Snapshot {
   const f = s?.financeiro as unknown as { admin?: boolean } | null | undefined
-  if (f && typeof f.admin === 'boolean') return s
-  return { ...s, financeiro: FINANCEIRO_VAZIO }
+  // As tres listas da documentacao entraram na VERSAO 6 do cache. A subida ja
+  // descarta o snapshot antigo, mas o cinto continua valendo: um snapshot que
+  // chegue por outro caminho (a resposta de uma escrita antiga na fila) nao pode
+  // derrubar a aba inteira por causa de um `.map` num undefined.
+  const base = {
+    ...s,
+    requisitos: s?.requisitos ?? [],
+    entregas: s?.entregas ?? [],
+    perfis: s?.perfis ?? [],
+  }
+  if (f && typeof f.admin === 'boolean') return base
+  return { ...base, financeiro: FINANCEIRO_VAZIO }
 }
 
 /**
@@ -422,6 +436,27 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
     novo.dias = existente
       ? s.dias.map((d) => (d === existente ? { ...d, ...op.campos } : d))
       : [...s.dias, { id: op.id, ...op.campos }]
+    return novo
+  }
+
+  // A entrega e unique por (requisito, pessoa) no servidor, e a tela salva sem
+  // saber se a linha ja existe. Espelhar `criar` como push deixaria duas entregas
+  // do mesmo passaporte na tela ate o proximo sync — e o painel contaria a pessoa
+  // duas vezes. Mesmo motivo do `dia` acima.
+  if (op.entidade === 'entrega') {
+    const chave = (x: Record<string, any>) =>
+      `${x.requirement_id}:${x.traveler_id}`
+    const nova = { id: op.id, ...op.campos } as Record<string, any>
+    if (op.op === 'remover') {
+      novo.entregas = s.entregas.filter((x) => x.id !== op.id)
+      return novo
+    }
+    const existente = s.entregas.find(
+      (x) => x.id === op.id || (op.op === 'criar' && chave(x) === chave(nova)),
+    )
+    novo.entregas = existente
+      ? s.entregas.map((x) => (x === existente ? { ...x, ...op.campos } : x))
+      : [...s.entregas, nova]
     return novo
   }
 

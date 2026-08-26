@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import {
+  Anel,
   Badge,
   Cartao,
   Progresso,
@@ -34,13 +35,20 @@ import {
   useAviso,
 } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
+import { DocumentoDoItem } from '../CofreDocumento.tsx'
+import { ChecklistDocumentacao } from './Documentacao.tsx'
+import { type AbaId } from '../Shell.tsx'
 import { progressoChecklist, formatarData, parseData } from '@/lib/derive.ts'
 import {
   ChecklistSugestoesBatchSchema,
   PRIORIDADES_CHECKLIST,
   type ChecklistItemSchema,
 } from '@/lib/schema.ts'
-import { resolverSugestoes, type ContextoResolucao, type ResultadoResolucao } from '@/lib/checklist.ts'
+import {
+  resolverSugestoes,
+  type ContextoResolucao,
+  type ResultadoResolucao,
+} from '@/lib/checklist.ts'
 import { buscarClima, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 
 type ChecklistItem = z.infer<typeof ChecklistItemSchema>
@@ -216,44 +224,6 @@ function FiltroPessoa({
   )
 }
 
-/** Anel de progresso — não existia equivalente circular em `ui.tsx` (só o
-    linear `Progresso`), então é SVG puro, sem nova dependência. */
-function AnelProgresso({ pct, tamanho = 128 }: { pct: number; tamanho?: number }) {
-  const espessura = 10
-  const raio = (tamanho - espessura) / 2
-  const circunferencia = 2 * Math.PI * raio
-  const limitado = Math.min(100, Math.max(0, pct))
-  const meio = tamanho / 2
-  return (
-    <svg width={tamanho} height={tamanho} viewBox={`0 0 ${tamanho} ${tamanho}`} role="img" aria-label={`${pct}% concluído`}>
-      <circle cx={meio} cy={meio} r={raio} fill="none" stroke="var(--color-superficie-2)" strokeWidth={espessura} />
-      <circle
-        cx={meio}
-        cy={meio}
-        r={raio}
-        fill="none"
-        stroke="var(--destaque)"
-        strokeWidth={espessura}
-        strokeLinecap="round"
-        strokeDasharray={circunferencia}
-        strokeDashoffset={circunferencia * (1 - limitado / 100)}
-        transform={`rotate(-90 ${meio} ${meio})`}
-        style={{ transition: 'stroke-dashoffset var(--transicao)' }}
-      />
-      <text
-        x="50%"
-        y="50%"
-        textAnchor="middle"
-        dominantBaseline="central"
-        className="tab-num"
-        style={{ fontSize: tamanho * 0.22, fontWeight: 700, fill: 'var(--color-tinta)' }}
-      >
-        {pct}%
-      </text>
-    </svg>
-  )
-}
-
 function LinhaResumo({ cor, rotulo, valor }: { cor: string; rotulo: string; valor: number }) {
   return (
     <div className="flex items-center gap-2 text-[13px]">
@@ -264,7 +234,7 @@ function LinhaResumo({ cor, rotulo, valor }: { cor: string; rotulo: string; valo
   )
 }
 
-export function Checklist() {
+export function Checklist({ irPara }: { irPara?: (a: AbaId) => void }) {
   const { snapshot, mutate, posso } = useTrip()
   const [visao, setVisao] = useState<Visao>('categoria')
   const [pessoaFiltro, setPessoaFiltro] = useState<string>('todos')
@@ -338,6 +308,7 @@ export function Checklist() {
           <Progresso pct={0} />
         </div>
         {posso('editor') && pendentes.length > 0 && <Pendentes itens={pendentes} />}
+        {irPara && <ChecklistDocumentacao aoAbrir={() => irPara('documentacao')} />}
         <Vazio
           titulo="Checklist vazio"
           texto="Quando houver tarefas cadastradas, elas aparecem aqui para marcar."
@@ -354,6 +325,12 @@ export function Checklist() {
   return (
     <>
       {titulo}
+
+      {/* Os documentos exigidos entram como itens VIRTUAIS: eles ficam feitos
+          quando o documento é entregue, e não há o que marcar à mão. Criar linha
+          em `checklist_items` para isso deixaria duas verdades sobre o mesmo
+          fato — e a errada seria a que alguém marcou sem ter o passaporte. */}
+      {irPara && <ChecklistDocumentacao aoAbrir={() => irPara('documentacao')} />}
 
       <div className="mb-5 -mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1">
         {categorias.map((c) => (
@@ -449,7 +426,7 @@ export function Checklist() {
           <Cartao className="text-center">
             <Rotulo>Seu progresso geral</Rotulo>
             <div className="my-3 flex justify-center">
-              <AnelProgresso pct={progresso.pct} />
+              <Anel pct={progresso.pct} tamanho={128} />
             </div>
             <div className="space-y-1.5 text-left">
               <LinhaResumo cor="var(--destaque)" rotulo="Concluídos" valor={progresso.feitos} />
@@ -608,7 +585,8 @@ function Clima() {
             <div key={cidade} className="flex items-center justify-between text-sm">
               <span className="font-medium">{cidade}</span>
               <span className="text-(--color-tinta-2)">
-                {descricaoClima(hoje.codigo)} · {Math.round(hoje.tempMin)}° – {Math.round(hoje.tempMax)}°
+                {descricaoClima(hoje.codigo)} · {Math.round(hoje.tempMin)}° –{' '}
+                {Math.round(hoje.tempMax)}°
               </span>
             </div>
           )
@@ -723,7 +701,10 @@ function ImportarSugestoes() {
     }
 
     const contexto: ContextoResolucao = {
-      participantes: snapshot.participantes.map((p) => ({ id: String(p.id), nome: String(p.nome) })),
+      participantes: snapshot.participantes.map((p) => ({
+        id: String(p.id),
+        nome: String(p.nome),
+      })),
       roteiro: snapshot.roteiro.map((e) => ({ id: String(e.id), titulo: String(e.titulo) })),
       voos: snapshot.voos.map((v) => ({
         id: String(v.id),
@@ -757,7 +738,12 @@ function ImportarSugestoes() {
       <label className="sem-impressao toque inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-(--color-tinta-2) transition-colors hover:bg-(--color-superficie-2)">
         <Upload size={16} />
         Importar sugestões
-        <input type="file" accept="application/json" className="hidden" onChange={aoEscolherArquivo} />
+        <input
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={aoEscolherArquivo}
+        />
       </label>
 
       {resultado && (
@@ -871,7 +857,9 @@ function ItemChecklist({
           </span>
 
           <span className="min-w-0 flex-1">
-            <span className={`block font-medium ${feito ? 'text-(--color-tinta-3) line-through' : ''}`}>
+            <span
+              className={`block font-medium ${feito ? 'text-(--color-tinta-3) line-through' : ''}`}
+            >
               {String(item.titulo)}
             </span>
             {item.detalhe && (
@@ -930,6 +918,14 @@ function ItemChecklist({
         <AdminAcoes entidade="checklist_item" registro={item} permitirTambem={souDono} />
       </div>
 
+      {/* "Conferir seguro viagem" abre a apolice em vez de mandar procurar (§22).
+          O arquivo nao e duplicado: e o mesmo documento do cofre. */}
+      {item.documento_id && (
+        <div className="pl-9">
+          <DocumentoDoItem documentoId={String(item.documento_id)} />
+        </div>
+      )}
+
       {item.fonte_tipo && <ExplicacaoFonte item={item} />}
     </div>
   )
@@ -950,7 +946,9 @@ function ExplicacaoFonte({ item }: { item: ChecklistItem }) {
         <p className="mt-1 text-[12px] text-(--color-tinta-3)">
           {NOME_FONTE[item.fonte_tipo ?? ''] ?? 'Sugestão'}
           {item.fonte_detalhe && <> · {item.fonte_detalhe}</>}
-          {item.fonte_consultado_em && <> · consultado em {formatarData(item.fonte_consultado_em)}</>}
+          {item.fonte_consultado_em && (
+            <> · consultado em {formatarData(item.fonte_consultado_em)}</>
+          )}
         </p>
       )}
     </div>

@@ -17,6 +17,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Request lifecycles](#request-lifecycles)
 - [Authorization](#authorization)
 - [Offline engine](#offline-engine)
+- [Required documentation](#required-documentation)
 - [Project layout](#project-layout)
 - [Getting started](#getting-started)
 - [Deploying](#deploying)
@@ -35,12 +36,12 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | | |
 | --- | --- |
 | **Framework** | Next.js 16.3.2, App Router, React 19.2, Node runtime |
-| **Database** | Neon serverless Postgres — 24 tables, one idempotent `schema.sql` |
+| **Database** | Neon serverless Postgres — 27 tables, one idempotent `schema.sql` |
 | **Auth** | Email + password, scrypt hashes, HMAC-signed httpOnly cookie, 90 days |
 | **Runtime deps** | 4 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react` |
 | **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
-| **Tests** | 156 unit tests, `node --test`, zero test frameworks |
+| **Tests** | 284 unit tests, `node --test`, zero test frameworks |
 | **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
@@ -55,7 +56,7 @@ Three tiers, one rule: **the browser never speaks to Postgres.** The connection 
 flowchart TB
     subgraph BROWSER["🖥️ Browser"]
         direction TB
-        UI["React UI<br/>5 pages + 11 trip tabs"]
+        UI["React UI<br/>5 pages + 12 trip tabs"]
         TP["TripProvider<br/>single source of client state"]
         IDB[("IndexedDB<br/>snapshot cache<br/>+ write queue")]
         SW["Service Worker<br/>app shell only — never /api/**"]
@@ -67,7 +68,7 @@ flowchart TB
         direction TB
         PROXY["proxy.ts<br/>optimistic cookie check<br/>redirect only"]
         RSC["Pages<br/>App Router"]
-        API["Route Handlers<br/>9 endpoints, Node runtime"]
+        API["Route Handlers<br/>10 endpoints, Node runtime"]
     end
 
     subgraph SERVER["🔒 Server-only modules"]
@@ -77,7 +78,7 @@ flowchart TB
         DB["lib/db.ts<br/>SQL + snapshot assembly"]
     end
 
-    NEON[("Neon Postgres<br/>24 tables<br/>credential lives only here")]
+    NEON[("Neon Postgres<br/>27 tables<br/>credential lives only here")]
 
     TP -->|"fetch"| API
     SW -.->|"cache miss"| RSC
@@ -187,7 +188,7 @@ number) instead of silently taking its text with it.
 
 ## Data model
 
-24 tables. Everything trip-scoped cascades from `trips`; everything person-scoped cascades from `users`.
+27 tables. Everything trip-scoped cascades from `trips`; everything person-scoped cascades from `users`.
 
 ```mermaid
 erDiagram
@@ -204,6 +205,11 @@ erDiagram
     trips ||--o{ cruises : has
     trips ||--o{ checklist_items : has
     trips ||--o{ documents : has
+    documents ||--o| document_files : "bytes of"
+    trips ||--o{ document_requirements : "requires"
+    document_requirements ||--o{ document_submissions : "fulfilled by"
+    travelers ||--o{ document_submissions : "delivers"
+    documents ||--o| document_submissions : "attached to"
     trips ||--o{ emergency_contacts : has
     trips ||--o{ expense_categories : has
     trips ||--o{ expenses : has
@@ -285,6 +291,15 @@ flowchart LR
 ```
 
 A fresh database is born correct from the first half. An old database catches up through the second. **Never edit only the first.**
+
+One consequence that bit once: the create half runs **top to bottom**, so a table
+may only reference a table defined *above* it. `itinerary_events` (line ~106) used
+to declare `reserva_id` and `documento_id` inline, pointing at `reservations` and
+`documents` — both defined a couple hundred lines *below*. Existing databases never
+noticed (`if not exists` skipped the block), but `db:push` against an empty one
+failed on a forward reference. Both columns now live only in the migrations
+section, which runs after every table exists. When adding a foreign key, check
+where the target is created.
 
 ---
 
@@ -450,10 +465,54 @@ Three invariants worth keeping when this code is touched:
 - Nobody owes themselves: an expense whose payer is the viewer produces no obligation.
 - An expense with **no payer** is the normal state of a trip still being planned. It counts in the trip total and in nobody's balance.
 
+### Personal documents are scoped the same way
+
+The vault repeats the pattern, not the code: `documentosDaViagem()` in `lib/db.ts`
+decides in the **query** what this session may see.
+
+- `proprietario` reads every row.
+- Everyone else reads `escopo = 'global'`, plus the `pessoal` rows they own
+  (`traveler_id`) or were shared into (`assigned_to`).
+
+An **editor is not entitled to read someone's passport** — planning the itinerary
+is not the same permission as opening a personal document. That mirrors
+`checklistDaViagem`, where a personal checklist item is owner-or-owner-of-the-trip
+too.
+
+The **person filter** in the vault is built from `pessoasComDocumentos()`, not
+from the trip's participant list: it offers only people who own or share a
+document *this session can actually see*. Listing all five names would let a
+common traveller pick "Alana", get an empty screen, and read it as "Alana
+uploaded nothing" when the truth is "her personal documents are not mine to
+see". The panel says so in one line, and the owner — who does see everything —
+gets the same control with no caveat.
+
+The read scope alone is not enough, so it is closed twice more:
+
+- `autorizar()` in `/api/mutate` refuses `editar`/`remover` on a `pessoal`
+  document owned by somebody else — otherwise an editor who cannot *see* a
+  passport could still overwrite it by guessing the id.
+- `/api/documento` re-runs the same check before streaming bytes. It does not go
+  through the snapshot, and a URL can be typed by hand.
+
+There is one **deliberate exception**, and it runs the other way. A
+`visualizador` may create, replace and delete **their own `pessoal` document** —
+in `autorizar()` (`souDonoDoDocumento`, the same escape hatch a personal
+checklist item already had) and in `POST /api/documento`. Without it the one
+person who actually holds the passport would depend on the trip's organiser to
+upload it, which is the opposite of what a vault is for. Everything else stays
+`editor`: the group's voucher, somebody else's row, a document with no owner.
+
+`podeEscrever()` / `podeApagar()` in `lib/cofre.ts` mirror those rules on the
+client so the UI does not offer a button that turns into a 403 — and
+`lib/cofre.test.ts` asserts the two halves agree, because a mirror that drifts is
+worse than no mirror.
+
 Two invariants enforced server-side regardless of role:
 
 - A `visualizador` writing `checklist_state` for someone else's `traveler_id` → **403**.
 - Removing or demoting the **last** `proprietario` → **409**. A trip cannot become unmanageable.
+- Reading or writing another participant's `pessoal` document → **403**, on all three paths above.
 
 ---
 
@@ -485,11 +544,135 @@ Three cooperating pieces, each written by hand for a reason:
 
 | Piece | ~Lines | Instead of | Why |
 | --- | ---: | --- | --- |
-| `lib/offline.ts` | 101 | dexie | Two object stores and five operations. |
+| `lib/offline.ts` | 160 | dexie | Three object stores and nine operations. |
 | `public/sw.js` | 46 | next-pwa | Caches the **shell only**. `/api/**` is never cached — an owner's cached snapshot would leak the budget to the next person opening the app on that device. |
 | `TripProvider.tsx` | 284 | React Query | One object, one queue, one flush. |
 
+### The document vault
+
+The vault is the one place where offline means *files*, not JSON. Three stores now
+live in IndexedDB — `snapshot`, `fila`, and `arquivos` — and the third one has a
+rule the other two don't: **it survives every version bump.** The snapshot cache is
+regenerable by one request, so an upgrade throws it away; the queue and the vault
+are not, and wiping the vault on an app update would empty someone's documents
+exactly when they can't download them again.
+
+Two different facts are deliberately kept apart:
+
+| Fact | Lives in | Means |
+| --- | --- | --- |
+| `documents.offline` | Postgres | The trip decided this document should travel offline. Shared by everyone. |
+| a row in the `arquivos` store | IndexedDB | *This device* has the bytes. |
+
+The same passport can be green on the phone and yellow on the laptop, and the
+phone is the one that boards. `lib/cofreOffline.ts` is the seam (`abrir`,
+`salvarOffline`, `sincronizar`): it looks in IndexedDB **first** and only then hits
+the network, which is what makes a document marked offline independent of any
+request. Swapping Postgres for a bucket later rewrites `baixar()` and nothing else.
+
+The bytes themselves never ride in the snapshot. They live in `document_files`
+(a separate table, keyed 1:1 to `documents`) and are served one at a time by
+`/api/documento`, which re-checks visibility on its own — `documentosDaViagem`
+scoping the snapshot is not enough when a URL can be typed by hand.
+
 `lib/offline.ts` has one absolute rule: **nothing throws to the caller.** A private window, blocked site data, or an exhausted quota means no offline mode — the app still works online. An exception there would be a white screen.
+
+---
+
+## Required documentation
+
+The vault stores what **exists**. This stores what is **missing** — and a
+requirement nobody has met yet is exactly the interesting case: no file, no
+delivery row, and still it has to show up in red in front of somebody before the
+trip. A folder of PDFs cannot represent that, which is why it is a module and not
+a checklist item.
+
+Three tables and one pure engine:
+
+| Piece | Holds |
+| --- | --- |
+| `document_requirements` | what the trip demands: name, category, whether it's mandatory, who it applies to, whether it wants a number / an expiry / a file, an upload deadline |
+| `document_submissions` | one row per *(requirement, person)* — the number, the expiry, the attached vault document, and the review verdict, in the same row |
+| `users.cpf` / `passaporte_*` / `emergencia_*` | the person's documental data, on the **account**, so a CPF is not retyped for every trip |
+| `lib/documentacao.ts` | the whole traffic light, pure and tested — no DOM, no network |
+
+Four decisions that explain the rest:
+
+**Pending is the absence of a row.** Creating a requirement does not write five
+submissions. Otherwise every participant who joins or leaves would need the list
+rewritten, and whoever forgot would have somebody travelling without a demanded
+passport.
+
+**The delivery and the review live in one row, on purpose.** They are two tables
+in theory and one fact in practice — "Ana's passport" has *a* state, not a
+history somebody consults. The history already exists: every write goes through
+`/api/mutate` and lands in `change_log`.
+
+**The status column is the review, never the traffic light.** `estadoDe()`
+computes `vencido`, `atrasado` and `proximo` from the dates at read time. Storing
+the computed light would leave a passport `aprovado` in the database after it
+expired, and nobody re-scans the table at midnight. Expiry beats review in the
+precedence for the same reason: an approved passport expiring in 30 days is not a
+closed matter, it is the most urgent thing there is.
+
+**The percentage counts only the mandatory ones.** A "city guide PDF" marked as a
+recommendation cannot push someone to 80% and make them look blocked when the
+documentation that matters is complete.
+
+### Who sees what
+
+`documentacaoDaViagem()` in `lib/db.ts` returns three lists with three different
+rules, cut **in the query**:
+
+| | requirements | submissions | profiles |
+| --- | --- | --- | --- |
+| `proprietario` | all | all, with numbers | which fields are filled |
+| `editor` | all | everyone's **state**, no passport numbers, no file ids | which fields are filled |
+| `visualizador` | all | own only | own only |
+
+Everyone sees the requirements: knowing what the trip demands exposes nobody, and
+a traveller who cannot see the demand has no way to meet it. An editor chases the
+delivery, so they get the state — but the redaction is a `case` in SQL, not a
+deleted field in React, because deleting it in JavaScript still ships the number
+over the wire where the network tab prints it whole.
+
+That redaction created one trap worth naming: with the id hidden, "no id, so no
+file" would have shown the entire trip as pending. `tem_arquivo` exists so the
+privacy protection does not become a status bug.
+
+### The two owners of one row
+
+A submission has two halves and the 403 lives exactly between them:
+
+- the **data** (`numero`, `validade`, `emitido_em`, `documento_id`) belongs to the traveller
+- the **verdict** (review `status`, `comentario`) belongs to whoever reviews
+
+Without that split, the same endpoint that lets Ana register her passport would
+let Ana approve it, and would let an editor rewrite a passport number they cannot
+even read. `revisado_por` / `revisado_em` are stamped by the **server** — a
+`revisado_por` accepted from the browser would let any approval be signed by
+anybody, and that signature is the only record of who checked.
+
+Re-sending after a rejection clears the previous verdict: leaving "illegible
+photo" next to the new photo tells the person they got it wrong again before
+anyone has looked.
+
+### Where it shows up
+
+The engine feeds four screens without duplicating a single row:
+
+- **`components/tabs/Documentacao.tsx`** — the traveller's own list, and the
+  organiser's panel. One matrix, read by row or by column; two files would drift
+  on the first new traffic-light rule.
+- **Checklist** — `checklistDaDocumentacao()` returns **virtual** items with ids
+  derived from the requirement. Nothing is written to `checklist_items`: ticking
+  "register passport" by hand and then actually registering it would leave two
+  truths about one fact, and the wrong one would be the hand-ticked one.
+- **Itinerary** — the day view lists what the trip demands of you. "Of the day" is
+  wider than a matching date: whoever boards today needs the passport, which has
+  no date attached to it.
+- **Home and the vault** — `AvisoDocumentacao` answers "what do I need to do now?"
+  where the person already is, instead of waiting for them to open the right tab.
 
 ---
 
@@ -506,7 +689,7 @@ travel-guide/
 │   │   ├── viagens/             # trip list: create, duplicate, delete
 │   │   │   └── [id]/            # ← the trip app: Shell + TripProvider + 11 tabs
 │   │   └── perfil/              # account, password, preferences
-│   ├── api/                     # 9 route handlers, all Node runtime
+│   ├── api/                     # 10 route handlers, all Node runtime
 │   ├── layout.tsx               # fonts self-hosted at build, toast provider
 │   └── globals.css              # design tokens as CSS custom properties
 │
@@ -515,6 +698,7 @@ travel-guide/
 │   ├── Shell.tsx                # sidebar on desktop, 4-slot tab bar + "More" on mobile
 │   ├── EditorSheet.tsx          # ONE schema-driven editor for most entities
 │   ├── FormDespesa.tsx          # the money form: pagador, divisão, parcelas
+│   ├── CofreDocumento.tsx       # vault pieces: card, preview, small modal, offline hook
 │   ├── MapaRota.tsx             # hand-projected SVG route map
 │   ├── PdfBolso.tsx             # print-only pocket sheet — window.print(), no PDF lib
 │   ├── ui.tsx                   # the whole design system
@@ -535,7 +719,7 @@ travel-guide/
 │
 ├── config/                      # site.ts · theme.ts · navigation.ts
 ├── db/
-│   ├── schema.sql               # 24 tables, idempotent, migrations included
+│   ├── schema.sql               # 27 tables, idempotent, migrations included
 │   └── europa-2027.json         # a real trip in import format (see Limitations)
 ├── scripts/                     # db-push · seed · test-api runner
 ├── tests/api.test.mjs           # integration suite (see Testing)
@@ -556,6 +740,7 @@ travel-guide/
 | `/api/mutate` | `POST` | per entity | Apply the write queue (expense + split + schedule land in one transaction) |
 | `/api/import` | `POST` | signed in | Create a trip from JSON — `dry_run` previews |
 | `/api/export` | `GET` | member | Download in the exact format import accepts |
+| `/api/documento` | `GET` `POST` | member · editor | Stream one vault file · upload one (multipart, 4 MB). Re-checks personal-document visibility on its own. |
 
 Trip duplication is worth a look: it runs **entirely in SQL**, never pulling rows into Node. `md5(old_id || new_id)` gives each copied record a deterministic new id, so children rediscover their copied parents without the server holding a mapping table in memory. Deliberately not copied: `checklist_state` (a new trip starts undone), `messages`, `change_log`, and other participants.
 
@@ -568,7 +753,7 @@ Trip duplication is worth a look: it runs **entirely in SQL**, never pulling row
 ```bash
 npm install
 cp .env.example .env.local          # then fill it in
-npm run db:push                     # creates/updates all 24 tables — idempotent
+npm run db:push                     # creates/updates all 27 tables — idempotent
 npm run dev                         # http://localhost:3000
 ```
 
@@ -660,21 +845,32 @@ node .claude/skills/viagem-para-json/scripts/validar.mjs db/europa-2027.json
 
 ## Testing
 
-### Unit — 156 passing
+### Unit — 290 passing
 
 ```
-lib/financeiro.test.ts 49 tests  the money engine: exact splits, weights, custom
-                                 amounts, installment schedules, overdue/partial/paid,
-                                 balances, debt simplification, and the privacy cut —
-                                 what a common traveller is allowed to receive
-lib/derive.test.ts    67 tests   pure calculations: dates, phases, countdowns,
+lib/derive.test.ts     73 tests  pure calculations: dates, phases, countdowns,
                                  checklist progress, pt-BR money parsing, map projection,
                                  the day model of the itinerary (grouping, day summary,
                                  which day to open, distances, link parsing)
-lib/schema.test.ts    24 tests   the zod contract: field-precise error messages,
+lib/cofre.test.ts      48 tests  the vault: grouping by destination, search, filters,
+                                 the offline traffic light, expiry windows — plus the two
+                                 rules that mirror the server, who may write a document
+                                 and who may delete it, and the legacy-category normaliser
+lib/financeiro.test.ts 44 tests  the money engine: exact splits, weights, custom
+                                 amounts, installment schedules, overdue/partial/paid,
+                                 balances, debt simplification, and the privacy cut —
+                                 what a common traveller is allowed to receive
+lib/documentacao.test.ts 38      required documentation: the whole traffic light, the
+                                 precedence between expiry and review, what counts as
+                                 delivered, the matrix and its two reports
+lib/schema.test.ts     38 tests  the zod contract: field-precise error messages,
                                  calendar rollover, currency, roles, per-entity fields
-lib/session.test.ts   16 tests   scrypt round-trip, tampered/expired tokens,
+lib/session.test.ts    16 tests  scrypt round-trip, tampered/expired tokens,
                                  timing-safe comparison, rate-limit windows
+lib/checklist.test.ts  10 tests  suggestion resolution, title normalisation, dedup
+lib/kml.test.ts         9 tests  KML parsing for the route map
+lib/mapa.test.ts        9 tests  map projection and bounds
+lib/localizar.test.ts   5 tests  place lookup
 ```
 
 `lib/financeiro.ts` carries the heaviest coverage for the same reason `derive.ts` does:
@@ -734,8 +930,21 @@ flowchart TB
 | 3 — `TABELA` entry | Every write returns *"Entidade desconhecida"* |
 | 3 — `via` field | The record is reachable across trips by guessing ids — **security bug** |
 | 5 — `LISTA` entry | Edits only appear after the round trip; no optimistic update |
-| 9 — export/import | Backups silently lose the entity |
+| 9 — export/import | Backups silently lose the entity — including `resumirImportacao`, or the import screen reports "0" for something it did load |
 | 10 — duplicate | Cloned trips come back missing it |
+
+Two traps that only fire on a database **already in use**, and never on a fresh
+one — which is why both shipped green and broke in production:
+
+- A `check` constraint added as `not valid` tolerates the rows already stored and
+  enforces the list on every INSERT from then on. Duplicating a trip and
+  export→import are exactly the two paths that **re-insert old rows**, so a value
+  written before the constraint existed makes them fail with a 500. See
+  `normalizarCategoria()` in `lib/cofre.ts`.
+- Widening an enum in the `create table` half does nothing for a table that
+  already exists. `documents.tipo` listed `'arquivo'` up top while every existing
+  database still carried the three-value constraint, so every upload died on
+  `documents_tipo_check`. The migrations half is not optional.
 
 The `via` field is the one to read twice. It is what scopes every operation by the session's `trip_id` rather than by id alone. `'trip'` for direct children, `'flight'` / `'cruise'` for grandchildren, `'self'` only for the trip row itself.
 
@@ -856,7 +1065,11 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | **Rate limit is per instance** | The counter lives in process memory. On serverless each instance keeps its own, so a distributed attacker gets more than 10 attempts per window. Marked with a `ponytail:` comment at the source. | Move the counter into a Neon table. It is a local change in `lib/session.ts`. |
 | **Last-write-wins** | Two people editing the **same record** inside one sync window: the older write is dropped and reported. Nothing vanishes untraceably — `change_log` keeps both. | Per-field merge, or CRDTs if it ever justifies the cost. |
 | **Routes referenced but not built** | `/esqueci-senha` is listed as public, `/configuracoes`, `/privacidade` and `/termos` are linked from `config/site.ts` and from participant notifications. All 404. | Build the pages, or remove the links. Password reset needs an email provider. |
-| **No binary uploads** | Avatars and document files are **URLs**. `documents.arquivo_url` / `arquivo_mime` / `arquivo_bytes` exist in the schema, but nothing writes them. | Neon Object Storage, S3, or Vercel Blob + an upload route. |
+| **Vault files cap at 4 MB** | `/api/documento` refuses anything larger, and the real ceiling is the serverless request body (4.5 MB on Vercel), not Postgres. A photographed passport and a hotel voucher fit comfortably; a scanned 40-page contract does not. Marked with a `ponytail:` comment at the source. | Direct-to-bucket upload with a signed URL. Raising the number alone would fail at the edge, before the handler runs. |
+| **Vault files live in Postgres `bytea`** | `document_files` keeps the bytes in the same database as everything else, which buys backup, transactions and authorization for free, and costs database size and egress as the vault grows. | `lib/cofreOffline.ts` `baixar()` plus the two handlers in `/api/documento` are the whole seam — the screens never touch storage. Neon Object Storage, S3 or Vercel Blob replaces it without touching the UI. |
+| **Offline vault is available, not encrypted** | Files marked "disponível offline" sit unencrypted in IndexedDB. Anyone holding the unlocked device can open them. The screen says exactly this, and the feature is deliberately never described as a bank-grade vault — it keeps documents *available*, not *secret*. | Encrypt blobs at rest with a key derived from the session; the store already goes through `lib/offline.ts`, so it is one layer, not a rewrite. |
+| **Avatars are still URLs** | `users.avatar_url` takes a link; nothing uploads an image. Document files no longer share this limitation. | Point avatars at `/api/documento`'s upload path, or a bucket. |
+| **Vault links do not survive export/import** | `documents.itinerary_event_id` and `flight_id` are dropped on import — the itinerary is inserted *after* documents (it points back at them), so the ids do not exist yet. `reserva`, `dono_nome` and `assigned_to_nomes` **do** round-trip, by name. The same compromise the checklist already makes. | A second pass that resolves event and flight links by name after the itinerary is inserted. |
 | **Map has no coastline** | The home map projects the route and pins onto an abstract gradient. | A simplified GeoJSON, ~20–50 KB, from a reliable source. |
 | **Export omits credentials** | A restored backup has no passwords. Intentional — the file circulates by email. | None wanted. |
 | **Old expenses import without a split** | A v2 backup records how *many* people shared a cost, never *who*. The importer converts the amount to a total and leaves the split empty rather than inventing participants; the screen marks those expenses "a dividir". | Open each one and choose who divides it. |

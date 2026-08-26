@@ -12,7 +12,8 @@ import { Shell, type AbaId } from '@/components/Shell.tsx'
 import { PdfBolso } from '@/components/PdfBolso.tsx'
 import { Inicio } from '@/components/tabs/Inicio.tsx'
 import { Roteiro } from '@/components/tabs/Roteiro.tsx'
-import { Voos, Cruzeiro, Hospedagem, Lugares, Documentos } from '@/components/tabs/Conteudo.tsx'
+import { Voos, Cruzeiro, Hospedagem, Lugares } from '@/components/tabs/Conteudo.tsx'
+import { Documentos } from '@/components/tabs/Documentos.tsx'
 import { Emergencia } from '@/components/tabs/Interativas.tsx'
 import { Checklist } from '@/components/tabs/Checklist.tsx'
 import { Financeiro } from '@/components/tabs/Financeiro.tsx'
@@ -77,8 +78,10 @@ function App() {
           {aba === 'cruzeiro' && <Cruzeiro />}
           {aba === 'hospedagem' && <Hospedagem />}
           {aba === 'lugares' && <Lugares />}
-          {aba === 'checklist' && <Checklist />}
+          {aba === 'checklist' && <Checklist irPara={setAba} />}
           {aba === 'documentos' && <Documentos />}
+          {/* Mesma tela, rolada até a cobrança — ver ALIAS em Shell. */}
+          {aba === 'documentacao' && <Documentos ancora="exigidos" />}
           {aba === 'emergencia' && <Emergencia />}
           {aba === 'financeiro' && <Financeiro />}
           {aba === 'dados' && <Dados />}

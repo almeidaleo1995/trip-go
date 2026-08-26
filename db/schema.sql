@@ -136,8 +136,9 @@ create table if not exists itinerary_events (
   -- custo ESTIMADO deste item. Despesa de verdade mora em `expenses` e nao e
   -- espelhada aqui: misturar estimativa com gasto registrado e o erro do modulo.
   custo_centavos integer check (custo_centavos is null or custo_centavos >= 0),
-  reserva_id  text references reservations(id) on delete set null,
-  documento_id text references documents(id) on delete set null,
+  -- reserva_id e documento_id nao moram aqui: `reservations` e `documents` sao
+  -- criadas mais abaixo neste arquivo, e uma referencia para frente quebra o
+  -- db:push num banco novo. As duas colunas entram na secao de migracoes.
   nota        text,
   ordem       integer not null default 0,
   updated_at  timestamptz not null default now()
@@ -322,17 +323,148 @@ create table if not exists checklist_state (
 create table if not exists documents (
   id             text primary key default gen_random_uuid()::text,
   trip_id        text not null references trips(id) on delete cascade,
+  -- dono do documento pessoal (o passaporte do Leonardo). Nulo = documento do grupo.
   traveler_id    text references travelers(id) on delete set null,
   titulo         text not null,
   valor          text,
   tipo           text not null default 'texto' check (tipo in ('texto', 'link', 'telefone', 'arquivo')),
-  categoria      text,
+  categoria      text check (categoria is null or categoria in
+                   ('pessoal', 'passaporte', 'seguro', 'voo', 'trem', 'onibus', 'hospedagem',
+                    'reserva', 'ingresso', 'transfer', 'financeiro', 'saude', 'emergencia', 'outro')),
   arquivo_url    text,
+  -- nome ORIGINAL do arquivo ("Reserva_Hotel_Madrid.pdf"). Diferente de `titulo`,
+  -- que e como a pessoa chama o documento na tela.
+  arquivo_nome   text,
   arquivo_mime   text,
   arquivo_bytes  integer,
   obs            text,
   ordem          integer not null default 0,
-  updated_at     timestamptz not null default now()
+
+  -- ---------------- cofre ----------------
+  -- Quem enxerga. Mesmo vocabulario de checklist_items de proposito: 'global' e
+  -- do grupo, 'pessoal' e de `traveler_id` (mais quem estiver em assigned_to, mais
+  -- o proprietario). A leitura e recortada na QUERY, nao escondida na tela.
+  escopo         text not null default 'global' check (escopo in ('global', 'pessoal')),
+  -- compartilhamento extra de um documento pessoal; vazio = so o dono.
+  assigned_to    text[] not null default '{}',
+  tags           text[] not null default '{}',
+  importante     boolean not null default false,
+  -- INTENCAO de estar disponivel offline, nao o estado do cache. Se ESTE aparelho
+  -- ja baixou o arquivo e coisa do IndexedDB (lib/offline.ts), nao do servidor:
+  -- o mesmo documento pode estar baixado no celular e nao no notebook.
+  offline        boolean not null default false,
+  validade       date,
+
+  -- vinculos com a viagem. Todos opcionais: um seguro vale a viagem inteira,
+  -- um cartao de embarque vale um voo. Mesmos nomes de coluna de checklist_items.
+  pais               text,
+  cidade             text,
+  dia                date,
+  itinerary_event_id text references itinerary_events(id) on delete set null,
+  flight_id          text references flights(id) on delete set null,
+  -- cobre hospedagem tambem: `stays` virou `reservations` com tipo = 'hospedagem'.
+  reservation_id     text references reservations(id) on delete set null,
+
+  criado_por     text references travelers(id) on delete set null,
+  criado_em      timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  constraint documento_pessoal_tem_dono check (escopo <> 'pessoal' or traveler_id is not null)
+);
+
+-- Os BYTES do arquivo, em tabela separada de proposito.
+--
+-- `documents` inteira vai para o snapshot a cada carga da tela e fica em cache no
+-- IndexedDB. Um `select *` que arrastasse PDFs junto tornaria a primeira pintura
+-- do app impagavel e estouraria a cota do navegador. Aqui so se le por
+-- /api/documento, um id por vez, sob demanda.
+--
+-- bytea e o passo 1 de `DocumentStorage`: guardar o arquivo no mesmo lugar que ja
+-- tem backup, transacao e autorizacao. Trocar por um bucket depois mexe nesta
+-- tabela e na rota, nao na tela.
+create table if not exists document_files (
+  document_id text primary key references documents(id) on delete cascade,
+  bytes       bytea not null,
+  mime        text not null,
+  criado_em   timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------- documentacao exigida
+
+-- O QUE cada pessoa precisa TER para esta viagem. E o oposto de `documents`:
+-- `documents` guarda o que ja existe, isto guarda a exigencia -- e uma exigencia
+-- vale mesmo quando ninguem cumpriu ainda (que e justamente o caso interessante).
+--
+-- Pertence a VIAGEM: Europa 2027 exige passaporte e seguro; um bate-volta a
+-- Buenos Aires exige RG. Por isso a lista nao e fixa no codigo.
+create table if not exists document_requirements (
+  id             text primary key default gen_random_uuid()::text,
+  trip_id        text not null references trips(id) on delete cascade,
+  nome           text not null,
+  descricao      text,
+  categoria      text,
+  -- false = recomendado. A pessoa ve o item, mas ele nao conta como pendencia
+  -- que trava a viagem, e o painel do admin o separa do que e obrigatorio.
+  obrigatorio    boolean not null default true,
+  -- true  -> vale para todos os participantes, inclusive quem entrar depois
+  -- false -> vale so para quem estiver em `assigned_to`
+  -- Duas colunas em vez de "lista vazia = todos" porque as duas coisas existem:
+  -- um requisito recem-criado sem ninguem marcado nao e "de todo mundo".
+  aplica_todos   boolean not null default true,
+  assigned_to    text[] not null default '{}',
+  -- O que precisa ser entregue. Os tres podem coexistir (passaporte pede numero,
+  -- validade e foto) ou vir sozinhos (CPF pede so o numero).
+  exige_numero   boolean not null default false,
+  exige_validade boolean not null default false,
+  exige_arquivo  boolean not null default false,
+  -- Liga o requisito a um campo do PERFIL da conta, em vez de pedir o dado de
+  -- novo a cada viagem: 'cpf' e o mesmo CPF em toda viagem que o exigir. Nulo =
+  -- o dado vive so na entrega desta viagem. Ver `CAMPOS_PERFIL` em lib/documentacao.ts.
+  campo_perfil   text,
+  -- Data limite para ENVIAR (§21). Diferente da validade do documento (§22):
+  -- um passaporte valido ate 2031 ainda pode estar atrasado para entrega.
+  prazo          date,
+  obs            text,
+  ordem          integer not null default 0,
+  criado_por     text references travelers(id) on delete set null,
+  criado_em      timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  constraint requisito_pessoal_tem_dono
+    check (aplica_todos or array_length(assigned_to, 1) > 0)
+);
+
+-- A ENTREGA de um requisito por uma pessoa: o dado, o arquivo e a revisao.
+--
+-- Entrega e revisao na MESMA linha de proposito. Sao duas tabelas na teoria e um
+-- fato so na pratica -- "o passaporte da Ana" tem um estado, nao um historico de
+-- estados que alguem consulte. Quem quiser o historico ja o tem: toda mudanca
+-- passa por /api/mutate e cai em `change_log`.
+--
+-- Uma linha por (requisito, pessoa). A linha SO EXISTE depois que alguem mexeu:
+-- pendente e a ausencia da linha, nao um valor gravado -- senao criar um
+-- requisito exigiria escrever cinco linhas e mante-las em dia a cada participante
+-- que entra ou sai.
+create table if not exists document_submissions (
+  id             text primary key default gen_random_uuid()::text,
+  requirement_id text not null references document_requirements(id) on delete cascade,
+  traveler_id    text not null references travelers(id) on delete cascade,
+  -- o DADO documental (§5): numero da apolice, do passaporte, do CPF
+  numero         text,
+  validade       date,
+  emitido_em     date,
+  -- o ARQUIVO, quando houver. Aponta para o cofre em vez de duplicar bytes:
+  -- o passaporte anexado aqui e o mesmo que aparece em "Meus documentos".
+  documento_id   text references documents(id) on delete set null,
+  -- 'pendente' quase nunca e gravado (a ausencia da linha ja diz isso); ele
+  -- existe para o caso de alguem limpar uma entrega sem apagar a linha.
+  status         text not null default 'enviado'
+                 check (status in ('pendente', 'enviado', 'aprovado', 'rejeitado', 'correcao')),
+  -- o que o revisor escreveu ao pedir correcao ou rejeitar (§25)
+  comentario     text,
+  revisado_por   text references travelers(id) on delete set null,
+  revisado_em    timestamptz,
+  enviado_em     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (requirement_id, traveler_id)
 );
 
 create table if not exists emergency_contacts (
@@ -667,6 +799,109 @@ alter table checklist_items drop constraint if exists checklist_pessoal_tem_dono
 alter table checklist_items add  constraint checklist_pessoal_tem_dono
   check (escopo <> 'pessoal' or array_length(assigned_to, 1) > 0);
 
+-- ---------------------------------------------------------------- cofre de documentos
+
+-- `documents` deixou de ser so "numero da apolice" e passou a guardar tambem o
+-- ARQUIVO e o contexto dele na viagem. As colunas antigas continuam valendo: a
+-- maioria dos documentos de viagem ainda e um numero, e obrigar upload para
+-- guardar um localizador seria pior.
+alter table documents add column if not exists arquivo_nome       text;
+alter table documents add column if not exists escopo             text not null default 'global';
+alter table documents add column if not exists assigned_to        text[] not null default '{}';
+alter table documents add column if not exists tags               text[] not null default '{}';
+alter table documents add column if not exists importante         boolean not null default false;
+alter table documents add column if not exists offline            boolean not null default false;
+alter table documents add column if not exists validade           date;
+alter table documents add column if not exists pais               text;
+alter table documents add column if not exists cidade             text;
+alter table documents add column if not exists dia                date;
+alter table documents add column if not exists itinerary_event_id text references itinerary_events(id) on delete set null;
+alter table documents add column if not exists flight_id          text references flights(id) on delete set null;
+alter table documents add column if not exists reservation_id     text references reservations(id) on delete set null;
+alter table documents add column if not exists criado_por         text references travelers(id) on delete set null;
+alter table documents add column if not exists criado_em          timestamptz not null default now();
+
+-- Documento que ja existia continua 'global' mesmo com traveler_id preenchido:
+-- ate agora `traveler_id` so dizia "de quem e o passaporte", e todo mundo via a
+-- linha. Marcar tudo como pessoal aqui SUMIRIA com documentos das telas alheias
+-- sem ninguem ter pedido. Quem quiser privar um documento marca na tela.
+-- `not valid` de proposito, e nao por preguica.
+--
+-- `categoria` sempre foi texto livre: um banco em uso ja tem linhas com valores
+-- fora desta lista. Uma constraint normal VALIDA as linhas existentes na hora de
+-- criar, entao ela falharia e derrubaria o db:push inteiro por causa de uma
+-- palavra digitada meses atras — e a saida seria apagar o que a pessoa escreveu.
+--
+-- `not valid` deixa passar o que ja esta gravado e passa a exigir a lista em
+-- todo INSERT e UPDATE dali em diante. A tela le categoria por `fichaCategoria`
+-- (lib/cofre.ts), que mostra o valor legado como rotulo em tom neutro em vez de
+-- quebrar. Para exigir a lista tambem do passado, depois de limpar os dados:
+--   alter table documents validate constraint documents_categoria_check;
+alter table documents drop constraint if exists documents_categoria_check;
+alter table documents add  constraint documents_categoria_check
+  check (categoria is null or categoria in
+           ('pessoal', 'passaporte', 'seguro', 'voo', 'trem', 'onibus', 'hospedagem',
+            'reserva', 'ingresso', 'transfer', 'financeiro', 'saude', 'emergencia', 'outro'))
+  not valid;
+
+-- `arquivo` como tipo e a razao de o cofre existir, e o `create table` acima ja o
+-- lista -- mas um banco que nasceu antes disso continua com a constraint velha, e
+-- todo upload morre em 500 com `documents_tipo_check`. O erro so aparece em banco
+-- EM USO, que e onde ele custa caro: um `db:push` num banco novo passa limpo e da
+-- a impressao de que esta tudo certo.
+--
+-- Constraint normal (nao `not valid`, ao contrario de `documents_categoria_check`
+-- logo acima): esta so AMPLIA o conjunto permitido, entao toda linha ja gravada
+-- passa na validacao e nao ha o que quebrar ao criar.
+alter table documents drop constraint if exists documents_tipo_check;
+alter table documents add  constraint documents_tipo_check
+  check (tipo in ('texto', 'link', 'telefone', 'arquivo'));
+
+alter table documents drop constraint if exists documents_escopo_check;
+alter table documents add  constraint documents_escopo_check
+  check (escopo in ('global', 'pessoal'));
+
+alter table documents drop constraint if exists documento_pessoal_tem_dono;
+alter table documents add  constraint documento_pessoal_tem_dono
+  check (escopo <> 'pessoal' or traveler_id is not null);
+
+-- Checklist aponta para documento: "Conferir seguro viagem" abre a apolice.
+alter table checklist_items  add column if not exists documento_id text references documents(id) on delete set null;
+
+-- ---------------------------------------------------------------- documentacao exigida
+
+-- Dados de viagem da PESSOA, nao do participante: o CPF e o mesmo em toda viagem.
+-- Ficam em `users` pelo mesmo motivo que `moeda_preferida` fica: sao da conta.
+-- Quem viaja sem conta (crianca) nao tem perfil, e por isso `document_submissions`
+-- guarda numero e validade tambem -- ver `valorDoPerfil` em lib/documentacao.ts.
+alter table users add column if not exists nome_completo        text;
+alter table users add column if not exists nome_social          text;
+alter table users add column if not exists nascimento           date;
+alter table users add column if not exists cpf                  text;
+alter table users add column if not exists rg                   text;
+alter table users add column if not exists nacionalidade        text;
+alter table users add column if not exists passaporte_numero    text;
+alter table users add column if not exists passaporte_nome      text;
+alter table users add column if not exists passaporte_emissao   date;
+alter table users add column if not exists passaporte_validade  date;
+alter table users add column if not exists passaporte_pais      text;
+alter table users add column if not exists emergencia_nome      text;
+alter table users add column if not exists emergencia_telefone  text;
+alter table users add column if not exists emergencia_parentesco text;
+
+alter table document_requirements drop constraint if exists requisito_pessoal_tem_dono;
+alter table document_requirements add  constraint requisito_pessoal_tem_dono
+  check (aplica_todos or array_length(assigned_to, 1) > 0);
+
+alter table document_submissions drop constraint if exists document_submissions_status_check;
+alter table document_submissions add  constraint document_submissions_status_check
+  check (status in ('pendente', 'enviado', 'aprovado', 'rejeitado', 'correcao'));
+
+-- Uma entrega por pessoa por requisito. Sem isto, dois toques no botao de salvar
+-- em conexao ruim gravariam duas entregas e o painel contaria a pessoa duas vezes.
+create unique index if not exists idx_submissions_unicas
+  on document_submissions (requirement_id, traveler_id);
+
 -- ---------------------------------------------------------------- indices
 
 create index if not exists idx_users_email             on users (email);
@@ -686,6 +921,10 @@ create index if not exists idx_cruise_ports_cruise     on cruise_ports (cruise_i
 create index if not exists idx_checklist_items_trip    on checklist_items (trip_id, ordem);
 create index if not exists idx_checklist_state_travel  on checklist_state (traveler_id);
 create index if not exists idx_documents_trip          on documents (trip_id, ordem);
+create index if not exists idx_documents_dia           on documents (trip_id, dia);
+create index if not exists idx_documents_evento        on documents (itinerary_event_id);
+create index if not exists idx_documents_voo           on documents (flight_id);
+create index if not exists idx_documents_reserva       on documents (reservation_id);
 create index if not exists idx_emergency_trip          on emergency_contacts (trip_id, ordem);
 create index if not exists idx_expense_categories_trip on expense_categories (trip_id, ordem);
 create index if not exists idx_expenses_trip           on expenses (trip_id, categoria_id);
@@ -698,3 +937,7 @@ create index if not exists idx_payments_de             on payments (de_id);
 create index if not exists idx_messages_trip           on messages (trip_id, criado_em desc);
 create index if not exists idx_notifications_user      on notifications (user_id, lida, criado_em desc);
 create index if not exists idx_change_log_trip         on change_log (trip_id, criado_em desc);
+create index if not exists idx_doc_req_trip           on document_requirements (trip_id, ordem);
+create index if not exists idx_doc_sub_req            on document_submissions (requirement_id);
+create index if not exists idx_doc_sub_traveler       on document_submissions (traveler_id);
+create index if not exists idx_doc_sub_documento      on document_submissions (documento_id);

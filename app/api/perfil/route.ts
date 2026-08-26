@@ -1,20 +1,58 @@
 // GET   /api/perfil -> a conta de quem está na sessão
 // PATCH /api/perfil -> altera nome, foto, telefone e preferências
+// POST  /api/perfil -> altera os dados de viagem (CPF, passaporte, emergência)
 // PUT   /api/perfil -> troca a senha
 //
 // A senha é tratada exatamente como no cadastro: `hashSenha` do lib/session.ts,
 // scrypt com sal por senha. Nada de gravar texto puro, nada de hash próprio.
-import { atualizarPerfil, hashDoUsuario, trocarSenha } from '@/lib/db.ts'
+import {
+  atualizarPerfil,
+  atualizarPerfilViagem,
+  documentosPessoais,
+  hashDoUsuario,
+  perfilDeViagem,
+  trocarSenha,
+} from '@/lib/db.ts'
 import { exigirUsuario } from '@/lib/auth.ts'
 import { hashSenha, verifySenha, ErroHttp } from '@/lib/session.ts'
-import { PerfilSchema, TrocaSenhaSchema, formatarErroZod } from '@/lib/schema.ts'
+import {
+  PerfilSchema,
+  PerfilViagemSchema,
+  TrocaSenhaSchema,
+  formatarErroZod,
+} from '@/lib/schema.ts'
 import { rota, lerJson } from '@/lib/api.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export const GET = rota(async () => {
-  return { usuario: await exigirUsuario() }
+  const usuario = await exigirUsuario()
+  // "Meus documentos" (§23): so os pessoais desta conta, de todas as viagens.
+  // Documento pessoal de outro participante nunca entra nesta consulta.
+  //
+  // `viagem` sao os dados documentais da PESSOA (CPF, passaporte, contato de
+  // emergencia). Eles saem com os VALORES aqui, e so aqui: esta rota responde a
+  // propria conta. O snapshot de uma viagem carrega apenas quais campos estao
+  // preenchidos — ver `documentacaoDaViagem` em lib/db.ts.
+  const [documentos, viagem] = await Promise.all([
+    documentosPessoais(usuario.id),
+    perfilDeViagem(usuario.id),
+  ])
+  return { usuario, documentos, viagem }
+})
+
+// POST /api/perfil -> os dados de viagem da conta (§6, §7, §8).
+//
+// Separado do PATCH de propósito: são dois formulários diferentes em duas telas
+// diferentes, e um PATCH que aceitasse os dois zeraria o passaporte de quem
+// salvasse só o apelido.
+export const POST = rota(async (req) => {
+  const u = await exigirUsuario()
+  const parsed = PerfilViagemSchema.safeParse(await lerJson(req, 8192))
+  if (!parsed.success) throw new ErroHttp(400, formatarErroZod(parsed.error))
+
+  return { ok: true, viagem: await atualizarPerfilViagem(u.id, parsed.data) }
 })
 
 export const PATCH = rota(async (req) => {
