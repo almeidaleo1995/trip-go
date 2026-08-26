@@ -107,6 +107,38 @@ export const PerfilSchema = z.object({
   notificacoes: z.boolean().default(true),
 })
 
+/**
+ * Dados de viagem da PESSOA (§6). Ficam na conta, nao na viagem: o CPF do
+ * Leonardo e o mesmo em Europa 2027 e no bate-volta a Buenos Aires, e pedi-lo de
+ * novo a cada viagem seria pedir duas vezes a mesma coisa.
+ *
+ * Tudo opcional de proposito. Uma pessoa que so quer ver o roteiro nao deve ser
+ * obrigada a cadastrar passaporte; quem decide o que e obrigatorio e o requisito
+ * da viagem (`RequisitoSchema`), e ele cobra na tela, nao no formulario do perfil.
+ */
+export const PerfilViagemSchema = z.object({
+  nome_completo: z.string().trim().max(160).nullish(),
+  nome_social: z.string().trim().max(160).nullish(),
+  nascimento: Data.nullish(),
+  // CPF sem mascara: 11 digitos. A mascara e da tela, o banco guarda o numero.
+  cpf: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/\D/g, ''))
+    .refine((v) => v === '' || v.length === 11, 'o CPF tem 11 digitos')
+    .nullish(),
+  rg: z.string().trim().max(40).nullish(),
+  nacionalidade: z.string().trim().max(80).nullish(),
+  passaporte_numero: z.string().trim().max(40).nullish(),
+  passaporte_nome: z.string().trim().max(160).nullish(),
+  passaporte_emissao: Data.nullish(),
+  passaporte_validade: Data.nullish(),
+  passaporte_pais: z.string().trim().max(80).nullish(),
+  emergencia_nome: z.string().trim().max(160).nullish(),
+  emergencia_telefone: z.string().trim().max(40).nullish(),
+  emergencia_parentesco: z.string().trim().max(80).nullish(),
+})
+
 export const TrocaSenhaSchema = z
   .object({
     atual: z.string().min(1, 'informe a senha atual'),
@@ -363,7 +395,12 @@ export const CruzeiroSchema = z.object({
   portos: z.array(PortoSchema).default([]),
 })
 
-export const PRIORIDADES_CHECKLIST = ['obrigatorio', 'importante', 'recomendado', 'opcional'] as const
+export const PRIORIDADES_CHECKLIST = [
+  'obrigatorio',
+  'importante',
+  'recomendado',
+  'opcional',
+] as const
 export const FONTES_CHECKLIST = ['documento', 'pesquisa', 'sugestao', 'manual'] as const
 
 export const ChecklistItemSchema = z.object({
@@ -390,6 +427,10 @@ export const ChecklistItemSchema = z.object({
   itinerary_event_id: Id.nullish(),
   flight_id: Id.nullish(),
   cruise_id: Id.nullish(),
+  /** "Conferir o seguro viagem" aponta para a apolice no cofre, em vez de a
+      pessoa ter que ir procurar. Nao sobrevive a exportar/importar, mesmo motivo
+      dos tres vinculos acima. */
+  documento_id: Id.nullish(),
   /** Sugestao da skill ainda nao revisada pelo admin (ve-se so na tela de revisao). */
   pendente: z.boolean().default(false),
   fonte_tipo: z.enum(FONTES_CHECKLIST).nullish(),
@@ -434,17 +475,146 @@ export const ChecklistSugestoesBatchSchema = z.object({
   sugestoes: z.array(ChecklistSugestaoSchema).default([]),
 })
 
+/**
+ * Categorias do cofre. A lista fecha porque cada uma tem icone e cor na tela — uma
+ * categoria digitada a mao apareceria sem identidade visual nenhuma.
+ */
+export const CATEGORIAS_DOCUMENTO = [
+  'pessoal',
+  'passaporte',
+  'seguro',
+  'voo',
+  'trem',
+  'onibus',
+  'hospedagem',
+  'reserva',
+  'ingresso',
+  'transfer',
+  'financeiro',
+  'saude',
+  'emergencia',
+  'outro',
+] as const
+
 export const DocumentoSchema = z.object({
   id: Id.optional(),
   titulo: Texto,
   valor: TextoOpc,
   tipo: z.enum(['texto', 'link', 'telefone', 'arquivo']).default('texto'),
-  categoria: TextoOpc,
+  categoria: z.enum(CATEGORIAS_DOCUMENTO).nullish(),
   arquivo_url: TextoOpc,
+  /** Nome original do arquivo. `titulo` e como a pessoa chama o documento. */
+  arquivo_nome: TextoOpc,
   arquivo_mime: TextoOpc,
   arquivo_bytes: z.number().int().min(0).nullish(),
   obs: TextoOpc,
   ordem: z.number().int().default(0),
+
+  // ---------------- cofre ----------------
+  /** 'pessoal' exige `traveler_id` — regra imposta pela constraint do banco, nao
+      aqui, porque este schema tambem vira .partial() para editar um campo so. */
+  escopo: z.enum(['global', 'pessoal']).default('global'),
+  /** Dono do documento pessoal. */
+  traveler_id: Id.nullish(),
+  /** Com quem mais o dono compartilhou. Vazio = so o dono (e o proprietario). */
+  assigned_to: z.array(Id).default([]),
+  tags: z.array(Texto).default([]),
+  importante: z.boolean().default(false),
+  /** Intencao de ficar disponivel offline. Se ESTE aparelho ja baixou o arquivo
+      e estado do IndexedDB, nao do servidor — ver lib/offline.ts. */
+  offline: z.boolean().default(false),
+  validade: Data.nullish(),
+
+  pais: TextoOpc,
+  cidade: TextoOpc,
+  dia: Data.nullish(),
+  itinerary_event_id: Id.nullish(),
+  flight_id: Id.nullish(),
+  reservation_id: Id.nullish(),
+
+  /** So no ARQUIVO: quem e o dono e com quem esta compartilhado, por NOME. Id nao
+      sobrevive a exportar/importar, nome sim — mesmo padrao de
+      ChecklistItemSchema.assigned_to_nomes. Sem isto um backup restaurado tornaria
+      PUBLICO todo documento pessoal, que e o oposto do que a pessoa marcou.
+
+      `itinerary_event_id` e `flight_id` NAO tem par por nome de proposito: o
+      roteiro e inserido DEPOIS dos documentos (ele aponta de volta para ca), e o
+      mesmo compromisso ja vale para os vinculos do checklist. Refaz-se pela tela.
+      `reserva` sai por nome porque `reservations` ja existe quando o documento e
+      inserido — e e o vinculo que mais importa (voucher de hotel). */
+  dono_nome: TextoOpc,
+  assigned_to_nomes: z.array(Texto).nullish(),
+  reserva: TextoOpc,
+})
+
+// ---------------------------------------------------------------- documentacao exigida
+
+/** Campos do perfil que um requisito pode consumir. Espelha `CAMPOS_PERFIL`
+    em lib/documentacao.ts — os dois precisam concordar, e a lista fecha porque
+    cada valor tem um caminho de leitura escrito no servidor. */
+export const CAMPOS_PERFIL_REQUISITO = [
+  'cpf',
+  'rg',
+  'passaporte',
+  'nascimento',
+  'nacionalidade',
+  'emergencia',
+] as const
+
+/**
+ * O QUE cada pessoa precisa ter para esta viagem.
+ *
+ * `categoria` reaproveita a lista do cofre de proposito: um requisito de
+ * passaporte e um documento de passaporte pintam com o mesmo icone e a mesma cor,
+ * e duas taxonomias para a mesma coisa e como o usuario descobre que o app tem
+ * duas cabecas.
+ */
+export const RequisitoSchema = z.object({
+  id: Id.optional(),
+  nome: Texto.max(120),
+  descricao: TextoOpc,
+  categoria: z.enum(CATEGORIAS_DOCUMENTO).nullish(),
+  obrigatorio: z.boolean().default(true),
+  /** true = vale para todo mundo, inclusive quem entrar depois. */
+  aplica_todos: z.boolean().default(true),
+  assigned_to: z.array(Id).default([]),
+  /** O que precisa ser entregue (§24). Os tres podem coexistir. */
+  exige_numero: z.boolean().default(false),
+  exige_validade: z.boolean().default(false),
+  exige_arquivo: z.boolean().default(false),
+  campo_perfil: z.enum(CAMPOS_PERFIL_REQUISITO).nullish(),
+  /** Data limite para ENVIAR. Diferente da validade do documento. */
+  prazo: Data.nullish(),
+  obs: TextoOpc,
+  ordem: z.number().int().default(0),
+
+  /** So no ARQUIVO de importacao: a quem o requisito se aplica, por NOME. Id nao
+      sobrevive a exportar/importar; mesmo padrao de `ChecklistItemSchema`. */
+  assigned_to_nomes: z.array(Texto).nullish(),
+})
+
+/**
+ * A ENTREGA de um requisito por uma pessoa.
+ *
+ * `status` e a REVISAO, nao o semaforo da tela: quem calcula "vencido",
+ * "atrasado" e "perto do vencimento" e `estadoDe` em lib/documentacao.ts, a
+ * partir das datas. Gravar o semaforo calculado deixaria um passaporte "aprovado"
+ * no banco depois de vencer, e ninguem repassa o banco todo a meia-noite.
+ */
+export const SubmissaoSchema = z.object({
+  id: Id.optional(),
+  requirement_id: Id,
+  traveler_id: Id,
+  numero: z.string().trim().max(80).nullish(),
+  validade: Data.nullish(),
+  emitido_em: Data.nullish(),
+  documento_id: Id.nullish(),
+  status: z.enum(['pendente', 'enviado', 'aprovado', 'rejeitado', 'correcao']).default('enviado'),
+  comentario: z.string().trim().max(500).nullish(),
+
+  /** So no ARQUIVO: a pessoa e o requisito por NOME, pelo mesmo motivo de sempre. */
+  requisito_nome: TextoOpc,
+  dono_nome: TextoOpc,
 })
 
 export const EmergenciaSchema = z.object({
@@ -650,6 +820,11 @@ const TripArquivoSchema = z.object({
   lugares: z.array(LugarSchema).default([]),
   checklist: z.array(ChecklistItemSchema).default([]),
   documentos: z.array(DocumentoSchema).default([]),
+  // A documentacao exigida viaja no backup: sem ela, restaurar uma viagem traria
+  // os arquivos de volta e perderia a pergunta que os organiza -- quem ainda deve
+  // o que. Os requisitos entram antes das entregas porque elas apontam para eles.
+  requisitos: z.array(RequisitoSchema).default([]),
+  entregas: z.array(SubmissaoSchema).default([]),
   emergencia: z.array(EmergenciaSchema).default([]),
   categorias: z.array(CategoriaSchema).default([]),
   custos: z.array(CustoSchema).default([]),
@@ -713,6 +888,8 @@ export const ENTIDADES = [
   'checklist_item',
   'checklist_state',
   'documento',
+  'requisito',
+  'entrega',
   'emergencia',
   'categoria',
   // `custo` e a despesa. O nome ficou de quando ela era so um valor na lista;
@@ -756,7 +933,20 @@ const POR_ENTIDADE: Partial<Record<Entidade, z.ZodTypeAny>> = {
   reserva: ReservaSchema.partial(),
   lugar: LugarSchema.partial(),
   checklist_item: ChecklistItemSchema.partial(),
-  documento: DocumentoSchema.partial(),
+  // `dono_nome`, `assigned_to_nomes`, `evento`, `voo` e `reserva` so existem no
+  // ARQUIVO de importacao — nao sao colunas. Mesmo omit de `roteiro` acima.
+  documento: DocumentoSchema.omit({
+    dono_nome: true,
+    assigned_to_nomes: true,
+    reserva: true,
+  }).partial(),
+  requisito: RequisitoSchema.omit({ assigned_to_nomes: true }).partial(),
+  // `requirement_id` e `traveler_id` NAO sao opcionais nem na edicao: eles sao a
+  // chave unica da linha, e uma entrega sem um dos dois nao e uma entrega parcial,
+  // e uma entrega de ninguem.
+  entrega: SubmissaoSchema.omit({ requisito_nome: true, dono_nome: true })
+    .partial()
+    .required({ requirement_id: true, traveler_id: true }),
   emergencia: EmergenciaSchema.partial(),
   categoria: CategoriaSchema.partial(),
   // Despesa NÃO é parcial: editar reenvia o registro inteiro. Ver DespesaSchema.
@@ -828,6 +1018,8 @@ export function resumirImportacao(dados: TripImport): Record<string, number> {
     lugares: dados.lugares.length,
     checklist: dados.checklist.length,
     documentos: dados.documentos.length,
+    requisitos: dados.requisitos.length,
+    entregas: dados.entregas.length,
     emergencia: dados.emergencia.length,
     categorias: dados.categorias.length,
     custos: dados.custos.length,

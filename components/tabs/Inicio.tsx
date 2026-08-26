@@ -17,6 +17,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
+import { AvisoDocumentacao } from './Documentacao.tsx'
 import { MapaRota } from '../MapaRota.tsx'
 import { Cartao, Rotulo, Badge, Progresso } from '../ui.tsx'
 import type { AbaId } from '../Shell.tsx'
@@ -177,6 +178,11 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
           {v.subtitulo ? ` · ${String(v.subtitulo)}` : ''}
         </p>
       </div>
+
+      {/* "O que eu preciso fazer agora?" (§20) na primeira tela. Documentação
+          pendente é a única coisa do app com data limite externa: renovar um
+          passaporte leva semanas, e descobrir isso no aeroporto não tem conserto. */}
+      <AvisoDocumentacao aoAbrir={() => irPara('documentacao')} />
 
       {/* herói: contagem + mapa + próximo compromisso */}
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">

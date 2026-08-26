@@ -14,18 +14,21 @@ One family trip planned by many people, usable abroad with no signal: itinerary,
 
 ```
 app/(auth)/          login · register — anonymous only, proxy bounces logged-in users
-app/(dashboard)/     private: dashboard · viagens · perfil
+app/(dashboard)/     private: dashboard · viagens · perfil (+ dados de viagem: CPF,
+                     passaporte, contato de emergência — da CONTA, não da viagem)
   viagens/[id]/      ← the trip app itself: Shell + TripProvider + 11 tabs
-app/api/             9 route handlers, all Node runtime, all trip-scoped
+app/api/             10 route handlers, all Node runtime, all trip-scoped
 components/          TripProvider (client state) · Shell (nav) · EditorSheet (schema-driven
                      editor for most entities) · FormDespesa (the money form — divisão
-                     e parcelas) · ui.tsx (whole design system) · tabs/
+                     e parcelas) · CofreDocumento (vault: card, preview, modal, offline
+                     hook) · ui.tsx (whole design system) · tabs/
 lib/                 db (SQL, credential stops here) · auth (exigirUsuario/exigirViagem)
                      session · schema (zod contract) · importar · derive (pure calcs)
                      financeiro (money engine, heaviest tests) · offline (IndexedDB)
-                     api (error → HTTP pt-BR)
+                     cofre (vault engine, pure) · cofreOffline (DocumentStorage seam)
+                     documentacao (required-docs engine, pure) · api (error → HTTP pt-BR)
 config/              site.ts (brand strings) · theme.ts (tokens) · navigation.ts (menu + papéis)
-db/                  schema.sql (22 tables, idempotent) · europa-2027.json (v1, stale)
+db/                  schema.sql (27 tables, idempotent) · europa-2027.json (v1, stale)
 proxy.ts             Next 16 middleware — optimistic cookie check, never hits the DB
 .specs/              spec, design, tasks, decision log
 ```
@@ -47,7 +50,7 @@ The shape to keep in mind: content has **no top-level routes**. Roteiro, voos, f
 npm run dev          # localhost:3000
 npm run build        # includes typecheck
 npm run lint
-npm test             # 137 unit tests, node --test, no framework
+npm test             # 290 unit tests, node --test, no framework
 npm run db:push      # applies db/schema.sql (idempotent) to DATABASE_URL
 node --env-file=.env.local scripts/seed.mjs   # demo@tripgo.com / 123456
 ```
@@ -69,6 +72,19 @@ node --env-file=.env.local scripts/seed.mjs   # demo@tripgo.com / 123456
 - **`financeiro` is two different responses, not one payload with a filter.** `financeiroDaViagem` in `lib/db.ts` returns `{admin: true, …}` (all rows) for editor/proprietário and `{admin: false, obrigacoes, …}` for visualizador — where the SQL itself excludes expenses the person isn't in, and only *their* slice of each installment is serialized. Sending the admin shape and hiding fields in React would publish the trip's totals to every traveller.
 - **A despesa is written transactionally, never field by field.** `gravarDespesa` in `/api/mutate` writes `expenses` + `expense_shares` + `installments` in one `sql.transaction`, and `POR_ENTIDADE.custo` is deliberately **not** `.partial()` — editing resends the whole record. Half a despesa is a wrong number on someone else's screen.
 - **The client never computes money that gets stored.** The form sends intent (total, weights, how many installments); `resolverDivisao` / `gerarParcelas` run on the server. The same pure functions run in `TripProvider` for the optimistic paint, so offline shows exactly what will be saved.
+- **`documents` is two things in one table, on purpose.** A row is either a short value (localizador, telefone, link) or a file (`tipo: 'arquivo'`), and the cofre shows both. Forcing an upload to store a policy number would be worse; `temArquivo()` in `lib/cofre.ts` is what tells them apart.
+- **`documents.offline` is intent; the IndexedDB `arquivos` store is fact.** The column says the trip wants this document offline; only the store says *this device* has the bytes. Never derive the green light from the column alone — the same passport is green on the phone and yellow on the laptop, and the phone is the one that boards.
+- **The `arquivos` store must survive every `VERSAO` bump.** The snapshot cache is thrown away on upgrade because one request regenerates it. The vault cannot be regenerated without a network — wiping it on an app update empties the cofre exactly when nobody can refill it. Same rule as `fila`.
+- **Document bytes never enter the snapshot or the export.** They live in `document_files` (1:1 with `documents`) and move only through `/api/documento`. A `select *` that dragged PDFs into the snapshot would blow the IndexedDB quota and the first paint.
+- **`/api/documento` re-checks visibility by itself.** `documentosDaViagem` scoping the snapshot is not enough: this route is reachable by typing a URL. The personal-document rule is enforced in three places — the read query, `autorizar` in `/api/mutate`, and this route — and all three must agree.
+- **An editor cannot read another participant's `pessoal` document.** Planning the itinerary is not permission to open a passport. Only `proprietario` sees everything, matching `checklistDaViagem`.
+- **`documents` and `document_requirements` are opposites, and both are needed.** `documents` stores what *exists*; `document_requirements` stores what is *demanded*. A requirement nobody has met has no file and no submission row — and that is the case the module exists for. `lib/documentacao.ts` is the whole engine, pure and tested.
+- **Pending is the absence of a `document_submissions` row, never a stored value.** Creating a requirement must not write one row per participant, or every join/leave would need the list rewritten.
+- **`document_submissions.status` is the *review*, not the traffic light.** `vencido`/`atrasado`/`proximo` are computed from the dates at read time by `estadoDe`. Storing the computed state leaves a passport `aprovado` after it expires, and nobody re-scans the table at midnight.
+- **A submission has two owners and the 403 sits between them.** The *data* (`numero`, `validade`, `emitido_em`, `documento_id`) is the traveller's; the *verdict* (`status`, `comentario`) belongs to whoever reviews. `revisado_por`/`revisado_em` are stamped by the server — accepting them from the client would let any approval be signed by anybody.
+- **A `visualizador` may write their own `pessoal` document, and only that.** It is the same escape hatch a personal checklist item has (`souDonoDoDocumento` in `autorizar`, mirrored in `POST /api/documento`). The person holding the passport cannot depend on the organiser to upload it. `podeEscrever`/`podeApagar` in `lib/cofre.ts` mirror the rule client-side; `lib/cofre.test.ts` asserts the two agree.
+- **A `check` added as `not valid` breaks the paths that RE-INSERT old rows.** It tolerates what is stored and enforces the list on every INSERT — so duplicating a trip and export→import fail with 500 on a database in use and pass clean on a fresh one. `normalizarCategoria`/`tagsComCategoria` (`lib/cofre.ts`) are the fix: out-of-list becomes `outro` and the original word survives in `tags`.
+- **Widening an enum in the `create table` half does nothing to a table that already exists.** `documents.tipo` listed `'arquivo'` up top while every real database still had the three-value constraint, so every upload died on `documents_tipo_check`. Always write the `alter table ... drop/add constraint` in the migrations half too.
 - **Bump `VERSAO` in `lib/offline.ts` whenever the snapshot shape changes.** The first paint comes from the IndexedDB cache, so new code meets an old cached object and crashes on a field that no longer exists. `TripProvider.normalizar` is the seatbelt, not the fix.
 - **Zod strips unknown keys** on import — a renamed field doesn't error, it silently imports as empty. Adding a field means touching `db/schema.sql` (create block **and** migrations section), `lib/schema.ts`, `/api/export`, and `lib/importar.ts` together, or backups quietly drop it.
 - **Adding a whole entity is a 10-file checklist** with predictable failures per skipped step — README → Shipping a new update.

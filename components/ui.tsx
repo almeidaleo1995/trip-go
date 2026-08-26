@@ -94,20 +94,37 @@ export function EsqueletoLista({ linhas = 3 }: { linhas?: number }) {
 
 // ================================================================ cabeçalhos
 
-/** Cabeçalho de página: título, subtítulo opcional e a ação principal. */
+/**
+ * Cabeçalho de título, subtítulo opcional e a ação principal.
+ *
+ * `nivel` existe porque uma tela pode empilhar duas matérias grandes — o cofre e
+ * a documentação exigida moram na mesma página — e duas <h1> na mesma página são
+ * um leitor de tela dizendo "título" duas vezes sem dizer de quê. A ESTRUTURA
+ * acompanha o tamanho: nível 2 é <h2>, não uma <h1> menor.
+ */
 export function Titulo({
   children,
+  chapeu,
   descricao,
   acao,
+  nivel = 1,
 }: {
   children: ReactNode
+  chapeu?: string
   descricao?: ReactNode
   acao?: ReactNode
+  nivel?: 1 | 2
 }) {
+  const H = nivel === 1 ? 'h1' : 'h2'
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+    <div
+      className={`flex flex-wrap items-start justify-between gap-x-4 gap-y-3 ${
+        nivel === 1 ? 'mb-5' : 'mb-4'
+      }`}
+    >
       <div className="min-w-0">
-        <h1 className="t-pagina">{children}</h1>
+        {chapeu && <p className="t-legenda mb-1.5">{chapeu}</p>}
+        <H className={nivel === 1 ? 't-pagina' : 't-secao'}>{children}</H>
         {descricao && <p className="t-aux mt-1">{descricao}</p>}
       </div>
       {acao && <div className="flex shrink-0 items-center gap-2">{acao}</div>}
@@ -1013,6 +1030,77 @@ export function Linha({ rotulo, valor }: { rotulo: string; valor: ReactNode }) {
       <span className="text-sm text-(--color-tinta-3)">{rotulo}</span>
       <span className="text-right text-sm font-medium">{valor}</span>
     </div>
+  )
+}
+
+/**
+ * Progresso em anel. Não é enfeite do `Progresso` linear: a barra vive numa
+ * LINHA, ao lado do nome de quem ela mede, e o anel vive num CARTÃO, onde o
+ * número é o assunto. Trocar um pelo outro deixa a tabela alta demais ou o
+ * cartão com uma tira solta no meio.
+ *
+ * `tom` aceita chave de `TONS` para o anel do painel virar vermelho quando o que
+ * ele mede está atrasado — a cor entra pelo design system, nunca por um hex.
+ */
+export function Anel({
+  pct,
+  tamanho = 96,
+  tom,
+  legenda,
+}: {
+  pct: number
+  tamanho?: number
+  tom?: string
+  legenda?: string
+}) {
+  const espessura = Math.max(6, Math.round(tamanho * 0.09))
+  const raio = (tamanho - espessura) / 2
+  const volta = 2 * Math.PI * raio
+  const limitado = Math.min(100, Math.max(0, Math.round(pct)))
+  const meio = tamanho / 2
+  const cor = tom ? (TONS[tom]?.ink ?? 'var(--destaque)') : 'var(--destaque)'
+
+  return (
+    <svg
+      width={tamanho}
+      height={tamanho}
+      viewBox={`0 0 ${tamanho} ${tamanho}`}
+      role="img"
+      aria-label={legenda ?? `${limitado}% concluído`}
+      className="shrink-0"
+    >
+      <circle
+        cx={meio}
+        cy={meio}
+        r={raio}
+        fill="none"
+        stroke="var(--color-superficie-2)"
+        strokeWidth={espessura}
+      />
+      <circle
+        cx={meio}
+        cy={meio}
+        r={raio}
+        fill="none"
+        stroke={cor}
+        strokeWidth={espessura}
+        strokeLinecap="round"
+        strokeDasharray={volta}
+        strokeDashoffset={volta * (1 - limitado / 100)}
+        transform={`rotate(-90 ${meio} ${meio})`}
+        style={{ transition: 'stroke-dashoffset var(--transicao)' }}
+      />
+      <text
+        x="50%"
+        y="50%"
+        textAnchor="middle"
+        dominantBaseline="central"
+        className="tab-num"
+        style={{ fontSize: tamanho * 0.24, fontWeight: 700, fill: 'var(--color-tinta)' }}
+      >
+        {limitado}%
+      </text>
+    </svg>
   )
 }
 

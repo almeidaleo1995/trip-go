@@ -25,15 +25,7 @@ import { TIPOS_EVENTO, MODOS_TRANSPORTE, PRIORIDADES_CHECKLIST } from '@/lib/sch
 import { type Papel } from '@/config/navigation.ts'
 
 type TipoCampo =
-  | 'texto'
-  | 'area'
-  | 'data'
-  | 'datahora'
-  | 'numero'
-  | 'dinheiro'
-  | 'bool'
-  | 'opcao'
-  | 'multiopcao'
+  'texto' | 'area' | 'data' | 'datahora' | 'numero' | 'dinheiro' | 'bool' | 'opcao' | 'multiopcao'
 
 type Campo = {
   chave: string
@@ -407,9 +399,28 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
       },
       { chave: 'pais', rotulo: 'País', tipo: 'texto', grupo: DESTINO },
       { chave: 'cidade', rotulo: 'Cidade', tipo: 'texto', grupo: DESTINO },
-      { chave: 'itinerary_event_id', rotulo: 'Passeio/hospedagem', tipo: 'opcao', fonte: 'roteiro', grupo: VINCULO_ROTEIRO },
+      {
+        chave: 'itinerary_event_id',
+        rotulo: 'Passeio/hospedagem',
+        tipo: 'opcao',
+        fonte: 'roteiro',
+        grupo: VINCULO_ROTEIRO,
+      },
       { chave: 'flight_id', rotulo: 'Voo', tipo: 'opcao', fonte: 'voos', grupo: VINCULO_ROTEIRO },
-      { chave: 'cruise_id', rotulo: 'Cruzeiro', tipo: 'opcao', fonte: 'cruzeiros', grupo: VINCULO_ROTEIRO },
+      {
+        chave: 'cruise_id',
+        rotulo: 'Cruzeiro',
+        tipo: 'opcao',
+        fonte: 'cruzeiros',
+        grupo: VINCULO_ROTEIRO,
+      },
+      {
+        chave: 'documento_id',
+        rotulo: 'Documento',
+        tipo: 'opcao',
+        fonte: 'documentos',
+        grupo: VINCULO_ROTEIRO,
+      },
       { chave: 'detalhe', rotulo: 'Detalhe', tipo: 'area', grupo: OBS },
     ],
   },
@@ -486,7 +497,9 @@ export function EditorSheet({
         c.tipo === 'bool'
           ? Boolean(registro?.[c.chave])
           : c.tipo === 'multiopcao'
-            ? (Array.isArray(registro?.[c.chave]) ? (registro![c.chave] as string[]) : [])
+            ? Array.isArray(registro?.[c.chave])
+              ? (registro![c.chave] as string[])
+              : []
             : paraInput(registro?.[c.chave], c.tipo),
       ]),
     ),
@@ -714,12 +727,12 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
   if (fonte === 'voos') {
     return [
       vazio,
-      ...((snapshot?.voos ?? []) as { id: string; companhia: string; numero?: string | null }[]).map(
-        (v) => ({
-          valor: String(v.id),
-          nome: [v.companhia, v.numero].filter(Boolean).join(' '),
-        }),
-      ),
+      ...(
+        (snapshot?.voos ?? []) as { id: string; companhia: string; numero?: string | null }[]
+      ).map((v) => ({
+        valor: String(v.id),
+        nome: [v.companhia, v.numero].filter(Boolean).join(' '),
+      })),
     ]
   }
   if (fonte === 'cruzeiros') {

@@ -85,6 +85,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
+import { DocumentosVinculados } from '../CofreDocumento.tsx'
+import { RequisitosDoDia } from './Documentacao.tsx'
 import { type Papel } from '@/config/navigation.ts'
 import { AdminAcoes } from '../EditorSheet.tsx'
 import {
@@ -1507,6 +1509,12 @@ function DetalheItem({
         </div>
       )}
 
+      {/* Os dois vínculos existem e não são o mesmo. `itinerary_events.documento_id`
+          acima é "esta atividade EXIGE aquele documento" (um só, escolhido ao montar
+          o roteiro). Este aqui é o inverso — os arquivos que foram ARQUIVADOS nesta
+          atividade (§19), que são vários e chegam pelo cofre. */}
+      <DocumentosVinculados vinculo={{ evento: String(item.id) }} titulo="Documentos" />
+
       {Number(item.custo_centavos) > 0 && (
         <p className="text-sm">
           <span className="text-(--color-tinta-3)">Custo estimado: </span>
@@ -1778,17 +1786,34 @@ function ChecklistsDoDiaSecao({ dia }: { dia: DiaRoteiro }) {
   const sair = linhas(dia.meta?.antes_sair)
   const dormir = linhas(dia.meta?.antes_dormir)
 
+  // Os documentos do dia (§18): o que está preso a esta data, o que está preso a
+  // um item do roteiro de hoje, e o que é importante a viagem inteira (o
+  // passaporte não tem data). São REFERÊNCIAS ao cofre — nada é copiado.
+  const eventos = dia.itens.map((i) => String(i.id))
+  const vinculosDoDia = {
+    data: dia.chave,
+    eventos,
+    voos: dia.itens.map((i) => String(i.flight_id ?? '')).filter(Boolean),
+    reservas: dia.itens.map((i) => String(i.reserva_id ?? '')).filter(Boolean),
+  }
+
   if (doDia.length === 0 && sair.length === 0 && dormir.length === 0) {
     return (
-      <Nada>
-        Nada para marcar hoje. Itens com prazo neste dia, e os rituais de sair e dormir, aparecem
-        aqui.
-      </Nada>
+      <div className="space-y-4">
+        <RequisitosDoDia dia={dia.chave} />
+        <DocumentosVinculados dia={vinculosDoDia} titulo="Documentos que você pode precisar" />
+        <Nada>
+          Nada para marcar hoje. Itens com prazo neste dia, e os rituais de sair e dormir, aparecem
+          aqui.
+        </Nada>
+      </div>
     )
   }
 
   return (
     <div className="space-y-4">
+      <RequisitosDoDia dia={dia.chave} />
+      <DocumentosVinculados dia={vinculosDoDia} titulo="Documentos que você pode precisar" />
       <ChecklistDoDia dia={dia} />
       <RituaisDoDia dia={dia} />
     </div>
