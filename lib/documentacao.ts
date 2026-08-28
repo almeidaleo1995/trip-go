@@ -91,23 +91,34 @@ export type Participante = { id: string; nome: string; papel?: string }
  * `validade` nomeia o campo do perfil que carrega o vencimento, quando houver —
  * é o que permite ao §22 avisar "passaporte vence em 40 dias" sem que ninguém
  * redigite a data dentro da viagem.
+ *
+ * `coluna`/`emissao` nomeiam de onde o VALOR sai em `GET /api/perfil`, a única
+ * rota que devolve o dado (o snapshot manda só "está preenchido?", ver
+ * `PerfilResumo`). É o que deixa o formulário de entrega abrir já preenchido para
+ * a própria pessoa em vez de pedir o número do passaporte de novo.
  */
 export const CAMPOS_PERFIL: Record<
   string,
-  { rotulo: string; validade?: string; documento?: boolean }
+  { rotulo: string; coluna: string; validade?: string; emissao?: string; documento?: boolean }
 > = {
-  cpf: { rotulo: 'CPF' },
-  rg: { rotulo: 'RG' },
-  passaporte: { rotulo: 'Passaporte', validade: 'passaporte_validade', documento: true },
-  nascimento: { rotulo: 'Data de nascimento' },
-  nacionalidade: { rotulo: 'Nacionalidade' },
-  emergencia: { rotulo: 'Contato de emergência' },
+  cpf: { rotulo: 'CPF', coluna: 'cpf' },
+  rg: { rotulo: 'RG', coluna: 'rg' },
+  passaporte: {
+    rotulo: 'Passaporte',
+    coluna: 'passaporte_numero',
+    validade: 'passaporte_validade',
+    emissao: 'passaporte_emissao',
+    documento: true,
+  },
+  nascimento: { rotulo: 'Data de nascimento', coluna: 'nascimento' },
+  nacionalidade: { rotulo: 'Nacionalidade', coluna: 'nacionalidade' },
+  emergencia: { rotulo: 'Contato de emergência', coluna: 'emergencia_telefone' },
 }
 
 /** Rótulo do campo de perfil, sem quebrar diante de um valor legado ou digitado. */
 export function fichaCampoPerfil(campo: string | null | undefined) {
   if (!campo) return null
-  return CAMPOS_PERFIL[campo] ?? { rotulo: campo }
+  return CAMPOS_PERFIL[campo] ?? { rotulo: campo, coluna: campo }
 }
 
 // ---------------------------------------------------------------- estados

@@ -530,15 +530,23 @@ export async function documentacaoDaViagem(tripId: string, papel: Papel, partici
     // `travelers.passaporte` e `travelers.documento` sao as colunas ANTIGAS, de
     // antes de o perfil existir. Continuam contando: uma viagem em uso ja tem esses
     // campos preenchidos, e ignora-los marcaria como pendente quem ja cadastrou.
+    //
+    // `to_char` na validade pela mesma razao do roteiro: o driver devolve `date`
+    // como objeto Date, e `String(Date)` da "Wed Jan 05 2033 ...". O `.slice(0,10)`
+    // que existia aqui recortava "Wed Jan 05" — string que `parseData` recusa, que
+    // `formatarData` vira vazio ("Vence em ") e que `diasAte` conta como zero, ou
+    // seja: TODO passaporte com validade cadastrada aparecia vencendo hoje.
     revisor
       ? sql`select p.id, u.cpf, u.rg, u.nacionalidade, u.nascimento,
-                   u.passaporte_numero, u.passaporte_validade, u.emergencia_telefone,
+                   u.passaporte_numero, u.emergencia_telefone,
+                   to_char(u.passaporte_validade, 'YYYY-MM-DD') as passaporte_validade,
                    p.passaporte as passaporte_antigo, p.documento as documento_antigo,
                    p.nascimento as nascimento_antigo
             from travelers p left join users u on u.id = p.user_id
             where p.trip_id = ${tripId}`
       : sql`select p.id, u.cpf, u.rg, u.nacionalidade, u.nascimento,
-                   u.passaporte_numero, u.passaporte_validade, u.emergencia_telefone,
+                   u.passaporte_numero, u.emergencia_telefone,
+                   to_char(u.passaporte_validade, 'YYYY-MM-DD') as passaporte_validade,
                    p.passaporte as passaporte_antigo, p.documento as documento_antigo,
                    p.nascimento as nascimento_antigo
             from travelers p left join users u on u.id = p.user_id
@@ -560,9 +568,7 @@ export async function documentacaoDaViagem(tripId: string, papel: Papel, partici
         nacionalidade: cheio(p.nacionalidade),
         emergencia: cheio(p.emergencia_telefone),
       },
-      passaporte_validade: p.passaporte_validade
-        ? String(p.passaporte_validade).slice(0, 10)
-        : null,
+      passaporte_validade: (p.passaporte_validade as string | null) ?? null,
     })),
   }
 }

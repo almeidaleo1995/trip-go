@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
+import { useState, useEffect, useMemo, type ChangeEvent, type ReactNode } from 'react'
 import type { z } from 'zod'
 import {
   Check,
@@ -541,7 +541,16 @@ type LugarComCoordenada = {
   status?: string | null
 }
 
-function Clima() {
+/**
+ * O clima dos proximos destinos. Usado pelo Checklist e pela Preparacao — uma
+ * copia divergiria na primeira mudanca de fonte de dados.
+ *
+ * `vazio` e o que aparece quando NAO ha previsao: a Open-Meteo so responde uns
+ * dias a frente, e numa viagem marcada para daqui a meses nao ha o que mostrar.
+ * Sem o prop o componente some, que e o certo dentro de uma lista de checklist;
+ * a Preparacao passa uma frase, porque la o cartao ja foi anunciado.
+ */
+export function Clima({ vazio }: { vazio?: ReactNode } = {}) {
   const { snapshot } = useTrip()
   const [previsoes, setPrevisoes] = useState<Record<string, PrevisaoDia[]>>({})
 
@@ -573,11 +582,12 @@ function Clima() {
   }, [lugares.map((l) => l.cidade).join(',')])
 
   const cidades = Object.keys(previsoes)
-  if (cidades.length === 0) return null
+  if (cidades.length === 0 && !vazio) return null
 
   return (
     <Cartao className="mb-4">
       <Rotulo>Clima nos próximos destinos</Rotulo>
+      {cidades.length === 0 && <div className="mt-2">{vazio}</div>}
       <div className="mt-2 space-y-1.5">
         {cidades.map((cidade) => {
           const hoje = previsoes[cidade][0]

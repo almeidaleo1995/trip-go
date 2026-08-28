@@ -20,6 +20,7 @@ import {
   Building2,
   Globe,
   ClipboardCheck,
+  Compass,
   FileText,
   LifeBuoy,
   Wallet,
@@ -46,6 +47,7 @@ export type AbaId =
   | 'cruzeiro'
   | 'hospedagem'
   | 'lugares'
+  | 'preparacao'
   | 'checklist'
   | 'documentos'
   | 'documentacao'
@@ -64,6 +66,7 @@ const ABAS: Aba[] = [
   { id: 'cruzeiro', nome: 'Cruzeiro', icone: Ship, grupo: 'Viagem' },
   { id: 'hospedagem', nome: 'Hospedagem', icone: Building2, grupo: 'Viagem' },
   { id: 'lugares', nome: 'Cidades', icone: Globe, grupo: 'Explorar' },
+  { id: 'preparacao', nome: 'Preparação', icone: Compass, grupo: 'Preparação' },
   { id: 'checklist', nome: 'Checklist', icone: ClipboardCheck, grupo: 'Preparação' },
   { id: 'documentos', nome: 'Documentos', icone: FileText, grupo: 'Preparação' },
   { id: 'emergencia', nome: 'Emergência', icone: LifeBuoy, grupo: 'Preparação' },

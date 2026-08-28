@@ -41,6 +41,7 @@ import {
   Campo,
   Falha,
   Interruptor,
+  Progresso,
   Rotulo,
   Selecao,
   TONS,
@@ -63,6 +64,9 @@ import {
   type Documento,
   type StatusOffline,
 } from '@/lib/cofre.ts'
+// `Progresso` ja e o componente de barra do design system; aqui o tipo entra
+// como `ProgressoEnvio` para nao brigar com ele.
+import { enviarArquivo, type Progresso as ProgressoEnvio } from '@/lib/arquivo.ts'
 import { abrir, esquecerOffline, jaSalvos, salvarOffline, sincronizar } from '@/lib/cofreOffline.ts'
 import { CATEGORIAS_DOCUMENTO } from '@/lib/schema.ts'
 import { formatarData } from '@/lib/derive.ts'
@@ -615,11 +619,10 @@ export function FormDocumento({
   const avisar = useAviso()
   const soMinhas = !posso('editor')
   const eu = String(snapshot?.eu?.participanteId ?? '')
-  const [d, setD] = useState<Rascunho>(() =>
-    rascunhoDe(documento, soMinhas ? eu : undefined),
-  )
+  const [d, setD] = useState<Rascunho>(() => rascunhoDe(documento, soMinhas ? eu : undefined))
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [progresso, setProgresso] = useState<ProgressoEnvio | null>(null)
 
   const participantes = snapshot?.participantes ?? []
   const lugares = snapshot?.lugares ?? []
@@ -663,16 +666,15 @@ export function FormDocumento({
     setSalvando(true)
     try {
       if (arquivo) {
-        const form = new FormData()
-        form.set('trip_id', String(snapshot?.viagem?.id ?? ''))
-        if (documento?.id) form.set('id', documento.id)
-        form.set('arquivo', arquivo)
-        form.set('campos', JSON.stringify(campos()))
-        const r = await fetch('/api/documento', { method: 'POST', body: form })
-        if (!r.ok) {
-          const corpo = (await r.json().catch(() => null)) as { erro?: string } | null
-          throw new Error(corpo?.erro ?? 'Não foi possível enviar o arquivo.')
-        }
+        // Encolhe foto grande, recusa o que passa do teto e fatia o resto em
+        // quantas requisições couberem. Ver lib/arquivo.ts.
+        await enviarArquivo({
+          arquivo,
+          tripId: String(snapshot?.viagem?.id ?? ''),
+          campos: campos(),
+          id: documento?.id,
+          aoProgredir: setProgresso,
+        })
         await recarregar()
       } else {
         await mutate({
@@ -689,6 +691,7 @@ export function FormDocumento({
       setErro(e instanceof Error ? e.message : 'Não foi possível salvar.')
     } finally {
       setSalvando(false)
+      setProgresso(null)
     }
   }
 
@@ -711,6 +714,19 @@ export function FormDocumento({
     >
       <div className="space-y-3">
         {erro && <Falha texto={erro} />}
+
+        {progresso && progresso.partes > 1 && (
+          <div aria-live="polite">
+            <p className="t-aux">
+              Enviando parte {progresso.parte} de {progresso.partes} —{' '}
+              {formatarTamanho(progresso.enviado)} de {formatarTamanho(progresso.total)}
+            </p>
+            <Progresso
+              pct={(progresso.enviado / progresso.total) * 100}
+              rotulo="Enviando arquivo"
+            />
+          </div>
+        )}
 
         <Campo
           rotulo="Nome do documento"

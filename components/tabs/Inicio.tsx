@@ -292,8 +292,20 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
         <div className="grid gap-4 md:grid-cols-2">
           {pendencias.length > 0 && (
             <Cartao>
-              <Rotulo>O que falta fazer</Rotulo>
-              <div className="mt-2 divide-y divide-(--color-borda)">
+              {/* O caminho para a Central. No celular ela mora no "Mais", e a
+                  pergunta que ela responde e a mesma deste cartao — deixar so a
+                  lista curta aqui esconderia a tela que a explica inteira. */}
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <Rotulo>O que falta fazer</Rotulo>
+                <button
+                  onClick={() => irPara('preparacao')}
+                  className="cursor-pointer text-sm font-medium"
+                  style={{ color: 'var(--destaque)' }}
+                >
+                  Ver preparação →
+                </button>
+              </div>
+              <div className="divide-y divide-(--color-borda)">
                 {pendencias.map((p, i) => (
                   <button
                     key={i}

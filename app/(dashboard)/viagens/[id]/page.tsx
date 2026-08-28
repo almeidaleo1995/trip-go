@@ -16,6 +16,7 @@ import { Voos, Cruzeiro, Hospedagem, Lugares } from '@/components/tabs/Conteudo.
 import { Documentos } from '@/components/tabs/Documentos.tsx'
 import { Emergencia } from '@/components/tabs/Interativas.tsx'
 import { Checklist } from '@/components/tabs/Checklist.tsx'
+import { Preparacao } from '@/components/tabs/Preparacao.tsx'
 import { Financeiro } from '@/components/tabs/Financeiro.tsx'
 import { Dados } from '@/components/tabs/Dados.tsx'
 
@@ -78,6 +79,7 @@ function App() {
           {aba === 'cruzeiro' && <Cruzeiro />}
           {aba === 'hospedagem' && <Hospedagem />}
           {aba === 'lugares' && <Lugares />}
+          {aba === 'preparacao' && <Preparacao irPara={setAba} />}
           {aba === 'checklist' && <Checklist irPara={setAba} />}
           {aba === 'documentos' && <Documentos />}
           {/* Mesma tela, rolada até a cobrança — ver ALIAS em Shell. */}

@@ -6,7 +6,7 @@
 // que decide QUEM VÊ o quê está no servidor (`documentosDaViagem` em lib/db.ts).
 // Esta separação é o que permite testar a busca e o agrupamento sem navegador.
 import { normalizarTitulo } from './checklist.ts'
-import { diasAte } from './derive.ts'
+import { diasAte, parseData } from './derive.ts'
 import { papelAlcanca, type Papel } from '../config/navigation.ts'
 import type { CATEGORIAS_DOCUMENTO } from './schema.ts'
 
@@ -247,14 +247,19 @@ export function statusValidade(
   validade: string | null | undefined,
   hoje: string | Date = new Date(),
 ): Validade | null {
-  if (!validade) return null
+  // `parseData` e nao `!validade`: uma data que nao da para ler nao e "vence
+  // hoje", e sem vencimento conhecido. `diasAte` devolve 0 nos dois sentidos
+  // para qualquer lixo, e isso pintaria de ambar todo documento cuja data veio
+  // torta do banco — que foi exatamente o que aconteceu com `passaporte_validade`.
+  const dia = parseData(validade)
+  if (!dia) return null
   // `diasAte` faz clamp em 0 — ele responde "quantos dias faltam", nunca um
   // negativo. Perguntar nos dois sentidos é o que separa "vence hoje" de
   // "venceu no ano passado"; com uma chamada só, todo documento vencido
   // apareceria como se vencesse hoje.
-  const passaram = diasAte(validade, hoje)
+  const passaram = diasAte(dia, hoje)
   if (passaram > 0) return { dias: -passaram, nivel: 'vencido' }
-  const restam = diasAte(hoje, validade)
+  const restam = diasAte(hoje, dia)
   return { dias: restam, nivel: restam <= JANELA_VALIDADE ? 'proximo' : 'ok' }
 }
 

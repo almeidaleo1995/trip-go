@@ -84,6 +84,15 @@ test('sem validade nao ha alerta nenhum', () => {
   assert.equal(statusValidade(null), null)
 })
 
+// A regressao que motivou o guarda: `String(Date).slice(0,10)` em lib/db.ts
+// entregava "Wed Jan 05" como validade do passaporte. `diasAte` devolve 0 nos
+// dois sentidos para qualquer lixo, entao TODO passaporte cadastrado aparecia
+// vencendo hoje, com a data em branco na tela. Data ilegivel = sem vencimento.
+test('validade ilegivel nao vira "vence hoje"', () => {
+  assert.equal(statusValidade('Wed Jan 05', '2026-08-25'), null)
+  assert.equal(statusValidade('05/01/2033', '2026-08-25'), null)
+})
+
 // ---------------------------------------------------------------- busca
 
 test('busca acha sem acento e sem caixa', () => {

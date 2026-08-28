@@ -17,7 +17,7 @@
 // O que decide QUEM VÊ o quê está no servidor (`documentacaoDaViagem`, lib/db.ts):
 // um editor recebe o ESTADO da documentação alheia sem o número do passaporte, e
 // um visualizador recebe só a própria. Esta tela pinta o que recebeu.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -86,7 +86,10 @@ import {
   type Requisito,
   type Submissao,
 } from '@/lib/documentacao.ts'
-import { CATEGORIAS, fichaCategoria, type Documento } from '@/lib/cofre.ts'
+import { CATEGORIAS, fichaCategoria, formatarTamanho, type Documento } from '@/lib/cofre.ts'
+// `Progresso` ja e o componente de barra do design system; aqui o tipo entra
+// como `ProgressoEnvio` para nao brigar com ele.
+import { LIMITE_TEXTO, enviarArquivo, type Progresso as ProgressoEnvio } from '@/lib/arquivo.ts'
 import { CATEGORIAS_DOCUMENTO, CAMPOS_PERFIL_REQUISITO } from '@/lib/schema.ts'
 import { formatarData } from '@/lib/derive.ts'
 
@@ -1665,6 +1668,51 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+  // Quais campos esta tela preencheu sozinha, para a dica dizer de onde vieram.
+  const [doPerfil, setDoPerfil] = useState<string[]>([])
+  const [progresso, setProgresso] = useState<ProgressoEnvio | null>(null)
+
+  // O formulário abre com o que a pessoa JÁ cadastrou no perfil da conta.
+  //
+  // O snapshot não serve para isto de propósito: ele carrega só quais campos
+  // estão preenchidos, nunca os valores, para o número do passaporte de um não
+  // trafegar para a viagem inteira (`PerfilResumo`, lib/documentacao.ts).
+  // `GET /api/perfil` é a única rota que devolve valores, e devolve os da própria
+  // conta — por isso a busca só acontece quando a linha é a minha.
+  const souEu = celula.traveler_id === String(snapshot?.eu?.participanteId ?? '')
+  useEffect(() => {
+    const ficha = fichaCampoPerfil(req.campo_perfil)
+    if (!souEu || !ficha) return
+    let vivo = true
+    void fetch('/api/perfil')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((corpo: { viagem?: Record<string, string | null> } | null) => {
+        const perfil = corpo?.viagem
+        if (!vivo || !perfil) return
+        // Funcional e com `||`: a resposta chega depois da primeira pintura, e a
+        // entrega já gravada — ou o que a pessoa começou a digitar enquanto isso —
+        // ganha do perfil. Sobrescrever seria apagar a correção em andamento.
+        const valor = (coluna?: string | null) => (coluna ? (perfil[coluna] ?? '').trim() : '')
+        const numeroPerfil = valor(ficha.coluna)
+        const validadePerfil = valor(ficha.validade)
+        const emissaoPerfil = valor(ficha.emissao)
+
+        const veio: string[] = []
+        if (numeroPerfil && !sub?.numero) {
+          setNumero((a) => a || numeroPerfil)
+          veio.push('numero')
+        }
+        if (validadePerfil && !sub?.validade) {
+          setValidade((a) => a || validadePerfil)
+          veio.push('validade')
+        }
+        if (emissaoPerfil && !sub?.emitido_em) setEmitido((a) => a || emissaoPerfil)
+        setDoPerfil(veio)
+      })
+    return () => {
+      vivo = false
+    }
+  }, [souEu, req.campo_perfil, sub?.numero, sub?.validade, sub?.emitido_em])
 
   // Só os documentos DESTA pessoa entram na lista de anexos existentes. O
   // snapshot já não traz os alheios, mas a tela não depende disso para acertar.
@@ -1698,12 +1746,12 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
       // O arquivo entra pelo cofre, não por uma tabela paralela: ele PRECISA
       // aparecer em "Meus documentos" e viajar offline como qualquer outro.
       if (arquivo) {
-        const form = new FormData()
-        form.set('trip_id', String(snapshot?.viagem?.id ?? ''))
-        form.set('arquivo', arquivo)
-        form.set(
-          'campos',
-          JSON.stringify({
+        // Encolhe foto grande, recusa o que passa do teto e fatia o resto em
+        // quantas requisições couberem. Ver lib/arquivo.ts.
+        const enviado = await enviarArquivo({
+          arquivo,
+          tripId: String(snapshot?.viagem?.id ?? ''),
+          campos: {
             titulo: req.nome,
             categoria: req.categoria ?? 'pessoal',
             escopo: 'pessoal',
@@ -1712,17 +1760,10 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
             // Documento exigido é justamente o que não pode faltar sem sinal.
             offline: true,
             importante: true,
-          }),
-        )
-        const r = await fetch('/api/documento', { method: 'POST', body: form })
-        const corpo = (await r.json().catch(() => null)) as {
-          documento_id?: string
-          erro?: string
-        } | null
-        if (!r.ok || !corpo?.documento_id) {
-          throw new Error(corpo?.erro ?? 'Não foi possível enviar o arquivo.')
-        }
-        anexo = corpo.documento_id
+          },
+          aoProgredir: setProgresso,
+        })
+        anexo = enviado.documento_id
         await recarregar()
       }
 
@@ -1749,6 +1790,7 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
       setErro(e instanceof Error ? e.message : 'Não foi possível salvar.')
     } finally {
       setSalvando(false)
+      setProgresso(null)
     }
   }
 
@@ -1774,6 +1816,19 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
       <div className="space-y-3">
         {erro && <Falha texto={erro} />}
 
+        {progresso && progresso.partes > 1 && (
+          <div aria-live="polite">
+            <p className="t-aux">
+              Enviando parte {progresso.parte} de {progresso.partes} —{' '}
+              {formatarTamanho(progresso.enviado)} de {formatarTamanho(progresso.total)}
+            </p>
+            <Progresso
+              pct={(progresso.enviado / progresso.total) * 100}
+              rotulo="Enviando arquivo"
+            />
+          </div>
+        )}
+
         {nadaExigido && (
           <p className="t-aux">
             Este requisito só pede a sua confirmação. Enviar marca como cumprido para quem organiza
@@ -1787,10 +1842,10 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
             valor={numero}
             aoMudar={setNumero}
             dica={
-              req.campo_perfil && !falta('numero')
-                ? 'Já preenchido no seu perfil'
+              doPerfil.includes('numero')
+                ? 'Veio do seu perfil'
                 : req.campo_perfil
-                  ? 'Ou preencha uma vez só no seu perfil'
+                  ? 'Preencha uma vez só no seu perfil'
                   : undefined
             }
             placeholder="XX123456"
@@ -1803,7 +1858,7 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
             valor={validade}
             aoMudar={setValidade}
             tipo="date"
-            dica={!falta('validade') && !validade ? 'Já vem do seu perfil' : undefined}
+            dica={doPerfil.includes('validade') ? 'Veio do seu perfil' : undefined}
           />
         )}
 
@@ -1814,7 +1869,10 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
         {req.exige_arquivo && (
           <>
             <label className="block">
-              <span className="t-aux">Arquivo (PDF, JPG, PNG ou WEBP, até 4 MB)</span>
+              <span className="t-aux">
+                Arquivo (PDF, JPG, PNG ou WEBP, até {LIMITE_TEXTO} — foto grande é reduzida no
+                envio)
+              </span>
               <input
                 type="file"
                 accept="application/pdf,image/jpeg,image/png,image/webp"
