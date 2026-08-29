@@ -211,6 +211,27 @@ Entregue junto com os arquivos:
 - **Se foi escrita direta**: o que foi inserido e o que foi *atualizado* em
   linha existente, para a pessoa poder desfazer.
 
+## O roteiro alimenta a aba HOJE
+
+Um roteiro bem extraído não serve só para ser lido — ele resolve o dia. A aba
+**Hoje** monta "o que é agora / o que vem depois / **saia às** / onde eu durmo"
+a partir dos MESMOS campos, sem dado novo. O que muda a qualidade da tela:
+
+- **`duracao_min` e `distancia_m` no item de DESTINO** ("para chegar no Casa
+  Lucio, 950 m a pé, 14 min"). É daí que sai o "Saia às 11:11", que é a única
+  conta que ninguém faz de cabeça no meio da rua. Sem `duracao_min` a tela não
+  mostra horário de saída nenhum — e é assim que tem que ser.
+- **`fim_em`** no que tem hora de terminar: é o que vira "1h06 restantes".
+- **`endereco`** no item e na reserva: é a tela que se vira para o motorista.
+- **`telefone`** na hospedagem.
+- **`fuso`** na viagem (`"Europe/Madrid"`): faz o "agora" valer o relógio do
+  destino quando alguém abre o app ainda em casa.
+
+Vale a regra de sempre, e aqui ela pesa mais: **ausente é melhor que chutado.**
+Esta é a tela que alguém lê com pressa e acredita sem conferir.
+
+Detalhe campo a campo em [reference/formato.md](reference/formato.md).
+
 ## Armadilhas já pagas
 
 - **`pdftotext -layout` intercala colunas de tabela.** Numa tabela de linha do tempo, a coluna de datas e a de descrições podem sair em blocos separados, e a associação data↔evento fica errada. Sempre confira alguns pares contra a lógica do texto corrido antes de gravar.

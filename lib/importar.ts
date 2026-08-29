@@ -50,10 +50,11 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
 
   q.push(sql`
     insert into trips (id, owner_id, nome, subtitulo, descricao, data_partida, data_retorno,
-                       moeda, cor_destaque, capa_url, arquivada, orcamento_centavos)
+                       moeda, fuso, cor_destaque, capa_url, arquivada, orcamento_centavos)
     values (${tripId}, ${ownerId}, ${d.viagem.nome}, ${d.viagem.subtitulo ?? null},
             ${d.viagem.descricao ?? null}, ${d.viagem.data_partida}, ${d.viagem.data_retorno},
-            ${d.viagem.moeda}, ${d.viagem.cor_destaque}, ${d.viagem.capa_url ?? null},
+            ${d.viagem.moeda}, ${d.viagem.fuso ?? null}, ${d.viagem.cor_destaque},
+            ${d.viagem.capa_url ?? null},
             ${d.viagem.arquivada}, ${d.viagem.orcamento_centavos ?? null})
   `)
 

@@ -14,6 +14,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import {
   Home,
+  CalendarClock,
   Map as IconeMapa,
   Plane,
   Ship,
@@ -37,11 +38,12 @@ import {
 import Link from 'next/link'
 import { useTrip } from './TripProvider.tsx'
 import { AppModal, Avatar } from './ui.tsx'
-import { formatarHora } from '@/lib/derive.ts'
+import { faseDaViagem, formatarHora } from '@/lib/derive.ts'
 import { registrarRecente } from '@/lib/recentes.ts'
 
 export type AbaId =
   | 'inicio'
+  | 'hoje'
   | 'roteiro'
   | 'voos'
   | 'cruzeiro'
@@ -61,6 +63,7 @@ type Aba = { id: AbaId; nome: string; icone: LucideIcon; grupo: string }
 // viver a viagem, preparar-se para ela, administrá-la.
 const ABAS: Aba[] = [
   { id: 'inicio', nome: 'Início', icone: Home, grupo: 'Viagem' },
+  { id: 'hoje', nome: 'Hoje', icone: CalendarClock, grupo: 'Viagem' },
   { id: 'roteiro', nome: 'Roteiro', icone: IconeMapa, grupo: 'Viagem' },
   { id: 'voos', nome: 'Voos', icone: Plane, grupo: 'Viagem' },
   { id: 'cruzeiro', nome: 'Cruzeiro', icone: Ship, grupo: 'Viagem' },
@@ -90,8 +93,16 @@ const abaDe = (a: AbaId): AbaId => ALIAS[a] ?? a
 const conhecida = (a: string | null | undefined): a is AbaId =>
   Boolean(a) && (a! in ALIAS || ABAS.some((x) => x.id === a))
 
-/** As quatro que ficam na barra do celular. O resto vive em "Mais". */
+/**
+ * As quatro que ficam na barra do celular. O resto vive em "Mais".
+ *
+ * `hoje` entra no lugar de `roteiro` DURANTE a viagem: andando por aí, o que se
+ * procura com pressa é o compromisso de agora, não o planejamento do mês. Fora da
+ * viagem ela continua alcançável pelo painel "Mais" — a tela sabe se explicar nas
+ * fases `antes` e `depois`, só não merece um dos quatro lugares.
+ */
 const NO_CELULAR: AbaId[] = ['inicio', 'roteiro', 'voos', 'emergencia']
+const NO_CELULAR_EM_VIAGEM: AbaId[] = ['inicio', 'hoje', 'voos', 'emergencia']
 
 const CHAVE_ABA = 'viagem:aba'
 
@@ -127,22 +138,41 @@ export function Shell({
     return a
   })
 
+  // A viagem está ACONTECENDO? Decide duas coisas: em que aba o app abre, e quais
+  // quatro ficam na barra do celular (ver NO_CELULAR).
+  const emViagem =
+    faseDaViagem(
+      new Date(),
+      snapshot?.viagem?.data_partida ?? null,
+      snapshot?.viagem?.data_retorno ?? null,
+    ).fase === 'durante'
+
   // Restaura a aba escolhida (UI-06). Só depois de montar, para não divergir do
   // HTML renderizado no servidor.
   //
   // `?aba=` na URL ganha da aba salva: quem clicou em "Checklist de documentos"
   // no Início pediu aquela aba, não a que ele abriu por último. Lido de
   // window.location e não de useSearchParams para não exigir <Suspense> aqui.
+  //
+  // Sem nenhuma das duas E com a viagem acontecendo, o app abre em HOJE — a troca
+  // de personalidade do app: antes da viagem a casa é o Início (o que falta
+  // preparar); durante, é o compromisso de agora. Uma escolha explícita nunca é
+  // sobrescrita. Cabe neste efeito porque o Shell só monta depois que a viagem
+  // chegou (ver `App` em viagens/[id]/page.tsx), então a fase já é conhecida.
   useEffect(() => {
     setMontado(true)
     try {
       const pedida = new URLSearchParams(window.location.search).get('aba') as AbaId | null
       const salva = sessionStorage.getItem(CHAVE_ABA) as AbaId | null
       const alvo = [pedida, salva].find(conhecida)
-      if (alvo) setAba(alvo as AbaId)
+      if (alvo) return setAba(alvo as AbaId)
     } catch {
-      /* sessionStorage bloqueado: começa no Início, sem drama */
+      /* sessionStorage bloqueado: cai na regra da fase abaixo, sem drama */
     }
+    if (emViagem) setAba('hoje')
+    // `emViagem` é lido uma vez, na montagem: trocar de aba sozinho enquanto
+    // alguém navega seria pior que abrir na aba errada uma vez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setAba])
 
   useEffect(() => {
@@ -172,8 +202,9 @@ export function Shell({
     registrarRecente({ viagemId, viagem: viagemNome, aba, nome: abaNome })
   }, [montado, viagemId, viagemNome, aba, abaNome])
 
-  const naBarra = visiveis.filter((a) => NO_CELULAR.includes(a.id))
-  const emMais = visiveis.filter((a) => !NO_CELULAR.includes(a.id))
+  const fixas = emViagem ? NO_CELULAR_EM_VIAGEM : NO_CELULAR
+  const naBarra = visiveis.filter((a) => fixas.includes(a.id))
+  const emMais = visiveis.filter((a) => !fixas.includes(a.id))
   const abaOcultaAtiva = emMais.some((a) => a.id === ativa)
 
   // Agrupa preservando a ordem de ABAS.

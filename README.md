@@ -18,6 +18,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Authorization](#authorization)
 - [Offline engine](#offline-engine)
 - [Required documentation](#required-documentation)
+- [The Hoje screen](#the-hoje-screen)
 - [Project layout](#project-layout)
 - [Getting started](#getting-started)
 - [Deploying](#deploying)
@@ -131,6 +132,14 @@ The same person is `proprietario` of their own trip and `visualizador` of a frie
 | --- | --- | --- |
 | `timestamp` (no tz) | Flight departures, check-ins, itinerary events | **Local time at the destination**, exactly as printed on the ticket. Converting time zones in an app used offline in transit is how you miss a flight. |
 | `timestamptz` | `updated_at`, `criado_em` | Real server time. This is what last-write-wins compares. |
+
+The **Hoje** tab is the one screen where "now" has to be compared against those
+naive timestamps, and it converts exactly one side: `trips.fuso` (an IANA name,
+nullable) turns the device clock into the destination's wall clock, and event
+times are never touched. Travelling, the two agree anyway — the phone switches
+zones on landing. Planning from home they don't, and without the conversion the
+screen would call the wrong day "today". Null `fuso` means "trust the device",
+which is correct in the case that matters most.
 
 Money is **always** integer cents. Never float, never `numeric`.
 
@@ -676,6 +685,46 @@ The engine feeds four screens without duplicating a single row:
 
 ---
 
+## The Hoje screen
+
+Every other tab answers "how is the trip shaping up". **Hoje** answers one
+question only: *what am I doing now and how do I get there.* It is the screen for
+someone standing on a street with one hand free and 12% of battery, so anything
+that does not serve that is deliberately absent — including good things.
+
+It becomes the default tab while `faseDaViagem` reports `durante`, and takes
+Roteiro's slot in the mobile bar for the same window. Before and after the trip it
+still opens (it explains itself: a countdown, or "viagem concluída") but it does
+not earn one of the four thumb-reachable slots.
+
+**It stores nothing.** `lib/hoje.ts` is pure, 47 tests, and derives every line
+from what the other modules already hold — the same reason `lib/preparacao.ts` has
+no table of its own. A stored "current activity" would go stale the moment nobody
+came back to unmark it, and this is the screen that must never lie about now.
+
+| Block | Derived from | The rule worth knowing |
+| --- | --- | --- |
+| **Agora** | `itinerary_events` + the clock | An event that has ended is never "now" — it steps aside so the next one gets the screen. With no `fim_em` (the column is optional and rarely filled) an item runs until the next one starts, capped at 90 minutes. |
+| **A seguir** | the next event + `duracao_min` | The gold **"Saia às"** panel is the loudest thing on the page, and the only computed time: `ocorre_em − duracao_min − margin`. Margins are per type (`voo` 30 min, `cruzeiro` 45, default 5) and overridable. |
+| **Depois disso (N)** | the rest of the day | Collapsed. The whole day already has a tab. |
+| **Onde eu durmo hoje** | `reservations` where `tipo = 'hospedagem'` | **Never hidden by the end of the itinerary.** At 23:00 the timeline is over and this is the only thing left that matters. On check-out day the hotel stays, labelled with the check-out time. |
+| **Rituais do dia** | `checklist_items` + `checklist_state` | Not a second checklist — the same rows, filtered to what is mine and due today. Ticking here ticks there, and syncs across the five devices. |
+
+The only write on the screen is that checkbox. Editing stays where editing lives.
+
+**Ingresso / Voucher** reuse `documentosDe` from `lib/cofre.ts` — a reference to
+the document already linked to the event or the reservation, opened through
+`cofreOffline.abrir()`, which reads the device's copy before the network. That is
+the museum-queue case: a QR code with no signal.
+
+**Endereço** does not open a map. It opens a full-screen panel with the address in
+`.t-endereco` and a copy button, because the actual task is *showing the phone to a
+driver*, and a map needs a network the traveller may not have. The map link is
+secondary and appears only with coordinates.
+
+Weather (`lib/clima.ts`) and the map link are the only online-dependent pieces, and
+both simply vanish without a network rather than showing a placeholder.
+
 ## Project layout
 
 ```
@@ -687,7 +736,7 @@ travel-guide/
 │   ├── (dashboard)/             # private — proxy redirects anonymous users to /login
 │   │   ├── dashboard/           # greeting + the trip in focus
 │   │   ├── viagens/             # trip list: create, duplicate, delete
-│   │   │   └── [id]/            # ← the trip app: Shell + TripProvider + 11 tabs
+│   │   │   └── [id]/            # ← the trip app: Shell + TripProvider + 12 tabs
 │   │   └── perfil/              # account, password, preferences
 │   ├── api/                     # 10 route handlers, all Node runtime
 │   ├── layout.tsx               # fonts self-hosted at build, toast provider
@@ -696,6 +745,7 @@ travel-guide/
 ├── components/
 │   ├── TripProvider.tsx         # client state: cache → network → optimistic → queue
 │   ├── Shell.tsx                # sidebar on desktop, 4-slot tab bar + "More" on mobile
+│   │                              # (the 4 change during the trip: Hoje replaces Roteiro)
 │   ├── EditorSheet.tsx          # ONE schema-driven editor for most entities
 │   ├── FormDespesa.tsx          # the money form: pagador, divisão, parcelas
 │   ├── CofreDocumento.tsx       # vault pieces: card, preview, small modal, offline hook
@@ -845,7 +895,7 @@ node .claude/skills/viagem-para-json/scripts/validar.mjs db/europa-2027.json
 
 ## Testing
 
-### Unit — 290 passing
+### Unit — 375 passing
 
 ```
 lib/derive.test.ts     73 tests  pure calculations: dates, phases, countdowns,
@@ -860,6 +910,11 @@ lib/financeiro.test.ts 44 tests  the money engine: exact splits, weights, custom
                                  amounts, installment schedules, overdue/partial/paid,
                                  balances, debt simplification, and the privacy cut —
                                  what a common traveller is allowed to receive
+lib/hoje.test.ts       47 tests  the Hoje screen's engine: which event is "now" and when a
+                                 missing `fim_em` stops counting, the departure time and its
+                                 per-type margin, tonight's lodging across check-out day,
+                                 the checklist slice that is due today, the address the
+                                 driver reads, and the destination clock in another zone
 lib/documentacao.test.ts 38      required documentation: the whole traffic light, the
                                  precedence between expiry and review, what counts as
                                  delivered, the matrix and its two reports

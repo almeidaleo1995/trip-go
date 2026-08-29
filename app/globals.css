@@ -142,6 +142,43 @@ body {
   color: var(--color-tinta-3);
 }
 
+/* Três papéis da tela HOJE, lida de pé, com uma mão, no sol. Entram na escala em
+   vez de virarem tamanho solto no componente — a regra acima vale para eles. */
+
+/* Nome do compromisso em curso. Maior que .t-pagina: aqui ele É a página. */
+.t-agora {
+  font-size: 24px;
+  line-height: 1.15;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+/* O horário que se lê de relance: a hora de sair. */
+.t-hora {
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* O endereço que se mostra ao motorista, do outro lado do balcão. */
+.t-endereco {
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+}
+
+@media (min-width: 768px) {
+  .t-agora {
+    font-size: 26px;
+  }
+  .t-endereco {
+    font-size: 40px;
+  }
+}
+
 @media (min-width: 768px) {
   .t-pagina {
     font-size: 28px;

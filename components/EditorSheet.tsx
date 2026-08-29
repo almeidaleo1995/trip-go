@@ -111,6 +111,13 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
       { chave: 'data_retorno', rotulo: 'Retorno', tipo: 'data', obrigatorio: true, grupo: DATAS },
       { chave: 'moeda', rotulo: 'Moeda', tipo: 'texto', dica: 'BRL, EUR, USD', grupo: 'Aparência' },
       {
+        chave: 'fuso',
+        rotulo: 'Fuso do destino',
+        tipo: 'texto',
+        dica: 'Europe/Madrid — vazio usa o relógio do aparelho',
+        grupo: DATAS,
+      },
+      {
         chave: 'cor_destaque',
         rotulo: 'Cor de destaque',
         tipo: 'texto',

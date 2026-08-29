@@ -46,6 +46,10 @@ create table if not exists trips (
   data_partida  date not null,
   data_retorno  date not null,
   moeda         text not null default 'BRL',
+  -- Fuso IANA do destino ("Europe/Madrid"). Nulo = usar o relogio do aparelho,
+  -- que e o certo em transito: o celular troca de fuso sozinho ao pousar. So a
+  -- tela HOJE le isto, e so para saber que horas sao LA quando se planeja daqui.
+  fuso          text,
   cor_destaque  text not null default '#0F766E',
   capa_url      text,
   arquivada     boolean not null default false,
@@ -622,6 +626,9 @@ alter table trips     add column if not exists arquivada  boolean not null defau
 -- não do vínculo com uma viagem — a moeda preferida vale em todas elas.
 alter table users     add column if not exists telefone         text;
 alter table users     add column if not exists moeda_preferida  text not null default 'BRL';
+
+-- Fuso do destino, para a tela HOJE saber que horas sao la (ver bloco `trips`).
+alter table trips     add column if not exists fuso             text;
 alter table users     add column if not exists notificacoes     boolean not null default true;
 
 alter table travelers add column if not exists user_id    text references users(id) on delete set null;

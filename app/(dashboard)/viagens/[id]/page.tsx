@@ -19,6 +19,7 @@ import { Checklist } from '@/components/tabs/Checklist.tsx'
 import { Preparacao } from '@/components/tabs/Preparacao.tsx'
 import { Financeiro } from '@/components/tabs/Financeiro.tsx'
 import { Dados } from '@/components/tabs/Dados.tsx'
+import { Hoje } from '@/components/tabs/Hoje.tsx'
 
 export default function ViagemPagina({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -74,6 +75,7 @@ function App() {
       <div className="sem-impressao">
         <Shell aba={aba} setAba={setAba}>
           {aba === 'inicio' && <Inicio irPara={setAba} />}
+          {aba === 'hoje' && <Hoje irPara={setAba} />}
           {aba === 'roteiro' && <Roteiro />}
           {aba === 'voos' && <Voos />}
           {aba === 'cruzeiro' && <Cruzeiro />}
