@@ -11,6 +11,17 @@ const inter = Inter({ subsets: ['latin'], variable: '--fonte-inter', display: 's
 export const metadata: Metadata = {
   title: siteConfig.nome,
   description: 'Roteiro, voos, hospedagem e checklist da viagem do grupo. Funciona offline.',
+  // Sem isto o app não é INSTALÁVEL, e no iPhone isso custa os dados offline:
+  // o Safari limpa o armazenamento (IndexedDB incluído) de site não visitado há
+  // 7 dias, e só quem está na Tela de Início escapa da regra. Ver app/manifest.ts.
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: siteConfig.nome,
+    // A barra de status fica translúcida sobre o teal do topo, em vez de uma
+    // faixa branca colada acima do cabeçalho.
+    statusBarStyle: 'black-translucent',
+  },
 }
 
 export const viewport: Viewport = {

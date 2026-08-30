@@ -19,6 +19,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Offline engine](#offline-engine)
 - [Required documentation](#required-documentation)
 - [The Hoje screen](#the-hoje-screen)
+- [Installing and rate limits](#installing-and-rate-limits)
 - [Project layout](#project-layout)
 - [Getting started](#getting-started)
 - [Deploying](#deploying)
@@ -725,6 +726,58 @@ secondary and appears only with coordinates.
 Weather (`lib/clima.ts`) and the map link are the only online-dependent pieces, and
 both simply vanish without a network rather than showing a placeholder.
 
+## Installing and rate limits
+
+### The manifest is code, and it is not decoration
+
+`app/manifest.ts` is a Metadata Route, not a static `public/manifest.json`, for the
+project's own reason: **no brand string lives outside `config/site.ts`**, and the
+manifest needs the name, the description and two colours. A static JSON would make
+rebranding a two-file job, and the second file is the one everybody forgets.
+
+Why it matters more than an icon: **without a manifest the app is not
+installable**, and on iPhone that costs the offline data. Safari clears storage —
+IndexedDB included, which is where the cached trip and the vault files live — for
+any site not visited in 7 days. A site added to the Home Screen is exempt. Without
+it, someone prepares the trip in November, boards in March, opens the app on the
+plane and finds it empty: the exact scenario this app exists to prevent.
+
+What ships:
+
+| | |
+| --- | --- |
+| `/manifest.webmanifest` | Generated from `siteConfig` + `theme`. `display: standalone`, `start_url: /viagens` — whoever installed it already chose. |
+| `public/icone-192.png`, `icone-512.png` | The `any` icons. |
+| `public/icone-maskable-512.png` | Android crops icons to the system shape and eats up to 20% of each edge; this one has the artwork inside that safe zone. |
+| `app/apple-icon.png` | 180×180, square and opaque — iOS applies its own mask, so a pre-rounded icon would be a rounded square inside a rounded square. |
+
+Next emits `mobile-web-app-capable` (the standardised name) rather than the
+deprecated `apple-mobile-web-app-capable`. iOS 16.4+ honours the manifest's
+`display: standalone` on its own.
+
+**Still manual:** somebody has to actually tap "Add to Home Screen" on each phone.
+Nothing in the app asks them to yet.
+
+### Two limits, two different abuses
+
+`lib/session.ts` has one counter and two policies, because signing in and signing
+up are attacked differently:
+
+| | Counts | Limit | Reset |
+| --- | --- | --- | --- |
+| **Sign-in** (`/api/sessao`) | only *wrong* attempts | 10 / 5 min, then 15 min blocked | success clears the window |
+| **Sign-up** (`/api/usuarios`) | **every** attempt, success included | 5 / hour, then 1 hour blocked | never — that is the point |
+
+The asymmetry is the whole design. What you block at sign-in is somebody *guessing
+a password*, so only failures count and a correct password clears the slate. What
+you block at sign-up is the account created **successfully** — a thousand rows from
+one IP, each one also firing `vincularParticipantesPorEmail`. Counting only
+failures there would stop nothing.
+
+Keys are namespaced (`cadastro:<ip>`), so a botched login cannot eat the sign-up
+quota of somebody on the same network. Both routes check the block **before**
+scrypt: checking after would make the rate limit its own load vector.
+
 ## Project layout
 
 ```
@@ -1117,7 +1170,7 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | --- | --- | --- |
 | **`db/europa-2027.json` is a v1 file** | It still uses `viajantes` and `hospedagens`. The current schema expects `participantes` and `reservas`, and zod **strips unknown keys** — so importing it today yields a trip with **0 participants and 0 reservations**, silently. | Rename the two keys, map `papel: admin → proprietario`, drop `pin`, set `schemaVersion: 2`. Better still, make `TripImportSchema` `.strict()` so drift becomes an error. |
 | **Integration suite targets the removed PIN API** | `npm run test:api` fails wholesale. | Rewrite the 26 tests against accounts. The list of behaviours to preserve is in [Testing](#testing). |
-| **Rate limit is per instance** | The counter lives in process memory. On serverless each instance keeps its own, so a distributed attacker gets more than 10 attempts per window. Marked with a `ponytail:` comment at the source. | Move the counter into a Neon table. It is a local change in `lib/session.ts`. |
+| **Rate limit is per instance** | The counter lives in process memory. On serverless each instance keeps its own, so a distributed attacker gets more than the limit per window. Covers both sign-in (10 wrong attempts / 5 min) and sign-up (5 attempts / hour, counting the successful ones — see [Installing and rate limits](#installing-and-rate-limits)). Marked with a `ponytail:` comment at the source. | Move the counter into a Neon table. It is a local change in `lib/session.ts`. |
 | **Last-write-wins** | Two people editing the **same record** inside one sync window: the older write is dropped and reported. Nothing vanishes untraceably — `change_log` keeps both. | Per-field merge, or CRDTs if it ever justifies the cost. |
 | **Routes referenced but not built** | `/esqueci-senha` is listed as public, `/configuracoes`, `/privacidade` and `/termos` are linked from `config/site.ts` and from participant notifications. All 404. | Build the pages, or remove the links. Password reset needs an email provider. |
 | **Vault files cap at 25 MB** | Not an edge limit any more — the upload is chunked. Vercel rejects any request body *or response body* over 4.5 MB (`FUNCTION_PAYLOAD_TOO_LARGE`), so `lib/arquivo.ts` slices the file into 4 MiB parts and posts them in series, and `GET /api/documento` answers with a `ReadableStream` fed by `substring(bytes …)` — streamed responses have no size cap. 25 MB is the vault's own judgement: a document marked `offline` is pulled down in full to every phone's IndexedDB. Photos over one part are still shrunk to 2000px JPEG, because 8 MB of passport photo reads the same as 500 KB. | Direct-to-bucket upload with a signed URL, when files outgrow what belongs in Postgres and in an offline cache. |

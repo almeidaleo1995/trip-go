@@ -15,6 +15,7 @@ import {
   limparFalhas,
   _resetRateLimit,
   LIMITE,
+  LIMITES_CADASTRO,
   JANELA_MS,
   BLOQUEIO_MS,
 } from './session.ts'
@@ -112,6 +113,32 @@ test('tentativas velhas saem da janela de 5 minutos', () => {
   for (let i = 0; i < LIMITE; i++) registrarFalha('ip3', t0)
   // passada a janela, o contador reinicia e nao bloqueia
   assert.equal(registrarFalha('ip3', t0 + JANELA_MS + 1).bloqueado, false)
+})
+
+test('o cadastro tem limite proprio, mais apertado que o do login', () => {
+  const t0 = 2_000_000
+  // Cinco passam; a sexta bloqueia — bem antes das 10 do login.
+  for (let i = 0; i < LIMITES_CADASTRO.limite; i++) {
+    assert.equal(
+      registrarFalha('cadastro:ipA', t0, LIMITES_CADASTRO).bloqueado,
+      false,
+      `cadastro ${i + 1} nao deveria bloquear`,
+    )
+  }
+  assert.equal(registrarFalha('cadastro:ipA', t0, LIMITES_CADASTRO).bloqueado, true)
+  // E o bloqueio do cadastro dura uma hora, nao quinze minutos.
+  assert.equal(estaBloqueado('cadastro:ipA', t0 + 30 * 60 * 1000), true)
+  assert.equal(estaBloqueado('cadastro:ipA', t0 + LIMITES_CADASTRO.bloqueioMs + 1), false)
+})
+
+test('a cota do cadastro nao e consumida por erro de login do mesmo IP', () => {
+  const t0 = 3_000_000
+  // O login do mesmo IP estoura a cota dele...
+  for (let i = 0; i <= LIMITE; i++) registrarFalha('9.9.9.9', t0)
+  assert.equal(estaBloqueado('9.9.9.9', t0), true)
+  // ...e quem tenta se cadastrar da mesma rede continua passando.
+  assert.equal(estaBloqueado('cadastro:9.9.9.9', t0), false)
+  assert.equal(registrarFalha('cadastro:9.9.9.9', t0, LIMITES_CADASTRO).bloqueado, false)
 })
 
 test('cada chave tem sua propria janela', () => {

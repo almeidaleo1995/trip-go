@@ -124,18 +124,46 @@ export const LIMITE = 10
 export const JANELA_MS = 5 * 60 * 1000
 export const BLOQUEIO_MS = 15 * 60 * 1000
 
+export type Limites = { limite: number; janelaMs: number; bloqueioMs: number }
+
+/** Limites do login: contam TENTATIVAS ERRADAS, e o acerto zera a janela. */
+export const LIMITES_LOGIN: Limites = {
+  limite: LIMITE,
+  janelaMs: JANELA_MS,
+  bloqueioMs: BLOQUEIO_MS,
+}
+
 /**
- * Registra uma tentativa falha e diz se a chave esta bloqueada.
+ * Limites do cadastro. Mais apertados, e por um motivo diferente: no login o que
+ * se barra e quem CHUTA senha, entao so a falha conta e o acerto limpa. No
+ * cadastro o abuso e a conta criada COM SUCESSO — mil contas de um IP so. Por
+ * isso a rota conta toda tentativa, certa ou errada, e nunca chama
+ * `limparFalhas`. Cinco por hora nao atrapalha uma familia inteira se cadastrando
+ * na mesma rede, e corta a criacao em massa.
+ */
+export const LIMITES_CADASTRO: Limites = {
+  limite: 5,
+  janelaMs: 60 * 60 * 1000,
+  bloqueioMs: 60 * 60 * 1000,
+}
+
+/**
+ * Registra uma tentativa contra `chave` e diz se ela passou do limite.
  * Devolve `{ bloqueado, restamMs }`.
  *
+ * O que conta como "tentativa" e de quem chama: o login registra so o que falha,
+ * o cadastro registra tudo. A janela e por chave, entao namespaces diferentes
+ * (`cadastro:1.2.3.4`) nao disputam o mesmo contador.
+ *
  * ponytail: contador em memoria do processo. Em serverless cada instancia tem o
- * seu, entao um atacante distribuido consegue mais que 10 tentativas por janela -
+ * seu, entao um atacante distribuido consegue mais que o limite por janela -
  * mitigacao parcial, assumida e documentada no README. Se virar preocupacao real,
  * mover o contador para uma tabela no Neon e uma troca local.
  */
 export function registrarFalha(
   chave: string,
   agora = Date.now(),
+  limites: Limites = LIMITES_LOGIN,
 ): { bloqueado: boolean; restamMs: number } {
   const j = janelas.get(chave) ?? { tentativas: [], bloqueadoAte: 0 }
 
@@ -144,14 +172,14 @@ export function registrarFalha(
     return { bloqueado: true, restamMs: j.bloqueadoAte - agora }
   }
 
-  j.tentativas = j.tentativas.filter((t) => agora - t < JANELA_MS)
+  j.tentativas = j.tentativas.filter((t) => agora - t < limites.janelaMs)
   j.tentativas.push(agora)
 
-  if (j.tentativas.length > LIMITE) {
-    j.bloqueadoAte = agora + BLOQUEIO_MS
+  if (j.tentativas.length > limites.limite) {
+    j.bloqueadoAte = agora + limites.bloqueioMs
     j.tentativas = []
     janelas.set(chave, j)
-    return { bloqueado: true, restamMs: BLOQUEIO_MS }
+    return { bloqueado: true, restamMs: limites.bloqueioMs }
   }
 
   janelas.set(chave, j)
