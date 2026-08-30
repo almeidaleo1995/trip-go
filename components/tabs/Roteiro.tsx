@@ -441,7 +441,11 @@ function Cabecalho({
           )}
         </div>
 
-        <div className="sem-impressao flex shrink-0 items-center gap-1.5">
+        {/* `flex-wrap` + `max-w-full` pelo mesmo motivo do slot de ação do
+            `Titulo` (components/ui.tsx): sozinho, o `shrink-0` empurra a barra
+            de rolagem horizontal para fora quando as três ações não cabem na
+            largura da tela — o que acontece em 320px. */}
+        <div className="sem-impressao flex max-w-full shrink-0 flex-wrap items-center gap-1.5">
           <AdminAcoes entidade="dia" registro={dia.meta ?? { dia: dia.chave }}>
             Editar dia
           </AdminAcoes>
