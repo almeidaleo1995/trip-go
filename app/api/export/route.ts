@@ -92,6 +92,7 @@ export const GET = rota(async (req) => {
       data_partida: dia(v.data_partida)!,
       data_retorno: dia(v.data_retorno)!,
       moeda: String(v.moeda),
+      fuso: texto(v.fuso),
       cor_destaque: String(v.cor_destaque),
       orcamento_centavos: numero(v.orcamento_centavos),
     },

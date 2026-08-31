@@ -160,6 +160,8 @@ export const ViagemSchema = z.object({
   data_partida: Data,
   data_retorno: Data,
   moeda: z.string().length(3, 'use o codigo de 3 letras, ex: BRL').default('BRL'),
+  /** Fuso IANA do destino ("Europe/Madrid"). Nulo = relogio do aparelho. */
+  fuso: TextoOpc,
   cor_destaque: Cor.default('#0F766E'),
   capa_url: Url,
   arquivada: z.boolean().default(false),

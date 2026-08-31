@@ -14,6 +14,7 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
     "data_partida": "2026-12-30",                     // AAAA-MM-DD, sem hora
     "data_retorno": "2027-01-15",
     "moeda": "EUR",                                   // 3 letras; padrão EUR
+    "fuso": "Europe/Madrid",                          // fuso IANA do destino; null = relógio do aparelho
     "cor_destaque": "#0F766E"                         // hex de 6 dígitos
   },
 
@@ -31,11 +32,16 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
   "roteiro": [
     {
       "ocorre_em": "2026-12-30T10:30",  // hora LOCAL DO DESTINO. sem Z, sem offset
+      "fim_em": "2026-12-30T13:00",     // sem ele a aba HOJE não conta quanto falta
       "titulo": "LA719 Florianópolis → Santiago",
       "cidade": "Florianópolis",
       "local": "Aeroporto Hercílio Luz",
+      "endereco": "Rod. Ac. Norte, 4204, 88047-902 Florianópolis",  // vira a tela do motorista
+      "lat": -27.6705, "lon": -48.5477,  // só se o documento trouxer; NUNCA inventar
       "descricao": "Check-in internacional pede 3h.",
       "tipo": "voo",       // voo|hospedagem|cruzeiro|passeio|traslado|documento|refeicao
+      // O DESLOCAMENTO ATÉ AQUI (não a partir daqui). É o que calcula "saia às".
+      "distancia_m": 950, "duracao_min": 14, "transporte": "a_pe",
       "ancora": true       // só no que não pode ser perdido
     }
   ],
@@ -78,7 +84,11 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
     { "tipo": "hospedagem",   // hospedagem|restaurante|passeio|ingresso|carro|transporte|outro
       "nome": "Hotel em Madri", "cidade": "Madri",
       "inicio_em": "2026-12-31T15:00", "fim_em": "2027-01-01T11:00",  // noites são calculadas
-      "endereco": null, "link": null, "localizador": null }
+      // endereço e telefone alimentam "Onde eu durmo hoje": sem eles o cartão
+      // aparece sem os botões de virar o celular e de ligar.
+      "endereco": "Calle Atocha, 36, 28012 Madrid",
+      "telefone": "+34 91 369 71 71",
+      "link": null, "localizador": null }
   ],
 
   "lugares": [
@@ -214,3 +224,34 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
 | `"papel": "admin"` | `participantes[0].papel: Invalid option` (hoje é `proprietario`/`editor`/`visualizador`) |
 | `"lat": 120` | `lugares[0].lat: Too big` |
 | `"parcelas": [{ "numero": 0 }]` | `custos[0].parcelas[0].numero: a primeira parcela e a 1` |
+
+## O que a aba HOJE consome
+
+A aba **Hoje** é o roteiro reduzido ao que serve durante a viagem: o compromisso em
+curso, o próximo, a hora de sair, onde se dorme e o que falta marcar. Ela não tem
+dado próprio — lê o que já está no roteiro. Preencher estes campos é o que separa
+um roteiro que só se lê de um que resolve o dia:
+
+| Campo | Onde | O que acende na tela |
+| --- | --- | --- |
+| `fim_em` | `roteiro[]` | A contagem "1h06 restantes". Sem ele, só o horário de início. |
+| `duracao_min` | `roteiro[]` | **"Saia às 11:11"** — o cálculo mais útil da tela. Sem ele, não existe. |
+| `distancia_m` | `roteiro[]` | "950 m" ao lado do tempo. |
+| `transporte` | `roteiro[]` | O ícone e a palavra: `a_pe`, `metro`, `onibus`, `trem`, `taxi`, `carro`, `barco`, `aviao`. |
+| `endereco` | `roteiro[]`, `reservas[]` | O botão **Endereço**, que abre a tela de virar o celular para o motorista. |
+| `lat`/`lon` | `roteiro[]`, `lugares[]` | "Abrir no mapa" e o clima da cidade. |
+| `telefone` | `reservas[]` | O botão **Telefone** do hotel. |
+| `fuso` | `viagem` | Que horas são NO DESTINO quando se abre o app de casa. |
+
+Duas regras ao extrair documentos:
+
+- **`duracao_min` e `distancia_m` moram no item de DESTINO**, não no de origem — é o
+  deslocamento *até ali*. "Para chegar no Casa Lucio, 950 m a pé" fica no almoço.
+- **Coordenada não se inventa.** Sem `lat`/`lon` no documento, deixe `null`: o mapa
+  some, e some é melhor que um pino no lugar errado. O mesmo vale para endereço,
+  telefone e horário de término — ausente é melhor que chutado, porque esta é a
+  tela que alguém lê com pressa e acredita.
+
+Um ingresso ou voucher aparece na aba Hoje quando o documento está ligado ao item
+(`documento.itinerary_event_id`) ou à reserva (`documento.reservation_id`) — é o
+mesmo vínculo que o cofre já usa, sem cópia de arquivo.

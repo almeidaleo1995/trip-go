@@ -127,7 +127,15 @@ export function Titulo({
         <H className={nivel === 1 ? 't-pagina' : 't-secao'}>{children}</H>
         {descricao && <p className="t-aux mt-1">{descricao}</p>}
       </div>
-      {acao && <div className="flex shrink-0 items-center gap-2">{acao}</div>}
+      {/* `shrink-0` existe para os botões não virarem reticências quando o título
+          é longo. Mas sozinho ele estoura a PÁGINA quando as próprias ações são
+          mais largas que a tela (dois botões de texto em 320px): o bloco se
+          recusa a encolher e empurra uma barra de rolagem horizontal para fora.
+          `flex-wrap` + `max-w-full` mantêm a intenção e resolvem: em vez de
+          transbordar, as ações caem para a linha de baixo. */}
+      {acao && (
+        <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{acao}</div>
+      )}
     </div>
   )
 }
@@ -429,7 +437,11 @@ export function BotaoIcone({
       disabled={desabilitado}
       onClick={onClick}
       style={{ transition: 'all var(--transicao)' }}
-      className={`flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl disabled:cursor-not-allowed disabled:opacity-50 ${estilos}`}
+      // 36x36 é o tamanho VISUAL — encolher a linha para caber 44px de botão em
+      // toda listagem densa seria pior. A área de TOQUE vai a 44x44 pelo
+      // pseudo-elemento, que não ocupa espaço no layout: o dedo acerta os 44 do
+      // `.toque` sem que o desenho mude um pixel.
+      className={`relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl after:absolute after:-inset-1 after:content-[''] disabled:cursor-not-allowed disabled:opacity-50 ${estilos}`}
     >
       {children}
     </button>

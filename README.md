@@ -18,6 +18,8 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Authorization](#authorization)
 - [Offline engine](#offline-engine)
 - [Required documentation](#required-documentation)
+- [The Hoje screen](#the-hoje-screen)
+- [Installing and rate limits](#installing-and-rate-limits)
 - [Project layout](#project-layout)
 - [Getting started](#getting-started)
 - [Deploying](#deploying)
@@ -131,6 +133,14 @@ The same person is `proprietario` of their own trip and `visualizador` of a frie
 | --- | --- | --- |
 | `timestamp` (no tz) | Flight departures, check-ins, itinerary events | **Local time at the destination**, exactly as printed on the ticket. Converting time zones in an app used offline in transit is how you miss a flight. |
 | `timestamptz` | `updated_at`, `criado_em` | Real server time. This is what last-write-wins compares. |
+
+The **Hoje** tab is the one screen where "now" has to be compared against those
+naive timestamps, and it converts exactly one side: `trips.fuso` (an IANA name,
+nullable) turns the device clock into the destination's wall clock, and event
+times are never touched. Travelling, the two agree anyway — the phone switches
+zones on landing. Planning from home they don't, and without the conversion the
+screen would call the wrong day "today". Null `fuso` means "trust the device",
+which is correct in the case that matters most.
 
 Money is **always** integer cents. Never float, never `numeric`.
 
@@ -676,6 +686,98 @@ The engine feeds four screens without duplicating a single row:
 
 ---
 
+## The Hoje screen
+
+Every other tab answers "how is the trip shaping up". **Hoje** answers one
+question only: *what am I doing now and how do I get there.* It is the screen for
+someone standing on a street with one hand free and 12% of battery, so anything
+that does not serve that is deliberately absent — including good things.
+
+It becomes the default tab while `faseDaViagem` reports `durante`, and takes
+Roteiro's slot in the mobile bar for the same window. Before and after the trip it
+still opens (it explains itself: a countdown, or "viagem concluída") but it does
+not earn one of the four thumb-reachable slots.
+
+**It stores nothing.** `lib/hoje.ts` is pure, 47 tests, and derives every line
+from what the other modules already hold — the same reason `lib/preparacao.ts` has
+no table of its own. A stored "current activity" would go stale the moment nobody
+came back to unmark it, and this is the screen that must never lie about now.
+
+| Block | Derived from | The rule worth knowing |
+| --- | --- | --- |
+| **Agora** | `itinerary_events` + the clock | An event that has ended is never "now" — it steps aside so the next one gets the screen. With no `fim_em` (the column is optional and rarely filled) an item runs until the next one starts, capped at 90 minutes. |
+| **A seguir** | the next event + `duracao_min` | The gold **"Saia às"** panel is the loudest thing on the page, and the only computed time: `ocorre_em − duracao_min − margin`. Margins are per type (`voo` 30 min, `cruzeiro` 45, default 5) and overridable. |
+| **Depois disso (N)** | the rest of the day | Collapsed. The whole day already has a tab. |
+| **Onde eu durmo hoje** | `reservations` where `tipo = 'hospedagem'` | **Never hidden by the end of the itinerary.** At 23:00 the timeline is over and this is the only thing left that matters. On check-out day the hotel stays, labelled with the check-out time. |
+| **Rituais do dia** | `checklist_items` + `checklist_state` | Not a second checklist — the same rows, filtered to what is mine and due today. Ticking here ticks there, and syncs across the five devices. |
+
+The only write on the screen is that checkbox. Editing stays where editing lives.
+
+**Ingresso / Voucher** reuse `documentosDe` from `lib/cofre.ts` — a reference to
+the document already linked to the event or the reservation, opened through
+`cofreOffline.abrir()`, which reads the device's copy before the network. That is
+the museum-queue case: a QR code with no signal.
+
+**Endereço** does not open a map. It opens a full-screen panel with the address in
+`.t-endereco` and a copy button, because the actual task is *showing the phone to a
+driver*, and a map needs a network the traveller may not have. The map link is
+secondary and appears only with coordinates.
+
+Weather (`lib/clima.ts`) and the map link are the only online-dependent pieces, and
+both simply vanish without a network rather than showing a placeholder.
+
+## Installing and rate limits
+
+### The manifest is code, and it is not decoration
+
+`app/manifest.ts` is a Metadata Route, not a static `public/manifest.json`, for the
+project's own reason: **no brand string lives outside `config/site.ts`**, and the
+manifest needs the name, the description and two colours. A static JSON would make
+rebranding a two-file job, and the second file is the one everybody forgets.
+
+Why it matters more than an icon: **without a manifest the app is not
+installable**, and on iPhone that costs the offline data. Safari clears storage —
+IndexedDB included, which is where the cached trip and the vault files live — for
+any site not visited in 7 days. A site added to the Home Screen is exempt. Without
+it, someone prepares the trip in November, boards in March, opens the app on the
+plane and finds it empty: the exact scenario this app exists to prevent.
+
+What ships:
+
+| | |
+| --- | --- |
+| `/manifest.webmanifest` | Generated from `siteConfig` + `theme`. `display: standalone`, `start_url: /viagens` — whoever installed it already chose. |
+| `public/icone-192.png`, `icone-512.png` | The `any` icons. |
+| `public/icone-maskable-512.png` | Android crops icons to the system shape and eats up to 20% of each edge; this one has the artwork inside that safe zone. |
+| `app/apple-icon.png` | 180×180, square and opaque — iOS applies its own mask, so a pre-rounded icon would be a rounded square inside a rounded square. |
+
+Next emits `mobile-web-app-capable` (the standardised name) rather than the
+deprecated `apple-mobile-web-app-capable`. iOS 16.4+ honours the manifest's
+`display: standalone` on its own.
+
+**Still manual:** somebody has to actually tap "Add to Home Screen" on each phone.
+Nothing in the app asks them to yet.
+
+### Two limits, two different abuses
+
+`lib/session.ts` has one counter and two policies, because signing in and signing
+up are attacked differently:
+
+| | Counts | Limit | Reset |
+| --- | --- | --- | --- |
+| **Sign-in** (`/api/sessao`) | only *wrong* attempts | 10 / 5 min, then 15 min blocked | success clears the window |
+| **Sign-up** (`/api/usuarios`) | **every** attempt, success included | 5 / hour, then 1 hour blocked | never — that is the point |
+
+The asymmetry is the whole design. What you block at sign-in is somebody *guessing
+a password*, so only failures count and a correct password clears the slate. What
+you block at sign-up is the account created **successfully** — a thousand rows from
+one IP, each one also firing `vincularParticipantesPorEmail`. Counting only
+failures there would stop nothing.
+
+Keys are namespaced (`cadastro:<ip>`), so a botched login cannot eat the sign-up
+quota of somebody on the same network. Both routes check the block **before**
+scrypt: checking after would make the rate limit its own load vector.
+
 ## Project layout
 
 ```
@@ -687,7 +789,7 @@ travel-guide/
 │   ├── (dashboard)/             # private — proxy redirects anonymous users to /login
 │   │   ├── dashboard/           # greeting + the trip in focus
 │   │   ├── viagens/             # trip list: create, duplicate, delete
-│   │   │   └── [id]/            # ← the trip app: Shell + TripProvider + 11 tabs
+│   │   │   └── [id]/            # ← the trip app: Shell + TripProvider + 12 tabs
 │   │   └── perfil/              # account, password, preferences
 │   ├── api/                     # 10 route handlers, all Node runtime
 │   ├── layout.tsx               # fonts self-hosted at build, toast provider
@@ -696,6 +798,7 @@ travel-guide/
 ├── components/
 │   ├── TripProvider.tsx         # client state: cache → network → optimistic → queue
 │   ├── Shell.tsx                # sidebar on desktop, 4-slot tab bar + "More" on mobile
+│   │                              # (the 4 change during the trip: Hoje replaces Roteiro)
 │   ├── EditorSheet.tsx          # ONE schema-driven editor for most entities
 │   ├── FormDespesa.tsx          # the money form: pagador, divisão, parcelas
 │   ├── CofreDocumento.tsx       # vault pieces: card, preview, small modal, offline hook
@@ -845,7 +948,7 @@ node .claude/skills/viagem-para-json/scripts/validar.mjs db/europa-2027.json
 
 ## Testing
 
-### Unit — 290 passing
+### Unit — 375 passing
 
 ```
 lib/derive.test.ts     73 tests  pure calculations: dates, phases, countdowns,
@@ -860,6 +963,11 @@ lib/financeiro.test.ts 44 tests  the money engine: exact splits, weights, custom
                                  amounts, installment schedules, overdue/partial/paid,
                                  balances, debt simplification, and the privacy cut —
                                  what a common traveller is allowed to receive
+lib/hoje.test.ts       47 tests  the Hoje screen's engine: which event is "now" and when a
+                                 missing `fim_em` stops counting, the departure time and its
+                                 per-type margin, tonight's lodging across check-out day,
+                                 the checklist slice that is due today, the address the
+                                 driver reads, and the destination clock in another zone
 lib/documentacao.test.ts 38      required documentation: the whole traffic light, the
                                  precedence between expiry and review, what counts as
                                  delivered, the matrix and its two reports
@@ -1062,7 +1170,7 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | --- | --- | --- |
 | **`db/europa-2027.json` is a v1 file** | It still uses `viajantes` and `hospedagens`. The current schema expects `participantes` and `reservas`, and zod **strips unknown keys** — so importing it today yields a trip with **0 participants and 0 reservations**, silently. | Rename the two keys, map `papel: admin → proprietario`, drop `pin`, set `schemaVersion: 2`. Better still, make `TripImportSchema` `.strict()` so drift becomes an error. |
 | **Integration suite targets the removed PIN API** | `npm run test:api` fails wholesale. | Rewrite the 26 tests against accounts. The list of behaviours to preserve is in [Testing](#testing). |
-| **Rate limit is per instance** | The counter lives in process memory. On serverless each instance keeps its own, so a distributed attacker gets more than 10 attempts per window. Marked with a `ponytail:` comment at the source. | Move the counter into a Neon table. It is a local change in `lib/session.ts`. |
+| **Rate limit is per instance** | The counter lives in process memory. On serverless each instance keeps its own, so a distributed attacker gets more than the limit per window. Covers both sign-in (10 wrong attempts / 5 min) and sign-up (5 attempts / hour, counting the successful ones — see [Installing and rate limits](#installing-and-rate-limits)). Marked with a `ponytail:` comment at the source. | Move the counter into a Neon table. It is a local change in `lib/session.ts`. |
 | **Last-write-wins** | Two people editing the **same record** inside one sync window: the older write is dropped and reported. Nothing vanishes untraceably — `change_log` keeps both. | Per-field merge, or CRDTs if it ever justifies the cost. |
 | **Routes referenced but not built** | `/esqueci-senha` is listed as public, `/configuracoes`, `/privacidade` and `/termos` are linked from `config/site.ts` and from participant notifications. All 404. | Build the pages, or remove the links. Password reset needs an email provider. |
 | **Vault files cap at 25 MB** | Not an edge limit any more — the upload is chunked. Vercel rejects any request body *or response body* over 4.5 MB (`FUNCTION_PAYLOAD_TOO_LARGE`), so `lib/arquivo.ts` slices the file into 4 MiB parts and posts them in series, and `GET /api/documento` answers with a `ReadableStream` fed by `substring(bytes …)` — streamed responses have no size cap. 25 MB is the vault's own judgement: a document marked `offline` is pulled down in full to every phone's IndexedDB. Photos over one part are still shrunk to 2000px JPEG, because 8 MB of passport photo reads the same as 500 KB. | Direct-to-bucket upload with a signed URL, when files outgrow what belongs in Postgres and in an offline cache. |

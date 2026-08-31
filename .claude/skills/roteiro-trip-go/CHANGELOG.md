@@ -4,6 +4,24 @@ Uma entrada por versão aplicada. Uma proposta de versão que ainda não foi
 revisada/aplicada não entra aqui — ela vive só no relatório da skill até
 alguém aceitar.
 
+## 1.4.0 — 2026-08-29
+
+O app ganhou a aba **Hoje** — o roteiro reduzido ao que serve andando na rua — e
+ela é montada a partir de campos que a skill vinha deixando vazios com
+frequência, porque nenhuma tela os usava de forma visível.
+
+- **Seção nova "O roteiro alimenta a aba HOJE"** no SKILL.md: quais campos
+  acendem o quê, e por que `duracao_min` no item de destino virou o campo mais
+  valioso do roteiro (é o que calcula "saia às").
+- **`reference/formato.md`**: `roteiro[]` passa a documentar `fim_em`,
+  `endereco`, `lat`/`lon`, `distancia_m`, `duracao_min` e `transporte`;
+  `reservas[]` documenta `endereco` e `telefone`; `viagem` ganha `fuso` (IANA).
+  Todos já existiam em `lib/schema.ts` — o que faltava era a skill saber que
+  eles importam.
+- **Tabela "O que a aba HOJE consome"** no fim de `formato.md`, com as duas
+  regras de extração: o deslocamento mora no item de DESTINO, e coordenada não
+  se inventa.
+
 ## 1.3.0 — 2026-08-25
 
 A skill entregava só um arquivo, e para viagem que já existe o arquivo é a
