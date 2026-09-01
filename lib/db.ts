@@ -764,3 +764,66 @@ export async function registrarAlteracao(
             ${texto(de)}, ${texto(para)}, ${origem}, ${lote})
   `
 }
+
+// ---------------------------------------------------------------- consumo de IA
+
+/**
+ * Uma chamada ao modelo virou uma linha. Só token — preço é tabela e sai na
+ * leitura (`lib/consumo.ts`), porque gravar o preço junto congelaria um valor
+ * que muda e o relatório do mês passado passaria a mentir no reajuste.
+ */
+export async function registrarUso(u: {
+  tripId: string | null
+  userId: string
+  modo: string
+  modelo: string
+  entrada: number
+  saida: number
+  cacheLeitura: number
+  cacheEscrita: number
+  buscaWeb: number
+}) {
+  await sql`
+    insert into ai_usage (trip_id, user_id, modo, modelo, entrada, saida,
+                          cache_leitura, cache_escrita, busca_web)
+    values (${u.tripId}, ${u.userId}, ${u.modo}, ${u.modelo}, ${u.entrada}, ${u.saida},
+            ${u.cacheLeitura}, ${u.cacheEscrita}, ${u.buscaWeb})
+  `
+}
+
+/** As linhas de consumo de uma conta ou de uma viagem, para o relatório. */
+export async function usoDaViagem(tripId: string, desde: string) {
+  return sql`
+    select a.user_id, a.modo, a.modelo, a.entrada, a.saida, a.cache_leitura,
+           a.cache_escrita, a.busca_web, a.criado_em, u.nome
+    from ai_usage a join users u on u.id = a.user_id
+    where a.trip_id = ${tripId} and a.criado_em >= ${desde}
+    order by a.criado_em desc
+  `
+}
+
+/**
+ * O envelope que TODA rota de escrita devolve: snapshot + quem é você.
+ *
+ * Existe como função por um incidente registrado no README: `/api/mutate` e
+ * `/api/snapshot` divergiram uma vez no campo `eu`, e "every write crashed the
+ * next render" — a tela perdia o papel e o participanteId depois de qualquer
+ * escrita. Com três rotas de escrita (mutate, aplicar, desfazer) a chance de
+ * divergir triplicaria. Aqui é impossível: há um lugar só.
+ */
+export async function envelope(acesso: {
+  userId: string
+  tripId: string
+  papel: Papel
+  participanteId: string
+}) {
+  return {
+    ...(await getSnapshot(acesso.tripId, acesso.papel, acesso.participanteId)),
+    eu: {
+      userId: acesso.userId,
+      usuario: await usuarioPorId(acesso.userId),
+      participanteId: acesso.participanteId,
+      papel: acesso.papel,
+    },
+  }
+}

@@ -148,6 +148,23 @@ export const LIMITES_CADASTRO: Limites = {
 }
 
 /**
+ * Limites do assistente de IA. Um terceiro motivo, diferente dos dois acima: no
+ * login barra-se quem chuta senha, no cadastro barra-se a conta criada em massa,
+ * e aqui barra-se o GASTO — uma chave da Anthropic serve as cinco pessoas da
+ * viagem e nenhuma delas ve a fatura.
+ *
+ * A chave e por CONTA (`assistente:${userId}`), nunca por IP: cinco pessoas no
+ * wi-fi do hotel dividiriam um balde so, e a primeira a perguntar bloquearia as
+ * outras quatro. Como no cadastro, TODA chamada conta — nao ha "tentativa certa"
+ * a perdoar, porque o que custa e a chamada que deu certo.
+ */
+export const LIMITES_ASSISTENTE: Limites = {
+  limite: 30,
+  janelaMs: 60 * 60 * 1000,
+  bloqueioMs: 15 * 60 * 1000,
+}
+
+/**
  * Registra uma tentativa contra `chave` e diz se ela passou do limite.
  * Devolve `{ bloqueado, restamMs }`.
  *

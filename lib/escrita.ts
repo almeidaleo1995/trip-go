@@ -20,6 +20,17 @@ import { resolverDivisao, gerarParcelas } from '@/lib/financeiro.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
 
 /**
+ * De onde veio a escrita, para o `change_log`.
+ *
+ * `pessoa` e o padrao e cobre toda a tela. `assistente` marca o que foi aceito
+ * de uma proposta da IA, e o `lote` agrupa o aceite inteiro — e o que permite
+ * desfazer uma viagem gerada de uma vez num toque, em vez de linha por linha.
+ */
+export type Marca = { origem: 'pessoa' | 'assistente'; lote: string | null }
+
+const SEM_MARCA: Marca = { origem: 'pessoa', lote: null }
+
+/**
  * Entidade -> tabela, como ela se liga à viagem, e o papel mínimo para escrevê-la.
  *
  * `via` é o que impede uma conta de editar registro de outra viagem passando um
@@ -262,6 +273,7 @@ export function recorte(entidade: Entidade, tripId: string, posicao: number) {
 async function gravarDespesa(
   acesso: Acesso,
   op: { op: string; id?: string | null; campos: Record<string, unknown>; client_ts: string },
+  marca: Marca = SEM_MARCA,
 ): Promise<boolean> {
   const tripId = acesso.tripId
   const v = validarCampos('custo', op.campos)
@@ -352,11 +364,23 @@ async function gravarDespesa(
       '(registro)',
       null,
       'criado',
+      marca.origem,
+      marca.lote,
     )
   } else {
     for (const c of ['descricao', 'valor_centavos', 'traveler_id', 'divisao'] as const) {
       if (String(anterior?.[c] ?? '') !== String(d[c] ?? '')) {
-        await registrarAlteracao(tripId, acesso.participanteId, 'custo', id, c, anterior?.[c], d[c])
+        await registrarAlteracao(
+          tripId,
+          acesso.participanteId,
+          'custo',
+          id,
+          c,
+          anterior?.[c],
+          d[c],
+          marca.origem,
+          marca.lote,
+        )
       }
     }
   }
@@ -473,6 +497,7 @@ export async function aplicar(
     campos: Record<string, unknown>
     client_ts: string
   },
+  marca: Marca = SEM_MARCA,
 ): Promise<boolean> {
   const tripId = acesso.tripId
 
@@ -500,7 +525,7 @@ export async function aplicar(
   // três idas separadas deixaria uma despesa sem divisão na tela se a segunda
   // falhasse — e uma despesa sem divisão é dinheiro que ninguém deve.
   if (op.entidade === 'custo' && op.op !== 'remover') {
-    return gravarDespesa(acesso, op)
+    return gravarDespesa(acesso, op, marca)
   }
 
   const meta = TABELA[op.entidade]
@@ -527,6 +552,8 @@ export async function aplicar(
       '(registro)',
       'existia',
       'removido',
+      marca.origem,
+      marca.lote,
     )
     const rec = recorte(op.entidade, tripId, 2)
     await sql.query(`delete from ${meta.nome} where id = $1 ${rec.sql}`, [op.id, ...rec.params])
@@ -621,6 +648,8 @@ export async function aplicar(
       '(registro)',
       null,
       'criado',
+      marca.origem,
+      marca.lote,
     )
     if (op.entidade === 'participante') {
       await avisarParticipantes(

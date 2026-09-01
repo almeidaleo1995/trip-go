@@ -3,7 +3,7 @@
 // A rota é uma casca: ela valida o lote, resolve a sessão e delega. Quem decide
 // QUEM pode escrever o quê, e como a escrita cai na viagem certa, é
 // `lib/escrita.ts` - o mesmo módulo que a rota do assistente usa, de propósito.
-import { getSnapshot, usuarioPorId } from '@/lib/db.ts'
+import { envelope } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { ErroHttp } from '@/lib/session.ts'
 import { MutationBatchSchema, formatarErroZod } from '@/lib/schema.ts'
@@ -45,14 +45,6 @@ export const POST = rota(async (req) => {
     rejeitadas,
     // Mesmo envelope de /api/snapshot: sem `eu`, o cliente perde o papel e o
     // participanteId depois de QUALQUER escrita, não só na carga inicial.
-    snapshot: {
-      ...(await getSnapshot(acesso.tripId, acesso.papel, acesso.participanteId)),
-      eu: {
-        userId: acesso.userId,
-        usuario: await usuarioPorId(acesso.userId),
-        participanteId: acesso.participanteId,
-        papel: acesso.papel,
-      },
-    },
+    snapshot: await envelope(acesso),
   }
 })
