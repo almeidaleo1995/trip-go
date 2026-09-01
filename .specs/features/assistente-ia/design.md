@@ -7,22 +7,25 @@
 
 ## Três achados que mudam o design
 
-### 1. O `change_log` não consegue desfazer uma remoção
+### 1. O `change_log` não consegue desfazer uma remoção — e a confirmação resolve
 
-`registrarAlteracao` (`lib/db.ts:744`) grava `campo`, `de`, `para` como **texto**. No caminho de remoção (`app/api/mutate/route.ts`), a chamada é literalmente:
+`registrarAlteracao` (`lib/db.ts:744`) grava `campo`, `de`, `para` como **texto**. No caminho de remoção (`app/api/mutate/route.ts`) a chamada é literalmente:
 
 ```ts
 await registrarAlteracao(tripId, acesso.participanteId, op.entidade, op.id,
                          '(registro)', 'existia', 'removido')
 ```
 
-O conteúdo da linha apagada não é guardado em lugar nenhum. Some junto com ela — e junto com os filhos que o `on delete cascade` leva (um `roteiro` removido leva as `itinerary_options` dele; um `voo` leva as `flight_stops`).
+O conteúdo da linha apagada não é guardado, e o `on delete cascade` leva os filhos junto (um `roteiro` leva suas `itinerary_options`; um `voo` leva suas `flight_stops`).
 
-Isso colide de frente com o P1-6 ("desfazer o lote inteiro"). Com escrita direta e **sem** tela de confirmação, uma frase mal reconhecida pela voz — "apaga o jantar de ontem" saindo de "paga o jantar de ontem" — destrói dado sem volta.
+Na primeira rodada isto obrigou a **proibir** remoção pela IA: com escrita direta e sem confirmação, uma frase mal reconhecida pela voz — "apaga o jantar" saindo de "paga o jantar" — destruía dado sem volta.
 
-**Decisão: no v1 o assistente cria e edita, e não remove.** Remover continua sendo ação de tela, onde já existe `ConfirmarDialogo` e o gesto é deliberado. Isso mantém o desfazer **total**, que é o que torna "escreve direto" seguro.
+A revisão de 2026-09-01 mudou a premissa. Com **proposta e confirmação**, remover pela IA passa a ser tão deliberado quanto o botão de apagar da tela, que já existe e já tem `ConfirmarDialogo`. **Remoção volta a ser permitida**, com duas condições que o design carrega:
 
-Isto estreita o "todas as features do app" que o usuário pediu, e a troca é consciente: o valor está em *alimentar* a viagem sem formulário, não em esvaziá-la por voz. Caminho de upgrade, se incomodar: uma coluna `registro jsonb` no `change_log` preenchida só na remoção, mais a captura dos filhos do cascade — aí a remoção volta com desfazer honesto.
+- O desfazer em lote cobre **criações e edições**. Remoção não entra nele — não há como.
+- A tela de revisão marca as remoções em destaque e diz que só elas não têm volta, antes do aceite (P1-10).
+
+O `lote` continua valendo, e vale mais do que antes: aceitar uma viagem inteira gerada pela IA são dezenas de linhas de uma vez, e é exatamente aí que um desfazer de um toque importa.
 
 ### 2. O motor de preparação está preso dentro do componente
 
@@ -87,10 +90,19 @@ flowchart TB
 | `lib/assistente.test.ts` | novo | Testes do acima. Segue `node --test`, sem framework. |
 | `lib/escrita.ts` | novo (extração) | `autorizar`, `aplicar`, `recorte`, `conferirPai`, `gravarDespesa`, `TABELA` — **movidos** de `app/api/mutate/route.ts`, sem mudança de comportamento. As duas rotas passam a importar daqui. |
 | `lib/voz.ts` | novo | Casca do Web Speech API em pt-BR, com detecção de suporte. ~40 linhas. |
-| `app/api/assistente/route.ts` | novo | A rota. Sessão, limite, chamada ao modelo, aplicação do lote, envelope. |
-| `app/api/assistente/desfazer/route.ts` | novo | Replay reverso de um lote do `change_log`. |
+| `app/api/assistente/route.ts` | novo | Conversa. Sessão, limite, chamada ao modelo, telemetria. **Não importa `lib/escrita.ts`.** |
+| `app/api/assistente/aplicar/route.ts` | novo | O aceite. O único lugar do assistente com escrita. |
+| `app/api/assistente/desfazer/route.ts` | novo | Replay reverso de um `lote` do `change_log`. |
+| `app/api/assistente/consumo/route.ts` | novo | Relatório. Único lugar que lê `ANTHROPIC_ADMIN_KEY`. |
+| `lib/consumo.ts` | novo | **Puro.** Tokens → custo estimado, agregação por pessoa/modo/período. |
+| `config/precos.ts` | novo | Tabela de preços por modelo. Muda sem tocar código. |
+| `components/RevisaoPropostas.tsx` | novo | A tela de revisão: lista, desmarcar, aceitar em bloco, destaque de remoção. |
 | `components/Assistente.tsx` | novo | Painel, histórico, cartões de resultado, botão de voz, desfazer. |
 | `components/tabs/Assistente.tsx` | novo | Casca fina: a aba dedicada monta o mesmo componente. |
+| `components/tabs/Consumo.tsx` | novo | Relatório de gasto (só `proprietario`). |
+| `components/tabs/Roteiro.tsx` | alterado | Bloco de curiosidades no item aberto. |
+| `components/tabs/Conteudo.tsx` | alterado | Bloco de curiosidades na cidade. |
+| `app/(dashboard)/viagens/` | alterado | Entrada "criar viagem com IA". |
 | `app/api/mutate/route.ts` | alterado | Passa a importar de `lib/escrita.ts`. Nenhuma regra muda. |
 | `lib/preparacao.ts` | alterado | Ganha `contextoDoSnapshot`. |
 | `components/tabs/Preparacao.tsx` | alterado | Passa a usar `contextoDoSnapshot` em vez do `useMemo` inline. |
@@ -103,21 +115,26 @@ flowchart TB
 
 ## O contrato da rota
 
+A conversa e a gravação são **duas rotas**, e essa separação é o P1 inteiro:
+
 ```
-POST /api/assistente
-{ trip_id, mensagens: [{papel:'pessoa'|'assistente', texto}], aba?, receita?, alvo_id? }
+POST /api/assistente            ← conversa. NUNCA escreve.
+{ trip_id?, modo, mensagens[], aba?, alvo_id?, contexto_tempo? }
+200 { texto, fontes[], propostas: [{ ref, entidade, op, campos, resumo }], uso }
 
-200
-{ texto, fontes: [{titulo, url}], lote: string|null,
-  aplicadas: number, rejeitadas: [{motivo}],
-  snapshot, eu: {userId, usuario, participanteId, papel} }
+POST /api/assistente/aplicar    ← grava. Só aqui existe SQL de escrita.
+{ trip_id, propostas: [...aceitas] }
+200 { lote, aplicadas, rejeitadas[], snapshot, eu }
+
+POST /api/assistente/desfazer   { trip_id, lote }  → mesmo envelope
+GET  /api/assistente/consumo    → relatório (só proprietario)
 ```
 
-`snapshot` + `eu` são **o mesmo envelope de `/api/mutate`**. O README registra que os dois já divergiram uma vez e "every write crashed the next render"; a rota nova nasce com o envelope idêntico e um teste que compara as chaves das duas respostas.
+Por que separadas em vez de um `aplicar: true` na primeira: uma rota que às vezes escreve é uma rota onde alguém, um dia, esquece de checar a flag. `/api/assistente` não importa `lib/escrita.ts` — ela **não tem como** gravar, e isso é verificável por leitura de import, não por confiança.
 
-`POST /api/assistente/desfazer { trip_id, lote }` → mesmo envelope.
+`propostas[].ref` é um id efêmero do lote (não é id de banco): é o que a tela usa para desmarcar item antes de aceitar (P1-5, P6-2).
 
----
+`snapshot` + `eu` em `/aplicar` são **o mesmo envelope de `/api/mutate`**. O README registra que os dois já divergiram uma vez e "every write crashed the next render"; a rota nova nasce com o envelope idêntico e um teste comparando as chaves.
 
 ## As ferramentas da IA
 
@@ -157,6 +174,75 @@ Colocar o digest no `system` (o lugar intuitivo) invalidaria o cache a cada escr
 
 ---
 
+## Os modos, e onde cada um mora
+
+Um motor, quatro entradas. O `modo` viaja no corpo da requisição e escolhe a receita; nenhum modo tem código próprio de escrita.
+
+| Modo | Onde mora | Contexto extra que recebe | Escreve o quê |
+| --- | --- | --- | --- |
+| `criar_viagem` | Tela de nova viagem (fora de uma viagem) | destino, datas, estilo, nº de pessoas | Viagem inteira, revisada em bloco |
+| `duvida` | Painel flutuante + aba, dentro da viagem | aba aberta, agora no fuso do destino, compromisso atual (`lib/hoje.ts`), minutos disponíveis | Qualquer entidade, se aceito |
+| `curiosidade` | Dentro do item de Roteiro e da Cidade | o registro aberto | Normalmente só o próprio registro (nota, dicas) |
+| `preparacao` | Aba Preparação | saída de `montarPreparacao` | A pendência que resolve |
+
+**"Estou aqui, tenho 40 minutos"** é o caso que dita o contexto do modo `duvida`. Para respondê-lo o servidor precisa de três coisas que o snapshot sozinho não dá mastigadas: que horas são **no destino** (`trips.fuso` + relógio, exatamente o que `lib/hoje.ts` já converte), qual o compromisso âncora seguinte, e onde a pessoa está segundo a programação. Tudo isso já é derivado por `lib/hoje.ts` — o design reusa, não recalcula, pelo mesmo motivo do achado 2.
+
+O modo `curiosidade` **não vira aba**: ele monta dentro de `tabs/Roteiro.tsx` e `tabs/Conteudo.tsx` (Cidades), colado no registro aberto. Decisão explícita do usuário, e a que evita o Shell ir a 16 abas.
+
+---
+
+## Consumo e custo
+
+Duas fontes, e elas respondem perguntas diferentes:
+
+**1. O que este app gastou** — sempre disponível, é a base. Toda resposta da API traz `usage` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`). A rota grava uma linha por chamada:
+
+```sql
+create table if not exists ai_usage (
+  id text primary key default gen_random_uuid()::text,
+  trip_id text references trips(id) on delete set null,
+  user_id text not null references users(id) on delete cascade,
+  modo text not null,
+  modelo text not null,
+  entrada int not null default 0, saida int not null default 0,
+  cache_leitura int not null default 0, cache_escrita int not null default 0,
+  busca_web int not null default 0,
+  criado_em timestamptz not null default now()
+);
+```
+
+`trip_id` é `on delete set null`, não `cascade`: apagar uma viagem não pode apagar o histórico de gasto — é justamente o gasto que já aconteceu.
+
+O custo em dólar é **calculado na leitura**, a partir de uma tabela de preços em `config/`. Gravar o preço junto do token congelaria um valor que muda; recalcular na leitura com o preço vigente é a conta certa e mantém a coluna honesta (token é fato, preço é tabela).
+
+**2. O gasto real da organização** — opcional, e aqui está o achado:
+
+> A documentação oficial diz, em destaque: **"The Admin API is unavailable for individual accounts."**
+
+Se a conta do usuário for individual e não uma organização no Console, este painel **não tem como funcionar** — não é bug nosso. Por isso ele é um bloco condicional, não um requisito de tela (P7-5).
+
+Quando existir, são dois endpoints, ambos **fora dos SDKs — só HTTP cru**:
+
+```
+GET https://api.anthropic.com/v1/organizations/usage_report/messages
+    ?starting_at=…&ending_at=…&bucket_width=1d&group_by[]=model
+GET https://api.anthropic.com/v1/organizations/cost_report
+    ?starting_at=…&ending_at=…&group_by[]=description
+headers: anthropic-version: 2023-06-01 · x-api-key: $ANTHROPIC_ADMIN_KEY
+```
+
+Detalhes que o design fixa por já estarem documentados: o `cost_report` só tem granularidade diária; os valores vêm como string decimal em **centavos** de USD; o dado leva ~5 min para aparecer; a recomendação oficial é no máximo uma consulta por minuto e cache para painel. O nosso cache é de 1 hora (P7-7) — o número é da fatura, não do minuto.
+
+**A credencial de admin é o ponto sensível da feature.** `ANTHROPIC_ADMIN_KEY` (`sk-ant-admin01-…`) é muito mais poderosa que a chave de uso: ela administra membros, workspaces e chaves da organização. Regras que o design impõe:
+
+- Variável separada de `ANTHROPIC_API_KEY`, lida só em `app/api/assistente/consumo/route.ts`.
+- Nunca passada ao SDK do assistente, nunca no mesmo módulo que monta prompt.
+- A rota devolve **números agregados**, nunca o corpo bruto da resposta da Anthropic — que traz ids de workspace e de chave.
+- `exigirViagem(..., 'proprietario')` antes de qualquer leitura.
+- Opcional de verdade: ausente, o app funciona e a tela explica (P7-5).
+
+---
+
 ## Segurança
 
 | Requisito | Mecanismo |
@@ -188,6 +274,8 @@ create index if not exists idx_change_log_lote on change_log (trip_id, lote);
 Duas armadilhas do CLAUDE.md respeitadas de propósito: a coluna entra **nos dois lugares** (só no `create` ela não existiria em nenhum banco real), e o `check` entra como `not valid` — mas aqui isso é seguro porque o `default 'pessoa'` já satisfaz toda linha existente.
 
 `registrarAlteracao` ganha dois parâmetros opcionais no fim (`origem`, `lote`), então as 7 chamadas existentes seguem compilando sem edição.
+
+A tabela `ai_usage` (seção **Consumo e custo**) entra no mesmo `db/schema.sql`, no bloco `create` — é tabela nova, então não precisa de contraparte na seção de migrações, mas herda a regra de idempotência (`create table if not exists`).
 
 ---
 
@@ -239,13 +327,16 @@ Os limites de autorização de verdade (`autorizar` recusando por papel) continu
 ## Ordem de implementação
 
 1. **Extração** `lib/escrita.ts` — sem comportamento novo, testes verdes. *(commit isolado)*
-2. **Schema** `change_log.origem`/`lote` + `registrarAlteracao` + `VERSAO` 7.
-3. **Motor puro** `lib/assistente.ts` + testes. Nada de rede ainda.
-4. **Rota** `/api/assistente` + desfazer. P1 fechado e testável por `curl`.
-5. **Painel** `components/Assistente.tsx` + botão flutuante + aba. P2 (menos voz).
-6. **Voz** `lib/voz.ts`. P2 completo.
-7. **Receitas** resumo de lugar + planejar dia. P3.
-8. **Web search** + fontes. P4.
-9. **Proativo** `contextoDoSnapshot` + sugestões. P5.
+2. **Schema** `change_log.origem`/`lote`, tabela `ai_usage`, `registrarAlteracao`, `VERSAO` 7.
+3. **Motor puro** `lib/assistente.ts` + `lib/consumo.ts` + testes. Nada de rede ainda.
+4. **Conversa** `/api/assistente` — propõe, não escreve. Telemetria já grava.
+5. **Aceite** `/api/assistente/aplicar` + `/desfazer` + `RevisaoPropostas`. P1 fechado.
+6. **Painel** flutuante + aba + modo `duvida` com contexto de tempo/lugar. P2 e parte do P6.
+7. **Voz** `lib/voz.ts`. P2 completo.
+8. **Receitas** resumo de lugar, planejar dia, curiosidades no Roteiro e nas Cidades. P3 e P6-5.
+9. **Criar viagem com IA** + revisão em bloco. P6-1/2.
+10. **Web search** + fontes. P4.
+11. **Proativo** `contextoDoSnapshot` + sugestões. P5.
+12. **Relatório de consumo** — app primeiro, consolidado da organização depois, como bloco opcional. P7.
 
-Os passos 1 e 2 não dependem da chave da Anthropic e podem ser revisados antes de qualquer custo ser gerado.
+Os passos 1 a 3 não dependem da chave da Anthropic e podem ser revisados antes de qualquer custo ser gerado.
