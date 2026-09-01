@@ -17,6 +17,14 @@
 import { z } from 'zod'
 import { ENTIDADES, esquemaDe, type Entidade } from './schema.ts'
 import { papelAlcanca, type Papel } from '../config/navigation.ts'
+import {
+  agoraNoFuso,
+  diaDeHoje,
+  itensDoDia,
+  itemAtual,
+  proximoItem,
+  hospedagemDoDia,
+} from './hoje.ts'
 
 // ---------------------------------------------------------------- vocabulário
 
@@ -407,4 +415,51 @@ function rotulo(op: string, entidade: Entidade): string {
 /** Uma proposta remove algo? A tela destaca, porque remoção não tem desfazer. */
 export function temRemocao(propostas: readonly Proposta[]): boolean {
   return propostas.some((p) => p.op === 'remover')
+}
+
+// ---------------------------------------------------------------- agora
+
+export type FonteAgora = {
+  viagem?: { fuso?: string | null; data_partida?: string | null; data_retorno?: string | null } | null
+  roteiro?: readonly unknown[]
+  reservas?: readonly unknown[]
+}
+
+/**
+ * Onde a pessoa esta AGORA, em texto, para o modelo.
+ *
+ * E o que torna "estou aqui e tenho 40 minutos" respondivel sem ela explicar
+ * nada. Tudo sai de `lib/hoje.ts`: que horas sao no destino, o que esta
+ * acontecendo, o que vem depois e onde se dorme hoje.
+ *
+ * Derivar aqui de novo — em vez de chamar `hoje.ts` — criaria um segundo
+ * "compromisso atual" que divergiria da aba Hoje no primeiro caso de borda, e
+ * um evento que ja terminou voltaria a contar como "agora".
+ */
+export function contextoDeAgora(s: FonteAgora | null | undefined, relogio: Date): string {
+  if (!s?.viagem) return ''
+  const local = agoraNoFuso(relogio, s.viagem.fuso)
+  const dia = diaDeHoje(
+    { data_partida: s.viagem.data_partida ?? null, data_retorno: s.viagem.data_retorno ?? null },
+    local,
+  )
+  if (!dia?.chave) return `Agora: ${local.toISOString().slice(0, 16).replace('T', ' ')} (hora do destino).`
+
+  const itens = itensDoDia((s.roteiro ?? []) as never, dia.chave)
+  const atual = itemAtual(itens, local)
+  const proximo = proximoItem(itens, local)
+  const hotel = hospedagemDoDia((s.reservas ?? []) as never, dia.chave)
+
+  const p = [`Agora sao ${local.getHours()}h${String(local.getMinutes()).padStart(2, '0')} do dia ${dia.chave}, hora do destino.`]
+  if (atual?.item) p.push(`Acontecendo agora: ${atual.item.titulo ?? 'sem titulo'}.`)
+  if (proximo) {
+    p.push(
+      `Proximo compromisso: ${proximo.titulo ?? 'sem titulo'} as ${String(proximo.ocorre_em ?? '').slice(11, 16)}` +
+        `${proximo.ancora ? ' (tem hora marcada — nao proponha nada que colida com ele)' : ''}.`,
+    )
+  } else {
+    p.push('Nao ha mais nada marcado hoje.')
+  }
+  if (hotel) p.push(`Hospedagem de hoje: ${hotel.nome ?? 'reservada'}.`)
+  return p.join(' ')
 }

@@ -20,6 +20,7 @@ import {
   digest,
   sistema,
   propostasDe,
+  contextoDeAgora,
   MODOS,
   type Modo,
   type BlocoFerramenta,
@@ -76,6 +77,7 @@ export const POST = rota(async (req) => {
   let papel: 'visualizador' | 'editor' | 'proprietario' = 'proprietario'
   let tripId: string | null = null
   let participanteId: string | null = null
+  let agora = ''
 
   if (corpo.trip_id) {
     const acesso = await exigirViagem(u.id, corpo.trip_id)
@@ -84,12 +86,18 @@ export const POST = rota(async (req) => {
     participanteId = acesso.participanteId
     const snapshot = await getSnapshot(acesso.tripId, acesso.papel, acesso.participanteId)
     contexto = digest(snapshot as never)
+    // "Estou aqui e tenho 40 minutos" so e respondivel com isto: que horas sao
+    // NO DESTINO, onde a pessoa esta na programacao, e o que vem depois. Tudo
+    // derivado de lib/hoje.ts, nunca recalculado aqui — um segundo calculo do
+    // "compromisso atual" divergiria da aba Hoje no primeiro caso de borda.
+    agora = contextoDeAgora(snapshot as never, new Date())
   }
 
   const cliente = new Anthropic({ apiKey: chave })
 
   const partes = [
     corpo.aba ? `A pessoa está na aba "${corpo.aba}".` : '',
+    agora,
     corpo.contexto_tempo ?? '',
     contexto ? `\n<viagem>\n${contexto}\n</viagem>` : '',
   ].filter(Boolean)
@@ -102,7 +110,18 @@ export const POST = rota(async (req) => {
     // O prefixo cacheável termina AQUI. O digest da viagem muda a cada escrita;
     // se ele entrasse no `system`, invalidaria o cache a cada mensagem.
     system: [{ type: 'text', text: sistema(modo), cache_control: { type: 'ephemeral' } }],
-    tools: ferramentas(papel) as never,
+    // A busca na web e o que separa um leitor do snapshot de um guia: horario de
+    // museu, preco de bilhete e o que fechou hoje nao estao — e nao poderiam
+    // estar — no banco da viagem.
+    //
+    // O dado pessoal nao chega aqui por CONSTRUCAO, nao por instrucao: `digest`
+    // ja derrubou passaporte, telefone, e-mail e valor de documento antes de
+    // qualquer texto ser montado. A busca roda em servidor de terceiro, entao
+    // confiar numa regra de prompt para isso seria confiar no lugar errado.
+    tools: [
+      ...ferramentas(papel),
+      { type: 'web_search_20260209', name: 'web_search', max_uses: 4 },
+    ] as never,
     messages: [
       { role: 'user', content: partes.join('\n') || 'Sem contexto de viagem.' },
       ...mensagens.map((m) => ({
@@ -120,6 +139,24 @@ export const POST = rota(async (req) => {
 
   const propostas = propostasDe(resposta.content as unknown as BlocoFerramenta[], papel)
 
+  // As fontes vao para a tela junto da resposta: informacao de internet sem
+  // procedencia e pior que informacao ausente, porque nao da para conferir.
+  const fontes: { titulo: string; url: string }[] = []
+  let buscas = 0
+  for (const bloco of resposta.content as unknown as {
+    type: string
+    content?: unknown
+  }[]) {
+    if (bloco.type !== 'web_search_tool_result') continue
+    buscas += 1
+    // Sucesso vem como LISTA de resultados; erro vem como objeto unico. Indexar
+    // sem checar transformaria um erro de busca em um crash da rota.
+    if (!Array.isArray(bloco.content)) continue
+    for (const r of bloco.content as { title?: string; url?: string }[]) {
+      if (r.url) fontes.push({ titulo: r.title ?? r.url, url: r.url })
+    }
+  }
+
   // Telemetria antes de responder: se a gravação falhar, a pessoa ainda recebe a
   // resposta que já foi paga. Um relatório com um buraco é melhor que uma
   // resposta perdida por causa do relatório.
@@ -133,7 +170,7 @@ export const POST = rota(async (req) => {
       saida: resposta.usage.output_tokens ?? 0,
       cacheLeitura: resposta.usage.cache_read_input_tokens ?? 0,
       cacheEscrita: resposta.usage.cache_creation_input_tokens ?? 0,
-      buscaWeb: 0,
+      buscaWeb: buscas,
     })
   } catch (e) {
     console.error('[assistente] telemetria', e)
@@ -142,7 +179,7 @@ export const POST = rota(async (req) => {
   return {
     texto: texto || 'Não consegui formular uma resposta. Tente reformular a pergunta.',
     propostas,
-    fontes: [],
+    fontes,
     participanteId,
   }
 })

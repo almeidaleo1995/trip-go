@@ -14,6 +14,7 @@ import { useTrip } from '../TripProvider.tsx'
 import { DocumentosVinculados } from '../CofreDocumento.tsx'
 import { Cartao, Vazio, Rotulo, Badge, Copiar, Titulo, Linha } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
+import { GatilhoGuia } from '../GatilhoGuia.tsx'
 import {
   formatarData,
   formatarHora,
@@ -491,6 +492,19 @@ export function Lugares() {
                 Sem coordenada — não aparece no mapa do Início.
               </p>
             )}
+            {/* O guia colado na cidade: sem notas ele oferece escrever o resumo,
+                com notas ele conta o que a placa não conta. */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <GatilhoGuia
+                aba="Cidades"
+                rotulo={l.notas ? 'Curiosidades' : 'Escrever o resumo'}
+                pergunta={
+                  l.notas
+                    ? `Conte as curiosidades de ${String(l.cidade)} que valem para quem vai visitar agora.`
+                    : `Escreva o resumo de guia de ${String(l.cidade)} para esta viagem e proponha gravá-lo nas notas da cidade (id ${String(l.id)}): o que é, o que ver com o tempo que temos, como circular e quanto custa em média.`
+                }
+              />
+            </div>
           </Cartao>
         ))}
       </div>

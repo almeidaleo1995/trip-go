@@ -20,6 +20,7 @@ import { Preparacao } from '@/components/tabs/Preparacao.tsx'
 import { Financeiro } from '@/components/tabs/Financeiro.tsx'
 import { Dados } from '@/components/tabs/Dados.tsx'
 import { AssistenteAba } from '@/components/tabs/AssistenteAba.tsx'
+import { Consumo } from '@/components/tabs/Consumo.tsx'
 import { Hoje } from '@/components/tabs/Hoje.tsx'
 
 export default function ViagemPagina({ params }: { params: Promise<{ id: string }> }) {
@@ -91,6 +92,7 @@ function App() {
           {aba === 'financeiro' && <Financeiro />}
           {aba === 'dados' && <Dados />}
           {aba === 'assistente' && <AssistenteAba />}
+          {aba === 'consumo' && <Consumo />}
         </Shell>
       </div>
       {/* Fora da casca: aparece só na impressão, de qualquer aba. */}

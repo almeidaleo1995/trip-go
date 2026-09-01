@@ -32,6 +32,7 @@ import {
   MapPinned,
   MoreHorizontal,
   Sparkles,
+  Gauge,
   ArrowLeft,
   UserRound,
   type LucideIcon,
@@ -59,6 +60,7 @@ export type AbaId =
   | 'financeiro'
   | 'dados'
   | 'assistente'
+  | 'consumo'
 
 type Aba = { id: AbaId; nome: string; icone: LucideIcon; grupo: string }
 
@@ -79,6 +81,7 @@ const ABAS: Aba[] = [
   { id: 'financeiro', nome: 'Financeiro', icone: Wallet, grupo: 'Gestão' },
   { id: 'dados', nome: 'Participantes e dados', icone: Database, grupo: 'Gestão' },
   { id: 'assistente', nome: 'Guia', icone: Sparkles, grupo: 'Gestão' },
+  { id: 'consumo', nome: 'Consumo do guia', icone: Gauge, grupo: 'Gestão' },
 ]
 
 /**
@@ -136,6 +139,10 @@ export function Shell({
   const visiveis = ABAS.filter((a) => {
     // "Dados" gerencia participantes e configurações — só o dono da viagem.
     if (a.id === 'dados') return papel === 'proprietario'
+    // O consumo mostra o que cada participante gastou — administração da
+    // viagem, não uso pessoal. Mesmo recorte de `dados`, e o servidor confere
+    // de novo em /api/assistente/consumo.
+    if (a.id === 'consumo') return papel === 'proprietario'
     if (a.id === 'cruzeiro') return temCruzeiro
     return true
   }).map((a) => {
