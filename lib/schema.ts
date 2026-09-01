@@ -958,6 +958,19 @@ const POR_ENTIDADE: Partial<Record<Entidade, z.ZodTypeAny>> = {
   checklist_state: z.object({ item_id: Id, feito: z.boolean() }).partial(),
 }
 
+/**
+ * O schema de uma entidade, para quem precisa DESCREVER os campos em vez de
+ * validar um valor.
+ *
+ * E o que permite ao assistente publicar as ferramentas da IA a partir daqui em
+ * vez de manter uma segunda copia da lista de campos. Essa copia seria o quinto
+ * lugar a lembrar quando um campo nasce — e o sintoma de esquece-la nao seria um
+ * erro, seria a IA parando de preencher o campo novo em silencio.
+ */
+export function esquemaDe(entidade: Entidade): z.ZodTypeAny | undefined {
+  return POR_ENTIDADE[entidade]
+}
+
 export function validarCampos(entidade: Entidade, campos: unknown) {
   const schema = POR_ENTIDADE[entidade]
   if (!schema) return { sucesso: false as const, erro: `entidade sem schema: ${entidade}` }
