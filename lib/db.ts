@@ -10,6 +10,7 @@
 import { neon } from '@neondatabase/serverless'
 import { papelAlcanca, type Papel } from '../config/navigation.ts'
 import { resumoPessoal, type ResumoPessoal } from './financeiro.ts'
+import { cifrar, decifrarPerfil } from './cripto.ts'
 
 function conectar() {
   const url = process.env.DATABASE_URL
@@ -583,7 +584,10 @@ export async function perfilDeViagem(userId: string) {
            passaporte_pais, emergencia_nome, emergencia_telefone, emergencia_parentesco
     from users where id = ${userId}
   `
-  return (r[0] as Record<string, unknown> | undefined) ?? null
+  // CPF, RG e passaporte saem do banco cifrados — ver lib/cripto.ts. A volta ao
+  // texto puro acontece AQUI, no ponto mais fundo que ainda sabe que a resposta é
+  // para o dono da conta: esta função só é chamada com o userId da sessão.
+  return decifrarPerfil((r[0] as Record<string, unknown> | undefined) ?? null)
 }
 
 /**
@@ -598,15 +602,19 @@ export async function atualizarPerfilViagem(userId: string, d: Record<string, un
     const x = d[c]
     return x === null || x === undefined || String(x).trim() === '' ? null : String(x).trim()
   }
+  // Os três campos que identificam a pessoa vão cifrados para o banco. `cifrar`
+  // devolve null para vazio, então "não informado" continua sendo NULL de verdade
+  // — é disso que `documentacaoDaViagem` depende para saber o que falta.
+  const c = (col: string) => cifrar(v(col))
   await sql`
     update users set
       nome_completo = ${v('nome_completo')},
       nome_social = ${v('nome_social')},
       nascimento = ${v('nascimento')},
-      cpf = ${v('cpf')},
-      rg = ${v('rg')},
+      cpf = ${c('cpf')},
+      rg = ${c('rg')},
       nacionalidade = ${v('nacionalidade')},
-      passaporte_numero = ${v('passaporte_numero')},
+      passaporte_numero = ${c('passaporte_numero')},
       passaporte_nome = ${v('passaporte_nome')},
       passaporte_emissao = ${v('passaporte_emissao')},
       passaporte_validade = ${v('passaporte_validade')},

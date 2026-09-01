@@ -165,6 +165,38 @@ export const LIMITES_ASSISTENTE: Limites = {
 }
 
 /**
+ * Limites da SINCRONIZAÇÃO: /api/mutate, /api/viagens, /api/perfil, /api/import.
+ *
+ * Um quarto motivo. Aqui não se barra chute de senha, nem conta em massa, nem
+ * gasto: barra-se o script que descobriu um endpoint autenticado e resolveu
+ * varrer a viagem inteira com ele. O teto é folgado de propósito — quem volta de
+ * um dia offline sobe a fila acumulada de uma vez, e um limite apertado
+ * transformaria "voltei a ter sinal" em "o app recusou minhas anotações".
+ *
+ * Por CONTA, como o assistente: cinco pessoas no mesmo wi-fi de hotel não podem
+ * dividir um balde só.
+ */
+export const LIMITES_ESCRITA: Limites = {
+  limite: 240,
+  janelaMs: 5 * 60 * 1000,
+  bloqueioMs: 5 * 60 * 1000,
+}
+
+/**
+ * Limites do UPLOAD de arquivo do cofre.
+ *
+ * Mais baixo que o da escrita e medido em requisições, não em arquivos: um PDF de
+ * 25 MB sobe em 7 partes, então 120 por hora são ~17 documentos grandes — mais do
+ * que qualquer viagem precisa numa sentada, e longe do que serve para usar o
+ * cofre como hospedagem de arquivo alheio.
+ */
+export const LIMITES_UPLOAD: Limites = {
+  limite: 120,
+  janelaMs: 60 * 60 * 1000,
+  bloqueioMs: 15 * 60 * 1000,
+}
+
+/**
  * Registra uma tentativa contra `chave` e diz se ela passou do limite.
  * Devolve `{ bloqueado, restamMs }`.
  *

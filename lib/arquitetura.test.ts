@@ -90,3 +90,37 @@ test('desfazer passa por autorizar em cada linha revertida', () => {
     'desfazer voltou a interpolar `campo` no SQL sem lista branca',
   )
 })
+
+test('a dona da entrega vem do banco, não do corpo do pedido', () => {
+  const escrita = ler('lib/escrita.ts')
+  // Enquanto o dono saía de `campos.traveler_id`, a autorização dependia de o zod
+  // EXIGIR esse campo — e o desfazer do assistente monta `campos` com um campo só,
+  // então por ali `traveler_id` sumia, `meu` virava true por ausência, e um
+  // visualizador revertia o número do passaporte de outro participante.
+  assert.ok(
+    /from document_submissions s[\s\S]{0,200}join document_requirements/.test(escrita),
+    'autorizar deixou de carregar a entrega do banco: a dona volta a ser quem o ' +
+      'cliente disser que é, e o desfazer contorna o 403 da documentação alheia',
+  )
+  assert.ok(
+    /entregaAlvo\?\.traveler_id \?\? campos\.traveler_id/.test(escrita),
+    'a linha gravada precisa vencer o que veio no corpo ao decidir a dona da entrega',
+  )
+})
+
+test('o gasto consolidado da organização não é liberado por ser dono de viagem', () => {
+  const rota = ler('app/api/assistente/consumo/route.ts')
+  // `cost_report` é a fatura de quem HOSPEDA o app — todas as viagens de todas as
+  // contas. Cadastro é aberto e criar uma viagem já faz de alguém proprietário
+  // dela, então `exigirViagem(..., 'proprietario')` não é barreira nenhuma aqui.
+  assert.ok(
+    /ehOperador\(/.test(rota),
+    'o consolidado voltou a sair só com a checagem de dono da viagem: qualquer ' +
+      'pessoa que se cadastre lê a conta da Anthropic de quem hospeda',
+  )
+  assert.ok(
+    /OPERADOR_EMAILS/.test(rota),
+    'a lista de operadores precisa vir do ambiente — não há papel de administrador ' +
+      'da instalação no banco',
+  )
+})

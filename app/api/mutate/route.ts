@@ -5,16 +5,20 @@
 // `lib/escrita.ts` - o mesmo módulo que a rota do assistente usa, de propósito.
 import { envelope } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
-import { ErroHttp } from '@/lib/session.ts'
+import { ErroHttp, LIMITES_ESCRITA } from '@/lib/session.ts'
 import { MutationBatchSchema, formatarErroZod } from '@/lib/schema.ts'
 import { autorizar, aplicar } from '@/lib/escrita.ts'
-import { rota, lerJson } from '@/lib/api.ts'
+import { rota, lerJson, limitar } from '@/lib/api.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export const POST = rota(async (req) => {
   const u = await exigirUsuario()
+  // Por CONTA, não por IP: a viagem inteira sincroniza pelo wi-fi do mesmo hotel.
+  // Teto folgado de propósito — quem volta de um dia offline sobe a fila acumulada
+  // de uma vez. Ver LIMITES_ESCRITA em lib/session.ts.
+  limitar(`escrita:${u.id}`, LIMITES_ESCRITA, 'Muitas alterações seguidas. Tente em instantes.')
 
   const corpo = await lerJson(req)
   const parsed = MutationBatchSchema.safeParse(corpo)

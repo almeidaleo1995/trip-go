@@ -54,9 +54,51 @@ export const GET = rota(async (req) => {
       porPessoa,
       porModo: agrupar(linhas, 'modo'),
     },
-    organizacao: await consolidado(),
+    // O consolidado é do OPERADOR, não da viagem — ver `ehOperador`.
+    organizacao: ehOperador(u.email) ? await consolidado() : FORA_DO_OPERADOR,
   }
 })
+
+/**
+ * Quem pode ver a fatura da Anthropic.
+ *
+ * A metade de cima deste relatório é da VIAGEM e por isso é de quem a criou. A de
+ * baixo não é: `cost_report` devolve o gasto da organização inteira, ou seja, de
+ * quem HOSPEDA o aplicativo — todas as viagens de todas as contas somadas, e o
+ * mês inteiro. Pendurá-la no mesmo `proprietario` da viagem entregava a conta de
+ * luz do operador a qualquer pessoa: cadastro é aberto, criar viagem faz de você
+ * proprietário dela, e pronto.
+ *
+ * A lista vem de `OPERADOR_EMAILS` porque não existe no banco o conceito de
+ * "administrador da instalação", e inventar uma coluna `users.admin` seria criar
+ * um papel novo — com tela, com migração e com quem promove quem — para uma
+ * pergunta que a variável de ambiente responde. Vazia (o padrão) esconde a
+ * metade de baixo de todo mundo, que é o comportamento certo para quem não sabe
+ * que ela existe.
+ */
+function ehOperador(email: string | null | undefined): boolean {
+  const lista = (process.env.OPERADOR_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+  return (
+    lista.length > 0 &&
+    lista.includes(
+      String(email ?? '')
+        .trim()
+        .toLowerCase(),
+    )
+  )
+}
+
+/** O mesmo formato de indisponível que a tela já sabe desenhar. Nenhuma mudança
+    de UI: o bloco explica por que não há número, como quando falta a chave. */
+const FORA_DO_OPERADOR = {
+  disponivel: false,
+  motivo:
+    'O gasto consolidado é da conta que hospeda o aplicativo, não desta viagem. ' +
+    'Os números acima são o que esta viagem consumiu.',
+} as const
 
 type Consolidado =
   | { disponivel: false; motivo: string }

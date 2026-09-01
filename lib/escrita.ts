@@ -32,7 +32,6 @@ export type Marca = { origem: 'pessoa' | 'assistente'; lote: string | null }
 
 const SEM_MARCA: Marca = { origem: 'pessoa', lote: null }
 
-
 /**
  * Entidade -> tabela, como ela se liga à viagem, e o papel mínimo para escrevê-la.
  *
@@ -121,12 +120,30 @@ export async function autorizar(
     `
     documentoAlvo = r[0] as { escopo: string; traveler_id: string | null } | undefined
   }
+  // A ENTREGA existente tem dono no BANCO, e é de lá que a regra abaixo o lê.
+  //
+  // Derivar o dono de `campos.traveler_id` funcionava por /api/mutate só porque o
+  // zod EXIGE `traveler_id` em toda operação de entrega — a autorização estava
+  // pendurada numa propriedade do schema, não numa checagem própria. O desfazer do
+  // assistente monta `campos` com UM campo só (`{ numero: <valor antigo> }`), então
+  // por aquele caminho `traveler_id` sumia, `meu` virava true por ausência e um
+  // visualizador revertia o número do passaporte de outra pessoa — um registro que
+  // ele nem pode LER. Com o dono vindo da linha, os dois caminhos concordam.
+  let entregaAlvo: { traveler_id: string } | undefined
+  if (entidade === 'entrega' && (op === 'editar' || op === 'remover') && id) {
+    const r = await sql`
+      select s.traveler_id from document_submissions s
+      join document_requirements r on r.id = s.requirement_id
+      where s.id = ${id} and r.trip_id = ${acesso.tripId}
+    `
+    entregaAlvo = r[0] as { traveler_id: string } | undefined
+  }
+
   const souDonoDoDocumento =
     entidade === 'documento' &&
     (op === 'criar'
       ? campos.escopo === 'pessoal' && campos.traveler_id === acesso.participanteId
-      : documentoAlvo?.escopo === 'pessoal' &&
-        documentoAlvo.traveler_id === acesso.participanteId)
+      : documentoAlvo?.escopo === 'pessoal' && documentoAlvo.traveler_id === acesso.participanteId)
 
   if (!papelAlcanca(acesso.papel, meta.minimo) && !souDonoDoItem && !souDonoDoDocumento) {
     throw new ErroHttp(
@@ -180,7 +197,10 @@ export async function autorizar(
   // do passaporte alheio, que ele nem pode LER. As duas metades sao checadas
   // separadamente porque as duas acontecem na mesma linha da mesma tabela.
   if (entidade === 'entrega') {
-    const dono = String(campos.traveler_id ?? '')
+    // A linha gravada vence o que veio no corpo: numa edição, quem é o dono já
+    // está decidido, e aceitar a resposta do cliente para essa pergunta é deixar
+    // quem escreve o pedido responder quem ele é.
+    const dono = String(entregaAlvo?.traveler_id ?? campos.traveler_id ?? '')
     const meu = !dono || dono === acesso.participanteId
     const revisor = papelAlcanca(acesso.papel, 'editor')
 
@@ -298,7 +318,8 @@ async function gravarDespesa(
   const anterior = criando
     ? undefined
     : ((await sql`select * from expenses where id = ${id} and trip_id = ${tripId}`)[0] as
-        Record<string, unknown> | undefined)
+        | Record<string, unknown>
+        | undefined)
   if (!criando && !anterior) throw new Error('registro não encontrado')
 
   // Last-write-wins, igual ao caminho genérico: a versão do servidor mais nova
