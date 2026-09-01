@@ -14,7 +14,7 @@ A skill `tlc-spec-driven` **não está instalada** nesta máquina (verificado em
 
 **Design**: `.specs/features/assistente-ia/design.md`
 **Spec**: `.specs/features/assistente-ia/spec.md`
-**Status**: 0/24 — não iniciado
+**Status**: 22/24 — T21 parcial, T23 feita. Ver Fechamento.
 
 ---
 
@@ -168,3 +168,35 @@ Consome `montarPreparacao` via `contextoDoSnapshot` (T4). Cada pendência oferec
 - [ ] `CLAUDE.md`: dependências de runtime 4 → 5; a regra de que `/api/assistente` não importa `lib/escrita.ts`.
 - [ ] `.specs/STATE.md`: fechamento da feature, o que não foi construído e por quê.
 - [ ] `AGENTS.md`: commitar junto se `next dev` o regenerar.
+
+
+---
+
+## Estado real do fechamento (2026-09-01)
+
+Construído e verificado: T1–T20, T22, T23, T24.
+
+**T21 entregue parcialmente, e o porquê.** "Montar a viagem com o guia" existe e
+funciona — no Roteiro vazio, o gatilho propõe a viagem inteira e a revisão em
+bloco aceita ou desmarca item a item (P6-1, P6-2 atendidos). O que ficou de fora
+é criar a **linha da viagem** (`trips`) pela IA: `/api/assistente/aplicar` exige
+um `trip_id`, porque toda a autorização é recortada pela viagem da sessão. Criar
+a viagem primeiro pela tela normal e mandar o guia preenchê-la usa o caminho de
+escrita que já existe; criar a viagem *pelo* assistente exigiria um segundo
+caminho de escrita fora do `exigirViagem` — exatamente o tipo de exceção que a
+feature inteira foi desenhada para não abrir. Registrado no README → Known
+limitations.
+
+**Não verificável neste ambiente.** Não há `DATABASE_URL` nem
+`ANTHROPIC_API_KEY` aqui, então nada foi executado contra o Postgres real nem
+contra a API. O teto do que foi provado: `tsc --noEmit` limpo, 400 testes
+unitários verdes, `next build` completo com as quatro rotas compiladas, e lint
+no baseline exato (159 problemas, todos pré-existentes).
+
+O que **precisa** ser testado com banco e chave antes de confiar:
+1. `npm run db:push` duas vezes seguidas (idempotência das colunas novas).
+2. Aceitar uma proposta e conferir `change_log.origem = 'assistente'` com `lote`.
+3. Desfazer o lote e conferir que o banco voltou.
+4. Como `visualizador`, pedir o total da viagem e conferir que a resposta não o traz.
+5. Medir o digest com `messages.countTokens` numa viagem real — se passar de
+   alguns milhares de tokens por mensagem, o cache deixa de ser otimização.

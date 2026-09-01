@@ -40,10 +40,10 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | **Framework** | Next.js 16.3.2, App Router, React 19.2, Node runtime |
 | **Database** | Neon serverless Postgres — 27 tables, one idempotent `schema.sql` |
 | **Auth** | Email + password, scrypt hashes, HMAC-signed httpOnly cookie, 90 days |
-| **Runtime deps** | 4 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react` |
+| **Runtime deps** | 5 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react`, `@anthropic-ai/sdk` (server only) |
 | **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
-| **Tests** | 284 unit tests, `node --test`, zero test frameworks |
+| **Tests** | 400 unit tests, `node --test`, zero test frameworks |
 | **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
@@ -1162,6 +1162,35 @@ because one person writes the itinerary and everybody else's browser renders it.
 
 ---
 
+## The AI guide
+
+`POST /api/assistente` answers questions about the trip and **proposes** changes; it never writes. A separate route applies what the person accepts.
+
+That split is the security design, not a refactor. The conversation route does not import `lib/escrita.ts` — it *cannot* write, and you verify that by reading the imports rather than trusting a flag. Writes go through `/api/assistente/aplicar`, which runs the same `autorizar` + `validarCampos` that `/api/mutate` runs, with the `Acesso` of whoever is speaking. **The AI can never do anything the person could not already do from the screen.**
+
+| Route | Does | Writes? |
+| --- | --- | --- |
+| `POST /api/assistente` | Conversation, proposals, web search | No — by construction |
+| `POST /api/assistente/aplicar` | Applies accepted proposals under one `lote` | Yes, the only one |
+| `POST /api/assistente/desfazer` | Reverse replay of a `lote` from `change_log` | Yes |
+| `GET /api/assistente/consumo` | Cost report, `proprietario` only | No |
+
+**Three rules that are not obvious:**
+
+1. **The model's context is `getSnapshot(tripId, papel, participanteId)` — never a query of its own.** `financeiroDaViagem` and `documentosDaViagem` already cut by role at the source, so a `visualizador` asking for the trip total gets an answer that cannot contain it. A bespoke query "so the AI can see everything" would reopen every leak those two functions close.
+
+2. **Personal data is withheld structurally, not by instruction.** `limpar()` in `lib/assistente.ts` drops `passaporte`, `telefone`, `email`, `cpf`, `documents.valor` and submission numbers before any text is assembled. The AI knows the passport expires Tuesday; it does not know the number. This matters because web search runs on Anthropic's servers — a prompt rule would be trusting the wrong layer.
+
+3. **Removal has no undo, and the review screen says so.** `change_log` records that a row existed, never its contents, and `on delete cascade` takes the children. Creations and edits in a `lote` are reversible in one tap; removals are not, and the proposal list marks them before you accept.
+
+Tools are derived from `POR_ENTIDADE` via `z.toJSONSchema()` (zod 4) — there is no hand-written field list to drift. The set is filtered by role, but that is ergonomics: `autorizar` is the barrier, checked again on accept.
+
+**Cost.** Every response's `usage` is written to `ai_usage` (tokens only — price is a table, applied at read time from `config/precos.ts`). The report also tries to show consolidated organization spend, which needs `ANTHROPIC_ADMIN_KEY` and **does not work on individual accounts** — Anthropic's Admin API is unavailable for them. That half degrades with an explanation instead of an error.
+
+**Offline.** The guide is the first part of the app that requires network. It says so and refuses to queue, rather than pretending a question was sent.
+
+---
+
 ## Known limitations
 
 Nothing here is a hidden surprise. Each is a deliberate choice with a known ceiling and a known upgrade path.
@@ -1188,6 +1217,10 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | **Reordering a day means changing times** | Every itinerary item has a mandatory `ocorre_em`, so the up/down buttons swap the *time* of two neighbours rather than a parallel `ordem`. `ordem` only breaks a tie between two items marked at the same minute. | None wanted — a timeline whose order disagrees with the clock it prints is worse. |
 | **Trip duplication drops item → reservation links** | `reserva_id` and `documento_id` are set to NULL on clone: the copy's reservations are new rows, and keeping the old id would point an item at another trip. | Copy reservations and documents with derived ids too, the way flights already are. |
 | **Debt simplification is greedy** | Largest debtor against largest creditor. At most n−1 transfers, which settles any group; not the proven minimum (that is NP-hard). | A partition solver, if a trip ever has enough participants for it to matter. |
+| **The AI guide cannot delete-and-undo** | `change_log` stores that a row existed, not its contents, and cascade takes the children. A removal accepted from the guide is as final as one made from the screen. | A `registro jsonb` column filled on removal, plus capturing cascade children. |
+| **Consolidated Anthropic spend needs an organization** | `ANTHROPIC_ADMIN_KEY` + the Admin API, which the docs state is unavailable for individual accounts. The per-app report always works. | None available — it is a property of the account, not the code. |
+| **The guide does not stream** | Responses arrive whole, behind a "pensando…" state. Long answers feel slow. | SSE. The seam is one route and one component. |
+| **Creating a trip from nothing still uses the normal screen** | The guide fills an existing trip's itinerary in bulk; it does not create the `trips` row itself. | A write path for trip creation, or reuse `/api/viagens` before the first proposal. |
 | **`db:push` is not part of the build** | Deploying does not migrate. | Intentional. Automate only with a real migration tool. |
 | **Social sign-in is inert** | Google and Apple buttons render disabled with a reason, driven by `siteConfig.social`. | Flip `ativo` once a provider is wired. |
 

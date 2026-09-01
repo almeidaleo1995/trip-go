@@ -15,6 +15,8 @@ import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { ErroHttp, registrarFalha, LIMITES_ASSISTENTE } from '@/lib/session.ts'
 import { rota, lerJson } from '@/lib/api.ts'
 import { MODELO } from '@/config/precos.ts'
+import { contextoDoSnapshot, montarPreparacao } from '@/lib/preparacao.ts'
+import { papelAlcanca } from '@/config/navigation.ts'
 import {
   ferramentas,
   digest,
@@ -78,6 +80,7 @@ export const POST = rota(async (req) => {
   let tripId: string | null = null
   let participanteId: string | null = null
   let agora = ''
+  let pendencias = ''
 
   if (corpo.trip_id) {
     const acesso = await exigirViagem(u.id, corpo.trip_id)
@@ -91,6 +94,26 @@ export const POST = rota(async (req) => {
     // derivado de lib/hoje.ts, nunca recalculado aqui — um segundo calculo do
     // "compromisso atual" divergiria da aba Hoje no primeiro caso de borda.
     agora = contextoDeAgora(snapshot as never, new Date())
+
+    // As pendencias vem CALCULADAS de `montarPreparacao`, o mesmo motor puro
+    // que desenha a aba Preparacao. O modelo ordena e explica; ele nao decide o
+    // que esta pendente. Deixa-lo recalcular criaria uma segunda lista, e a
+    // segunda lista e sempre a que ninguem confere.
+    if (modo === 'preparacao') {
+      const { contexto } = contextoDoSnapshot(
+        snapshot as never,
+        acesso.participanteId,
+        papelAlcanca(acesso.papel, 'editor'),
+        new Date(),
+      )
+      const central = montarPreparacao(contexto)
+      const tarefas = central.tarefas
+        .slice(0, 15)
+        .map((t) => `- [${t.prioridade}] ${t.titulo}${t.detalhe ? ` — ${t.detalhe}` : ''}`)
+      if (tarefas.length) {
+        pendencias = `\n<pendencias calculadas="pelo aplicativo">\n${tarefas.join('\n')}\n</pendencias>`
+      }
+    }
   }
 
   const cliente = new Anthropic({ apiKey: chave })
@@ -98,6 +121,7 @@ export const POST = rota(async (req) => {
   const partes = [
     corpo.aba ? `A pessoa está na aba "${corpo.aba}".` : '',
     agora,
+    pendencias,
     corpo.contexto_tempo ?? '',
     contexto ? `\n<viagem>\n${contexto}\n</viagem>` : '',
   ].filter(Boolean)
