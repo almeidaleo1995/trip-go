@@ -610,12 +610,48 @@ create table if not exists change_log (
   campo        text,
   de           text,
   para         text,
+  -- quem ORIGINOU a escrita. `traveler_id` continua sendo quem assina; esta
+  -- coluna diz se a pessoa digitou ou se aceitou uma proposta do assistente.
+  origem       text not null default 'pessoa' check (origem in ('pessoa', 'assistente')),
+  -- agrupa as operacoes aceitas de uma vez. E o que permite desfazer uma viagem
+  -- inteira gerada pela IA num toque, em vez de linha por linha.
+  lote         text,
   criado_em    timestamptz not null default now()
+);
+
+-- Consumo da API de IA. Uma linha por chamada ao modelo.
+--
+-- `trip_id` e `on delete set null`, NAO cascade: apagar uma viagem nao pode
+-- apagar o registro do que ela custou — o gasto ja aconteceu e a conta ja veio.
+--
+-- Nao guarda dinheiro, so token. Preco muda; token e fato. O custo e calculado
+-- na leitura com a tabela vigente de `config/precos.ts`.
+create table if not exists ai_usage (
+  id             text primary key default gen_random_uuid()::text,
+  trip_id        text references trips(id) on delete set null,
+  user_id        text not null references users(id) on delete cascade,
+  modo           text not null,
+  modelo         text not null,
+  entrada        integer not null default 0,
+  saida          integer not null default 0,
+  cache_leitura  integer not null default 0,
+  cache_escrita  integer not null default 0,
+  busca_web      integer not null default 0,
+  criado_em      timestamptz not null default now()
 );
 
 -- ================================================================ migracoes
 -- Levam um banco da versao anterior (viagem unica, login por PIN) ate aqui.
 -- Em banco novo todas sao no-op, porque as colunas ja nasceram acima.
+
+-- Origem e lote do change_log: o assistente de IA grava por aqui, e um banco em
+-- uso nao ve o bloco `create` acima. Sem estas duas linhas, aceitar uma proposta
+-- estoura com "column origem does not exist" em producao e passa em banco novo.
+alter table change_log add column if not exists origem text not null default 'pessoa';
+alter table change_log add column if not exists lote   text;
+alter table change_log drop constraint if exists change_log_origem_check;
+alter table change_log add  constraint change_log_origem_check
+  check (origem in ('pessoa', 'assistente')) not valid;
 
 alter table trips     add column if not exists owner_id   text references users(id) on delete cascade;
 alter table trips     add column if not exists descricao  text;
@@ -948,3 +984,6 @@ create index if not exists idx_doc_req_trip           on document_requirements (
 create index if not exists idx_doc_sub_req            on document_submissions (requirement_id);
 create index if not exists idx_doc_sub_traveler       on document_submissions (traveler_id);
 create index if not exists idx_doc_sub_documento      on document_submissions (documento_id);
+create index if not exists idx_change_log_lote       on change_log (trip_id, lote);
+create index if not exists idx_ai_usage_user         on ai_usage (user_id, criado_em desc);
+create index if not exists idx_ai_usage_trip         on ai_usage (trip_id, criado_em desc);

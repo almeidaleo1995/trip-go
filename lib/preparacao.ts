@@ -15,7 +15,18 @@
 // (`financeiroDaViagem`, `documentosDaViagem` em lib/db.ts). A Central lê o que
 // chegou — ela não filtra por permissão, e não teria como.
 import { diasAte, parseData } from './derive.ts'
-import { ESTADOS, resumir, type Celula, type Matriz } from './documentacao.ts'
+import {
+  ESTADOS,
+  resumir,
+  montarMatriz,
+  CAMPOS_PERFIL,
+  type Celula,
+  type Matriz,
+  type Requisito,
+  type Submissao,
+  type PerfilResumo,
+} from './documentacao.ts'
+import { parcelasDaViagem } from './financeiro.ts'
 import { temArquivo, type Documento } from './cofre.ts'
 
 // ---------------------------------------------------------------- vocabulário
@@ -827,4 +838,125 @@ export function embarqueDe(voos: Voo[], partida: string | null): Embarque | null
   const saida = new Date(p.getTime() - SAIR_ANTES_MIN * 60_000)
   const doisDigitos = (n: number) => String(n).padStart(2, '0')
   return { voo, sairAs: `${doisDigitos(saida.getHours())}:${doisDigitos(saida.getMinutes())}` }
+}
+
+// ---------------------------------------------------------------- montagem
+
+/**
+ * O que `contextoDoSnapshot` precisa ler. Forma estrutural, nao o tipo
+ * `Snapshot` do TripProvider: `lib/` nao importa de `components/`, e amarrar o
+ * motor ao tipo de um componente cliente impediria o servidor de chama-lo — que
+ * e exatamente o que o assistente precisa fazer.
+ */
+export type FonteSnapshot = {
+  viagem?: { data_partida?: string | null; data_retorno?: string | null } | null
+  participantes?: readonly Record<string, unknown>[]
+  requisitos?: readonly unknown[]
+  entregas?: readonly unknown[]
+  perfis?: readonly unknown[]
+  checklist?: readonly unknown[]
+  checklist_state?: readonly Record<string, unknown>[]
+  documentos?: readonly unknown[]
+  voos?: readonly unknown[]
+  reservas?: readonly unknown[]
+  financeiro?: unknown
+}
+
+export type MontagemPreparacao = {
+  contexto: Contexto
+  participantes: { id: string; nome: string; avatar_url: string | null }[]
+}
+
+/**
+ * Snapshot -> `Contexto` do motor. Uma montagem so, para os dois lados.
+ *
+ * Isto morava dentro de um `useMemo` em `components/tabs/Preparacao.tsx`, o que
+ * deixava o servidor sem acesso: o assistente precisaria remontar o `Contexto` a
+ * mao e passariam a existir DUAS listas de pendencias divergindo em silencio —
+ * o mesmo erro que ja aconteceu uma vez entre `/api/mutate` e `/api/snapshot`.
+ *
+ * O financeiro entra por dois caminhos porque sao duas respostas diferentes do
+ * servidor, nao uma com filtro: quem administra recebe as parcelas da viagem,
+ * quem viaja recebe so as proprias obrigacoes. As duas viram a MESMA forma aqui,
+ * e e isso que deixa uma regra so atender aos dois papeis sem nunca ver o que
+ * nao deveria.
+ */
+export function contextoDoSnapshot(
+  s: FonteSnapshot | null | undefined,
+  eu: string,
+  admin: boolean,
+  hoje: Date,
+): MontagemPreparacao {
+  const v = s?.viagem
+
+  const participantes = (s?.participantes ?? []).map((p) => ({
+    id: String(p.id),
+    nome: String(p.nome),
+    avatar_url: (p.avatar_url as string | null) ?? null,
+  }))
+
+  const requisitos = (s?.requisitos ?? []) as unknown as Requisito[]
+  const perfis = (s?.perfis ?? []) as unknown as PerfilResumo[]
+  const matriz = montarMatriz(
+    requisitos,
+    (s?.entregas ?? []) as unknown as Submissao[],
+    participantes,
+    perfis,
+    hoje,
+  )
+
+  // Campo do perfil que ALGUM requisito puxa e que esta pessoa nao preencheu.
+  // So os que a viagem pede: cobrar a nacionalidade de quem nunca vai precisar
+  // dela e inventar trabalho, e e assim que uma lista de pendencias perde a
+  // credibilidade toda.
+  const meuPerfil = perfis.find((p) => p.traveler_id === eu)
+  const pedidos = [...new Set(requisitos.map((r) => r.campo_perfil).filter(Boolean))] as string[]
+  const perfilFaltando = pedidos
+    .filter((c) => !meuPerfil?.campos?.[c])
+    .map((c) => ({ chave: c, rotulo: CAMPOS_PERFIL[c]?.rotulo ?? c }))
+
+  const feitos = Object.fromEntries(
+    (s?.checklist_state ?? [])
+      .filter((e) => String(e.traveler_id) === eu)
+      .map((e) => [String(e.item_id), Boolean(e.feito)]),
+  )
+
+  const financeiro = s?.financeiro as
+    | { admin: true; despesas: unknown; parcelas: unknown }
+    | { admin: false; obrigacoes: Obrigacao[] }
+    | null
+    | undefined
+
+  const obrigacoes: Obrigacao[] = !financeiro
+    ? []
+    : financeiro.admin
+      ? parcelasDaViagem(financeiro.despesas as never, financeiro.parcelas as never, hoje).map(
+          (pa) => ({
+            id: String(pa.id),
+            descricao: pa.descricao,
+            valor_centavos: Number(pa.valor_centavos),
+            pago_centavos: Number(pa.pago_centavos ?? 0),
+            vence_em: pa.vence_em,
+            status: pa.status,
+          }),
+        )
+      : financeiro.obrigacoes
+
+  const contexto: Contexto = {
+    hoje,
+    partida: v?.data_partida ?? null,
+    retorno: v?.data_retorno ?? null,
+    matriz,
+    eu,
+    admin,
+    perfilFaltando,
+    documentos: (s?.documentos ?? []) as never,
+    checklist: (s?.checklist ?? []) as never,
+    feitos,
+    voos: (s?.voos ?? []) as unknown as Voo[],
+    reservas: (s?.reservas ?? []) as never,
+    obrigacoes,
+  }
+
+  return { contexto, participantes }
 }

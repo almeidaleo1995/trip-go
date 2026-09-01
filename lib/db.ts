@@ -749,10 +749,18 @@ export async function registrarAlteracao(
   campo: string,
   de: unknown,
   para: unknown,
+  /**
+   * Quem originou a escrita. `travelerId` continua sendo quem assina — o que muda
+   * e se a pessoa digitou (`pessoa`) ou aceitou uma proposta do assistente.
+   * Opcionais e no fim de proposito: as 7 chamadas que ja existiam seguem valendo.
+   */
+  origem: 'pessoa' | 'assistente' = 'pessoa',
+  lote: string | null = null,
 ) {
   const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))
   await sql`
-    insert into change_log (trip_id, traveler_id, entidade, entidade_id, campo, de, para)
-    values (${tripId}, ${travelerId}, ${entidade}, ${entidadeId}, ${campo}, ${texto(de)}, ${texto(para)})
+    insert into change_log (trip_id, traveler_id, entidade, entidade_id, campo, de, para, origem, lote)
+    values (${tripId}, ${travelerId}, ${entidade}, ${entidadeId}, ${campo},
+            ${texto(de)}, ${texto(para)}, ${origem}, ${lote})
   `
 }
