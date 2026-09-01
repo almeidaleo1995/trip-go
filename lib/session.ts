@@ -165,6 +165,32 @@ export const LIMITES_ASSISTENTE: Limites = {
 }
 
 /**
+ * Limites do upload do cofre. Por CONTA, como o assistente, e nao por IP: cinco
+ * pessoas subindo passaporte do mesmo wi-fi do hotel dividiriam um balde so.
+ *
+ * O que se barra aqui nao e o roubo, e o VOLUME: cada arquivo ocupa 25 MB no
+ * Postgres e desce inteiro para o IndexedDB de quem marcar offline, e a rota e
+ * autenticada mas alcancavel por script. Generoso de proposito — 120 partes por
+ * hora sao trinta arquivos grandes fatiados, muito acima de uma viagem inteira.
+ */
+export const LIMITES_UPLOAD: Limites = {
+  limite: 120,
+  janelaMs: 60 * 60 * 1000,
+  bloqueioMs: 10 * 60 * 1000,
+}
+
+/**
+ * Limites da importacao. Bem mais apertados que o upload, porque o custo e outro:
+ * um arquivo de importacao CRIA uma viagem inteira, com centenas de linhas em
+ * dezenas de tabelas, e nada obriga a pessoa a apagar depois.
+ */
+export const LIMITES_IMPORTACAO: Limites = {
+  limite: 10,
+  janelaMs: 60 * 60 * 1000,
+  bloqueioMs: 30 * 60 * 1000,
+}
+
+/**
  * Registra uma tentativa contra `chave` e diz se ela passou do limite.
  * Devolve `{ bloqueado, restamMs }`.
  *

@@ -90,3 +90,100 @@ test('desfazer passa por autorizar em cada linha revertida', () => {
     'desfazer voltou a interpolar `campo` no SQL sem lista branca',
   )
 })
+
+// ---------------------------------------------------------------- vazamento
+
+test('o snapshot nao manda passaporte de participante para quem nao administra', () => {
+  const db = ler('lib/db.ts')
+  const consulta = /from travelers p left join users u[\s\S]{0,200}/.exec(db)?.[0] ?? ''
+  assert.ok(consulta, 'a consulta de participantes mudou de forma; confira o recorte a mao')
+  assert.ok(
+    !/p\.passaporte,/.test(db.slice(0, db.indexOf('from travelers p'))) ||
+      /case when[^)]*then p\.passaporte end/.test(db),
+    'a consulta de participantes voltou a mandar `passaporte` para todo mundo. ' +
+      'Planejar o roteiro nao da direito de ler o passaporte de ninguem — mesma ' +
+      'regra de documentosDaViagem, e o recorte tem que ser na QUERY.',
+  )
+  assert.ok(
+    /case when[^)]*then p\.passaporte end/.test(db),
+    'sumiu o recorte de papel do `passaporte` em getSnapshot',
+  )
+  assert.ok(
+    /case when[^)]*then p\.telefone end/.test(db),
+    'sumiu o recorte de papel do `telefone` em getSnapshot',
+  )
+})
+
+test('o snapshot nao manda o orcamento da viagem para visualizador', () => {
+  const db = ler('lib/db.ts')
+  assert.ok(
+    !/sql`select \* from trips where id = /.test(db),
+    'getSnapshot voltou a fazer `select *` em trips. A tabela carrega ' +
+      '`orcamento_centavos`, que e o total da viagem — exatamente o que ' +
+      'financeiroDaViagem recusa a mandar para quem nao administra. Esconder no ' +
+      'React (`if (!fin.admin) return null`) nao e proteger.',
+  )
+  assert.ok(
+    /case when[^)]*then orcamento_centavos end/.test(db),
+    'sumiu o recorte de papel do `orcamento_centavos` em getSnapshot',
+  )
+})
+
+// ---------------------------------------------------------------- upload
+
+test('o upload do cofre confere a assinatura do arquivo, nao so o MIME declarado', () => {
+  const rota = ler('app/api/documento/route.ts')
+  assert.ok(
+    /assinaturaConfere\(/.test(rota),
+    '/api/documento voltou a aceitar `arquivo.type` sozinho. Quem envia escolhe o ' +
+      'que declarar: um HTML anunciado como application/pdf era gravado e servido ' +
+      'de volta do proprio dominio para os outros viajantes.',
+  )
+  assert.ok(
+    /'X-Content-Type-Options': 'nosniff'/.test(rota),
+    'a resposta do cofre perdeu o `nosniff`. Ela serve arquivo que outra pessoa ' +
+      'subiu; sem isto o navegador adivinha o tipo pelo conteudo.',
+  )
+})
+
+// ---------------------------------------------------------------- href
+
+test('nenhum valor guardado vira href sem passar por hrefSeguro', () => {
+  // `doc.valor` e `links` sao os dois campos livres que a tela transforma em
+  // link. Os dois foram escritos por outro participante da viagem, e um
+  // `javascript:` guardado ali roda com a sessao de quem clicar — numa pagina
+  // que carrega o snapshot inteiro.
+  const cofre = ler('components/CofreDocumento.tsx')
+  assert.ok(
+    !/href=\{doc\.valor\}/.test(cofre),
+    'CofreDocumento voltou a jogar `doc.valor` direto no href',
+  )
+  assert.ok(/hrefSeguro\(doc\.valor\)/.test(cofre), 'CofreDocumento nao usa mais hrefSeguro')
+  assert.ok(
+    /hrefSeguro\(/.test(ler('lib/derive.ts')),
+    'lerLinks parou de conferir o esquema por hrefSeguro',
+  )
+})
+
+// ---------------------------------------------------------------- cabecalhos
+
+test('os cabecalhos de seguranca chegam a configuracao do Next', () => {
+  const config = ler('next.config.ts')
+  assert.ok(
+    /CABECALHOS_SEGURANCA/.test(config) && /async headers\(\)/.test(config),
+    'next.config.ts parou de aplicar os cabecalhos de lib/seguranca.ts. Sem eles ' +
+      'nao ha HSTS, nem nosniff, nem CSP em nenhuma rota.',
+  )
+})
+
+// ---------------------------------------------------------------- CSRF
+
+test('toda escrita passa pela conferencia de origem', () => {
+  const api = ler('lib/api.ts')
+  assert.ok(
+    /mesmaOrigem\(req\)/.test(api),
+    '`rota()` parou de conferir a origem. Ela e a casca de TODAS as rotas: uma ' +
+      'linha aqui cobre as dez de uma vez, e sem ela a unica defesa contra CSRF ' +
+      'volta a ser o SameSite=Lax do cookie, herdado do padrao do navegador.',
+  )
+})

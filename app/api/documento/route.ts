@@ -9,11 +9,12 @@
 // rota — a tela continua chamando GET/POST /api/documento.
 import { sql, getSnapshot, registrarAlteracao, usuarioPorId } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
-import { ErroHttp } from '@/lib/session.ts'
+import { ErroHttp, registrarFalha, LIMITES_UPLOAD } from '@/lib/session.ts'
 import { validarCampos } from '@/lib/schema.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
 import { rota } from '@/lib/api.ts'
 import { FATIA, LIMITE_ARQUIVO, LIMITE_TEXTO, MIMES_ARQUIVO } from '@/lib/arquivo.ts'
+import { assinaturaConfere, BYTES_ASSINATURA } from '@/lib/seguranca.ts'
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 
@@ -149,6 +150,18 @@ export const GET = rota(async (req) => {
   return new NextResponse(corpo, {
     headers: {
       'Content-Type': arquivo.mime,
+      // O arquivo foi subido por outra pessoa da viagem e sai deste mesmo
+      // dominio, entao a saida tambem e barreira. `nosniff` e o essencial: sem
+      // ele o navegador adivinha o tipo pelo conteudo e ignora o `Content-Type`
+      // acima, que e como um arquivo hostil vira pagina. O par disto e a
+      // conferencia de assinatura no POST — um fecha a entrada, o outro a saida.
+      //
+      // `default-src 'none'` e nao `sandbox`: a aba de Documentacao abre o PDF
+      // por link direto para esta rota, e `sandbox` pode derrubar o visualizador
+      // embutido do navegador. `default-src 'none'` nao atrapalha o PDF e ainda
+      // impede que qualquer coisa tratada como documento carregue sub-recurso.
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'",
       // `inline` para o preview abrir na própria tela. Baixar é o navegador que
       // decide, pelo atributo `download` do link, não por este cabeçalho.
       'Content-Disposition': `inline; filename*=UTF-8''${nome}`,
@@ -172,6 +185,15 @@ export const GET = rota(async (req) => {
 // duas vezes no meio do PDF.
 export const POST = rota(async (req) => {
   const u = await exigirUsuario()
+
+  // Por parte, nao por arquivo: e a parte que custa banco e banda, e contar por
+  // arquivo deixaria um laco de 4 MB por chamada passar sem tocar no contador.
+  const limite = registrarFalha(`upload:${u.id}`, Date.now(), LIMITES_UPLOAD)
+  if (limite.bloqueado) {
+    const min = Math.ceil(limite.restamMs / 60000)
+    throw new ErroHttp(429, `Muitos envios seguidos. Tente de novo em ${min} min.`)
+  }
+
   const form = await req.formData()
 
   const tripId = String(form.get('trip_id') ?? '')
@@ -205,6 +227,23 @@ export const POST = rota(async (req) => {
   }
   if (deslocamento + arquivo.size > tamanhoTotal) {
     throw new ErroHttp(400, 'Esta parte não cabe no arquivo declarado.')
+  }
+
+  // O CONTEUDO tem que ser o formato declarado, nao so o rotulo.
+  //
+  // `arquivo.type` e o que o cliente afirma, e quem envia escolhe o que afirmar.
+  // Um HTML anunciado como `application/pdf` passava pela lista de MIMEs, era
+  // gravado, e voltava do GET como `application/pdf` servido do proprio dominio
+  // para os outros viajantes. A lista branca de formatos so vale se o arquivo
+  // for mesmo daquele formato.
+  //
+  // So na PRIMEIRA parte: da segunda em diante o que chega e o meio do arquivo,
+  // e o meio de um PDF nao comeca com `%PDF`.
+  if (deslocamento === 0) {
+    const inicio = new Uint8Array(await arquivo.slice(0, BYTES_ASSINATURA).arrayBuffer())
+    if (!assinaturaConfere(inicio, arquivo.type)) {
+      throw new ErroHttp(415, 'Este arquivo não é um PDF, JPG, PNG ou WEBP de verdade.')
+    }
   }
 
   // Ver o comentário do GET: o arquivo viaja como base64 e o Postgres decodifica.

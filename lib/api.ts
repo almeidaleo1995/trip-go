@@ -5,12 +5,27 @@
 // detalhe de erro de banco não deve chegar ao navegador.
 import { NextResponse } from 'next/server'
 import { ErroHttp } from './session.ts'
+import { mesmaOrigem } from './seguranca.ts'
 
 export type Handler = (req: Request) => Promise<unknown>
+
+/** Metodos que nao mudam nada. Tudo que nao esta aqui passa pela origem. */
+const LEITURA = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export function rota(handler: Handler) {
   return async (req: Request) => {
     try {
+      // CSRF: o cookie e `SameSite=Lax`, o que ja impede um POST disparado de
+      // outro site de carregar a sessao. Esta e a segunda tranca, e ela vale a
+      // pena porque TODA escrita do app passa por aqui — uma linha cobre as dez
+      // rotas de uma vez, e a regra fica escrita em vez de herdada do padrao do
+      // navegador. `mesmaOrigem` deixa passar requisicao sem `Origin` de
+      // proposito: navegador sempre manda o cabecalho em POST, entao a ausencia
+      // e cliente que nao e navegador, e esse nao carrega cookie de vitima.
+      if (!LEITURA.has(req.method) && !mesmaOrigem(req)) {
+        throw new ErroHttp(403, 'Pedido recusado: origem não confere.')
+      }
+
       const dados = await handler(req)
       return dados instanceof NextResponse ? dados : NextResponse.json(dados)
     } catch (e) {

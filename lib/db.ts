@@ -293,6 +293,10 @@ export async function getSnapshot(
   papel: Papel,
   participanteId: string,
 ): Promise<Snapshot> {
+  // O mesmo corte de papel que `financeiroDaViagem` faz, calculado uma vez: as
+  // duas consultas abaixo tambem carregam dado que so quem administra pode ver.
+  const administra = papelAlcanca(papel, 'editor')
+
   const [
     viagem,
     participantes,
@@ -313,9 +317,29 @@ export async function getSnapshot(
     mensagens,
     alteracoes,
   ] = await Promise.all([
-    sql`select * from trips where id = ${tripId}`,
-    sql`select p.id, p.trip_id, p.user_id, p.nome, p.email, p.papel, p.telefone,
-               p.passaporte, p.ordem, p.updated_at, u.avatar_url
+    // `orcamento_centavos` NAO sai para visualizador. Ele e o total da viagem, e
+    // o total da viagem e exatamente o que `financeiroDaViagem` recusa a mandar
+    // para quem nao administra — deixa-lo passar por dentro de `select *` em
+    // `trips` publicaria pela porta dos fundos o numero que a outra consulta
+    // protege pela porta da frente. A tela ja escondia (`if (!fin.admin) return
+    // null` em Financeiro.tsx); esconder na tela nao e proteger.
+    sql`select id, owner_id, nome, subtitulo, descricao, data_partida, data_retorno,
+               moeda, fuso, cor_destaque, capa_url, arquivada, updated_at,
+               case when ${administra}::boolean then orcamento_centavos end as orcamento_centavos
+        from trips where id = ${tripId}`,
+    // Passaporte e telefone de participante saem so para quem administra a
+    // viagem e para o dono da propria linha.
+    //
+    // Mesma regra de `documentosDaViagem`: planejar o roteiro nao da direito de
+    // ler o passaporte de ninguem. A coluna existe porque o proprietario preenche
+    // a ficha de quem viaja junto sem app (`participante` tem minimo
+    // 'proprietario' na TABELA de lib/escrita.ts) — mas quem ESCREVE era o dono e
+    // quem LIA era a viagem inteira, inclusive o visualizador. O recorte e na
+    // consulta, nao no React: campo escondido na tela continua na aba de rede.
+    sql`select p.id, p.trip_id, p.user_id, p.nome, p.email, p.papel, p.ordem,
+               p.updated_at, u.avatar_url,
+               case when ${administra}::boolean or p.id = ${participanteId} then p.telefone end as telefone,
+               case when ${administra}::boolean or p.id = ${participanteId} then p.passaporte end as passaporte
         from travelers p left join users u on u.id = p.user_id
         where p.trip_id = ${tripId} order by p.ordem, p.nome`,
     // `ocorre_em`/`fim_em` saem como TEXTO, não como Date — mesmo motivo do `dia`

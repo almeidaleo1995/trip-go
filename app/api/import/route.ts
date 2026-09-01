@@ -4,7 +4,7 @@
 // única isso arquivava a anterior; com várias viagens por conta, substituir seria
 // destruição silenciosa — a pessoa passa a ter duas e escolhe qual manter.
 import { exigirUsuario } from '@/lib/auth.ts'
-import { gravarViagemAtual, ErroHttp } from '@/lib/session.ts'
+import { gravarViagemAtual, registrarFalha, LIMITES_IMPORTACAO, ErroHttp } from '@/lib/session.ts'
 import { validarImportacao, resumirImportacao } from '@/lib/schema.ts'
 import { importarViagem } from '@/lib/importar.ts'
 import { rota, lerJson } from '@/lib/api.ts'
@@ -14,6 +14,15 @@ export const dynamic = 'force-dynamic'
 
 export const POST = rota(async (req) => {
   const u = await exigirUsuario()
+
+  // Uma importacao cria uma viagem inteira — dezenas de tabelas, centenas de
+  // linhas — e a rota e autenticada mas nao limitada. Uma conta valida em laco
+  // enchia o banco de graca. O `dry_run` conta junto de proposito: ele valida o
+  // arquivo inteiro, que e o mesmo trabalho, menos a escrita.
+  const limite = registrarFalha(`importacao:${u.id}`, Date.now(), LIMITES_IMPORTACAO)
+  if (limite.bloqueado) {
+    throw new ErroHttp(429, 'Muitas importações seguidas. Tente de novo mais tarde.')
+  }
 
   const bruto = (await lerJson(req)) as Record<string, unknown>
   const dryRun = bruto?.dry_run === true

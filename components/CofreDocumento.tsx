@@ -70,6 +70,7 @@ import { enviarArquivo, type Progresso as ProgressoEnvio } from '@/lib/arquivo.t
 import { abrir, esquecerOffline, jaSalvos, salvarOffline, sincronizar } from '@/lib/cofreOffline.ts'
 import { CATEGORIAS_DOCUMENTO } from '@/lib/schema.ts'
 import { formatarData } from '@/lib/derive.ts'
+import { hrefSeguro } from '@/lib/seguranca.ts'
 
 // ---------------------------------------------------------------- ícones
 
@@ -395,9 +396,14 @@ export function PreviewDocumento({ doc }: { doc: Documento }) {
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
         <p className="t-aux">{doc.tipo === 'link' ? 'Link' : 'Valor'}</p>
         {doc.valor ? (
-          doc.tipo === 'link' ? (
+          // `hrefSeguro` e nao `doc.valor` direto: o valor foi digitado por outro
+          // participante da viagem, e um `javascript:` guardado aqui roda com a
+          // sessao de quem clicar — dentro de uma pagina que carrega o snapshot
+          // inteiro. Quando o esquema nao serve para href, o valor cai no ramo de
+          // texto abaixo, que e o mesmo tratamento de um localizador.
+          doc.tipo === 'link' && hrefSeguro(doc.valor) ? (
             <a
-              href={doc.valor}
+              href={hrefSeguro(doc.valor)!}
               target="_blank"
               rel="noreferrer"
               className="toque inline-flex items-center gap-1.5 font-medium break-all"

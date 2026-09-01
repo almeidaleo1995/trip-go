@@ -5,6 +5,8 @@
 // Convencao de tempo do projeto: horarios sao hora LOCAL DO DESTINO, escritos como
 // "2026-12-30T10:30" (sem Z, sem offset). Nunca convertemos fuso.
 
+import { hrefSeguro } from './seguranca.ts'
+
 export type Fase = 'antes' | 'durante' | 'depois'
 
 export type FaseDaViagem = {
@@ -447,9 +449,6 @@ export function linhas(texto: string | null | undefined): string[] {
     .filter(Boolean)
 }
 
-/** Esquemas que podem virar href. Qualquer outro e descartado, `javascript:` incluso. */
-const ESQUEMA_OK = /^(https?:|mailto:|tel:)/i
-
 /**
  * "Rotulo|https://..." por linha -> lista de links.
  *
@@ -463,10 +462,10 @@ export function lerLinks(texto: string | null | undefined): { rotulo: string; ur
   for (const linha of linhas(texto)) {
     const corte = linha.indexOf('|')
     const rotulo = corte >= 0 ? linha.slice(0, corte).trim() : ''
-    let url = (corte >= 0 ? linha.slice(corte + 1) : linha).trim()
+    // O esquema e conferido por `hrefSeguro`, o MESMO guarda que o cofre usa no
+    // `doc.valor`: dois campos guardados que viram href, uma regra so.
+    const url = hrefSeguro(corte >= 0 ? linha.slice(corte + 1) : linha)
     if (!url) continue
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`
-    if (!ESQUEMA_OK.test(url)) continue
     saida.push({ rotulo: rotulo || url.replace(/^https?:\/\//, ''), url })
   }
   return saida
