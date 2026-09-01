@@ -971,6 +971,34 @@ export function esquemaDe(entidade: Entidade): z.ZodTypeAny | undefined {
   return POR_ENTIDADE[entidade]
 }
 
+/** Colunas por entidade, derivadas do schema. Montado uma vez, na primeira consulta. */
+const COLUNAS = new Map<Entidade, Set<string>>()
+
+/**
+ * `campo` e mesmo uma coluna desta entidade?
+ *
+ * Existe porque o desfazer monta `set <campo> = $1` com um valor LIDO DO BANCO.
+ * Hoje esse valor so pode ser chave de schema (o zod descarta o resto antes de
+ * `registrarAlteracao` receber), entao nao ha injecao — mas a distancia entre
+ * "nao ha" e "nao pode haver" e uma lista branca, e ela custa quatro linhas.
+ *
+ * Tambem barra `(registro)`, o campo sintetico das linhas de criar/remover: se
+ * ele escapasse dos guardas do replay viraria erro de sintaxe, nao dado errado.
+ */
+export function colunaValida(entidade: Entidade, campo: string): boolean {
+  let cols = COLUNAS.get(entidade)
+  if (!cols) {
+    const esquema = POR_ENTIDADE[entidade]
+    if (!esquema) return false
+    const json = z.toJSONSchema(esquema, { io: 'input', unrepresentable: 'any' }) as {
+      properties?: Record<string, unknown>
+    }
+    cols = new Set(Object.keys(json.properties ?? {}))
+    COLUNAS.set(entidade, cols)
+  }
+  return cols.has(campo)
+}
+
 export function validarCampos(entidade: Entidade, campos: unknown) {
   const schema = POR_ENTIDADE[entidade]
   if (!schema) return { sucesso: false as const, erro: `entidade sem schema: ${entidade}` }

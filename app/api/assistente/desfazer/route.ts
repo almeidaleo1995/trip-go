@@ -12,7 +12,7 @@ import { sql, envelope } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { ErroHttp } from '@/lib/session.ts'
 import { rota, lerJson } from '@/lib/api.ts'
-import { TABELA, recorte } from '@/lib/escrita.ts'
+import { TABELA, recorte, autorizar, colunaValida } from '@/lib/escrita.ts'
 import { type Entidade } from '@/lib/schema.ts'
 
 export const runtime = 'nodejs'
@@ -31,10 +31,11 @@ export const POST = rota(async (req) => {
   const corpo = (await lerJson(req)) as { trip_id?: string; lote?: string }
   if (!corpo.trip_id || !corpo.lote) throw new ErroHttp(400, 'Lote não informado.')
 
-  // 'editor' e não 'visualizador': desfazer é escrita. O `autorizar` de cada
-  // entidade não roda aqui porque o replay não recebe campos do cliente — ele só
-  // reverte o que ESTE lote gravou, e o lote é recortado pela viagem da sessão.
-  const acesso = await exigirViagem(u.id, corpo.trip_id, 'editor')
+  // Só participar basta para CHEGAR aqui; o que decide cada reversão é o
+  // `autorizar` de cada linha, abaixo. Exigir 'editor' na porta seria a barreira
+  // errada nos dois sentidos: impediria um visualizador de desfazer o próprio
+  // documento pessoal, e deixaria um editor reverter o documento pessoal alheio.
+  const acesso = await exigirViagem(u.id, corpo.trip_id)
 
   const linhas = (await sql`
     select entidade, entidade_id, campo, de, para
@@ -47,9 +48,11 @@ export const POST = rota(async (req) => {
 
   let revertidas = 0
   let remocoesIrreversiveis = 0
+  let negadas = 0
 
   for (const l of linhas) {
-    const meta = TABELA[l.entidade as Entidade]
+    const entidade = l.entidade as Entidade
+    const meta = TABELA[entidade]
     if (!meta || !l.entidade_id) continue
 
     if (l.para === 'removido') {
@@ -57,7 +60,23 @@ export const POST = rota(async (req) => {
       continue
     }
 
-    const rec = recorte(l.entidade as Entidade, acesso.tripId, 2)
+    // Desfazer é escrita, e por isso passa pela MESMA barreira da escrita.
+    //
+    // Sem isto existe uma escalada real: `change_log` inteiro vai no snapshot
+    // (`select l.*`), então qualquer participante enxerga o `lote` — e um editor
+    // reverteria com ele o documento `pessoal` de outro participante, que
+    // `autorizar` proíbe explicitamente de editar. Uma linha que este papel não
+    // pode escrever é pulada, não revertida.
+    const campos = l.para === 'criado' ? {} : { [l.campo]: l.de }
+    const op = l.para === 'criado' ? 'remover' : 'editar'
+    try {
+      await autorizar(acesso, entidade, op, campos, l.entidade_id)
+    } catch {
+      negadas += 1
+      continue
+    }
+
+    const rec = recorte(entidade, acesso.tripId, 2)
 
     if (l.para === 'criado') {
       await sql.query(`delete from ${meta.nome} where id = $1 ${rec.sql}`, [
@@ -68,9 +87,16 @@ export const POST = rota(async (req) => {
       continue
     }
 
+    // `campo` vem do banco e entraria CRU no SQL. A lista branca vem do mesmo
+    // schema que valida a escrita: o que não é coluna da entidade não vira SQL.
+    if (!colunaValida(entidade, l.campo)) {
+      negadas += 1
+      continue
+    }
+
     // Edição: devolve o valor anterior. `de` vem como texto do log; null volta
     // como null de verdade, não como a string "null".
-    const rec2 = recorte(l.entidade as Entidade, acesso.tripId, 3)
+    const rec2 = recorte(entidade, acesso.tripId, 3)
     await sql.query(
       `update ${meta.nome} set ${l.campo} = $2, updated_at = now() where id = $1 ${rec2.sql}`,
       [l.entidade_id, l.de, ...rec2.params],
@@ -78,14 +104,19 @@ export const POST = rota(async (req) => {
     revertidas += 1
   }
 
-  await sql`
-    delete from change_log
-    where trip_id = ${acesso.tripId} and lote = ${corpo.lote} and origem = 'assistente'
-  `
+  // Só apaga do histórico o que foi de fato revertido. Uma linha negada continua
+  // valendo — apagá-la esconderia do dono que a reversão não aconteceu inteira.
+  if (negadas === 0) {
+    await sql`
+      delete from change_log
+      where trip_id = ${acesso.tripId} and lote = ${corpo.lote} and origem = 'assistente'
+    `
+  }
 
   return {
     revertidas,
     remocoesIrreversiveis,
+    negadas,
     snapshot: await envelope(acesso),
   }
 })

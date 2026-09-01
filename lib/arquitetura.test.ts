@@ -74,3 +74,19 @@ test('as três rotas de escrita devolvem o mesmo envelope', () => {
     )
   }
 })
+
+test('desfazer passa por autorizar em cada linha revertida', () => {
+  const rota = ler('app/api/assistente/desfazer/route.ts')
+  // O `change_log` inteiro vai no snapshot (`select l.*` em lib/db.ts), então o
+  // `lote` é visível a todo participante. Sem `autorizar` por linha, um editor
+  // reverteria com ele o documento pessoal de outro participante — que
+  // lib/escrita.ts proíbe explicitamente de editar.
+  assert.ok(
+    /await autorizar\(/.test(rota),
+    'desfazer voltou a reverter sem consultar autorizar: escalada de privilégio',
+  )
+  assert.ok(
+    /colunaValida\(/.test(rota),
+    'desfazer voltou a interpolar `campo` no SQL sem lista branca',
+  )
+})

@@ -14,10 +14,12 @@ import { randomUUID } from 'node:crypto'
 import { sql, registrarAlteracao, avisarParticipantes } from '@/lib/db.ts'
 import { type Acesso } from '@/lib/auth.ts'
 import { ErroHttp } from '@/lib/session.ts'
-import type { z } from 'zod'
 import { validarCampos, DespesaSchema, type Entidade } from '@/lib/schema.ts'
+import type { z } from 'zod'
 import { resolverDivisao, gerarParcelas } from '@/lib/financeiro.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
+
+export { colunaValida } from '@/lib/schema.ts'
 
 /**
  * De onde veio a escrita, para o `change_log`.
@@ -29,6 +31,7 @@ import { papelAlcanca, type Papel } from '@/config/navigation.ts'
 export type Marca = { origem: 'pessoa' | 'assistente'; lote: string | null }
 
 const SEM_MARCA: Marca = { origem: 'pessoa', lote: null }
+
 
 /**
  * Entidade -> tabela, como ela se liga à viagem, e o papel mínimo para escrevê-la.
