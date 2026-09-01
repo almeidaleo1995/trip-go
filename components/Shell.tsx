@@ -31,6 +31,7 @@ import {
   RefreshCw,
   MapPinned,
   MoreHorizontal,
+  Sparkles,
   ArrowLeft,
   UserRound,
   type LucideIcon,
@@ -38,6 +39,7 @@ import {
 import Link from 'next/link'
 import { useTrip } from './TripProvider.tsx'
 import { AppModal, Avatar } from './ui.tsx'
+import { Assistente } from './Assistente.tsx'
 import { faseDaViagem, formatarHora } from '@/lib/derive.ts'
 import { registrarRecente } from '@/lib/recentes.ts'
 
@@ -56,6 +58,7 @@ export type AbaId =
   | 'emergencia'
   | 'financeiro'
   | 'dados'
+  | 'assistente'
 
 type Aba = { id: AbaId; nome: string; icone: LucideIcon; grupo: string }
 
@@ -75,6 +78,7 @@ const ABAS: Aba[] = [
   { id: 'emergencia', nome: 'Emergência', icone: LifeBuoy, grupo: 'Preparação' },
   { id: 'financeiro', nome: 'Financeiro', icone: Wallet, grupo: 'Gestão' },
   { id: 'dados', nome: 'Participantes e dados', icone: Database, grupo: 'Gestão' },
+  { id: 'assistente', nome: 'Guia', icone: Sparkles, grupo: 'Gestão' },
 ]
 
 /**
@@ -118,6 +122,7 @@ export function Shell({
   const { snapshot, papel, online, offlineOk, pendentes, ultimaSync, erro, sair } = useTrip()
   const [montado, setMontado] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
+  const [guiaAberto, setGuiaAberto] = useState(false)
 
   // A aba que ACENDE. Nem sempre é a que está no estado: `documentacao` acende
   // `documentos`, que é onde ela passou a morar.
@@ -326,6 +331,38 @@ export function Shell({
           {children}
         </main>
       </div>
+
+      {/* O guia acompanha a aba aberta em vez de ter tela própria: a pergunta é
+          quase sempre sobre o que está à vista. Fica acima da tab bar no
+          celular (bottom-20) para não cobrir a navegação. */}
+      {aba !== 'assistente' && (
+        <button
+          onClick={() => setGuiaAberto(true)}
+          aria-label="Abrir o guia"
+          className="sem-impressao fixed right-4 bottom-20 z-30 flex h-13 w-13 cursor-pointer items-center justify-center rounded-2xl text-white shadow-[var(--sombra-2)] transition-transform active:scale-95 md:bottom-6"
+          style={{ background: 'var(--destaque)', height: 52, width: 52 }}
+        >
+          <Sparkles size={22} />
+        </button>
+      )}
+
+      {guiaAberto && (
+        <>
+          <div
+            onClick={() => setGuiaAberto(false)}
+            className="sem-impressao fixed inset-0 z-40 bg-black/25 backdrop-blur-[2px]"
+          />
+          <aside
+            aria-label="Guia da viagem"
+            className="sem-impressao fixed inset-x-0 bottom-0 z-50 h-[85dvh] rounded-t-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-2)] md:inset-y-0 md:right-0 md:left-auto md:h-full md:w-[27rem] md:rounded-t-none md:rounded-l-2xl"
+          >
+            <Assistente
+              aba={ABAS.find((x) => x.id === ativa)?.nome}
+              aoFechar={() => setGuiaAberto(false)}
+            />
+          </aside>
+        </>
+      )}
 
       {/* tab bar — celular. Quatro fixas + "Mais". */}
       <nav

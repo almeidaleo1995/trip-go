@@ -19,6 +19,7 @@ import { Checklist } from '@/components/tabs/Checklist.tsx'
 import { Preparacao } from '@/components/tabs/Preparacao.tsx'
 import { Financeiro } from '@/components/tabs/Financeiro.tsx'
 import { Dados } from '@/components/tabs/Dados.tsx'
+import { AssistenteAba } from '@/components/tabs/AssistenteAba.tsx'
 import { Hoje } from '@/components/tabs/Hoje.tsx'
 
 export default function ViagemPagina({ params }: { params: Promise<{ id: string }> }) {
@@ -89,6 +90,7 @@ function App() {
           {aba === 'emergencia' && <Emergencia />}
           {aba === 'financeiro' && <Financeiro />}
           {aba === 'dados' && <Dados />}
+          {aba === 'assistente' && <AssistenteAba />}
         </Shell>
       </div>
       {/* Fora da casca: aparece só na impressão, de qualquer aba. */}

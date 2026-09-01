@@ -51,6 +51,17 @@ export const siteConfig = {
     },
   ],
 
+  /**
+   * O assistente. Nome e vozes ficam aqui pela mesma regra de tudo o mais: o
+   * produto tem que ser rebatizavel sem tocar em componente. "Guia" e generico
+   * de proposito — ele e o guia DESTA viagem, nao um chatbot com nome proprio.
+   */
+  assistente: {
+    nome: 'Guia',
+    convite: 'Pergunte sobre a viagem, peça uma sugestão, ou dite o que quer anotar.',
+    offline: 'O guia precisa de internet. O resto da viagem continua funcionando sem sinal.',
+  },
+
   contato: {
     email: 'ola@tripgo.app',
     suporte: '/configuracoes',
@@ -80,3 +91,7 @@ export const siteConfig = {
 } as const
 
 export type SiteConfig = typeof siteConfig
+
+
+/** Atalho para o bloco do assistente. */
+export const assistenteConfig = siteConfig.assistente
