@@ -14,6 +14,7 @@ import {
   propostasDe,
   temRemocao,
   sistema,
+  fontesDe,
   MODOS,
 } from './assistente.ts'
 import { somar, custoDe, agrupar, aproveitamentoCache } from './consumo.ts'
@@ -227,4 +228,57 @@ test('aproveitamento de cache é nulo sem entrada e percentual com ela', () => {
   assert.equal(aproveitamentoCache(somar([])), null)
   const r = somar([uso({ entrada: 100, cache_leitura: 300 })])
   assert.equal(aproveitamentoCache(r), 75)
+})
+
+// ---------------------------------------------------------------- busca na web
+
+test('extrai fontes de uma busca bem-sucedida', () => {
+  const { fontes, buscas } = fontesDe([
+    {
+      type: 'web_search_tool_result',
+      content: [
+        { title: 'Horário do Louvre', url: 'https://louvre.fr/horarios' },
+        { title: 'Bilhetes', url: 'https://louvre.fr/bilhetes' },
+      ],
+    },
+  ])
+  assert.equal(buscas, 1)
+  assert.equal(fontes.length, 2)
+  assert.equal(fontes[0].titulo, 'Horário do Louvre')
+})
+
+test('busca que falhou não derruba a rota', () => {
+  // O caso real: em erro o `content` vem como OBJETO, não lista. Indexar sem
+  // checar transformaria "estourei o max_uses" num crash da requisição inteira.
+  const { fontes, buscas } = fontesDe([
+    { type: 'web_search_tool_result', content: { error_code: 'max_uses_exceeded' } },
+  ])
+  assert.equal(buscas, 1, 'a busca aconteceu e precisa ser contada para o custo')
+  assert.equal(fontes.length, 0)
+})
+
+test('resultado sem url é ignorado e url repetida não duplica', () => {
+  const { fontes } = fontesDe([
+    {
+      type: 'web_search_tool_result',
+      content: [
+        { title: 'sem link' },
+        { title: 'A', url: 'https://ex.com/a' },
+        { title: 'A de novo', url: 'https://ex.com/a' },
+      ],
+    },
+  ])
+  assert.equal(fontes.length, 1)
+})
+
+test('bloco que não é busca não conta como busca', () => {
+  const { buscas } = fontesDe([{ type: 'text' }, { type: 'tool_use' }])
+  assert.equal(buscas, 0)
+})
+
+test('resultado sem título usa a própria url', () => {
+  const { fontes } = fontesDe([
+    { type: 'web_search_tool_result', content: [{ url: 'https://ex.com/x' }] },
+  ])
+  assert.equal(fontes[0].titulo, 'https://ex.com/x')
 })

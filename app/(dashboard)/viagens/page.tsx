@@ -261,7 +261,11 @@ export default function Viagens() {
           aoSalvar={(v) => {
             setCriando(false)
             avisar('sucesso', 'Viagem criada.')
-            router.push(`/viagens/${v.id}`)
+            // Entra na viagem com o guia já aberto para montar o roteiro. A
+            // viagem em si nasce pela rota de sempre (`POST /api/viagens`), com
+            // a validação e a autorização que já existem — o assistente entra
+            // depois, para preencher, e não ganha um caminho de escrita próprio.
+            router.push(`/viagens/${v.id}?guia=montar`)
           }}
         />
       )}

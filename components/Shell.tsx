@@ -126,6 +126,9 @@ export function Shell({
   const [montado, setMontado] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
   const [guiaAberto, setGuiaAberto] = useState(false)
+  // `?guia=montar` chega de quem acabou de criar a viagem: a tela abre já com o
+  // guia montando o roteiro, que é o primeiro trabalho de uma viagem vazia.
+  const [modoGuia, setModoGuia] = useState<'duvida' | 'criar_viagem'>('duvida')
 
   // A aba que ACENDE. Nem sempre é a que está no estado: `documentacao` acende
   // `documentos`, que é onde ela passou a morar.
@@ -174,7 +177,12 @@ export function Shell({
   useEffect(() => {
     setMontado(true)
     try {
-      const pedida = new URLSearchParams(window.location.search).get('aba') as AbaId | null
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('guia') === 'montar') {
+        setModoGuia('criar_viagem')
+        setGuiaAberto(true)
+      }
+      const pedida = params.get('aba') as AbaId | null
       const salva = sessionStorage.getItem(CHAVE_ABA) as AbaId | null
       const alvo = [pedida, salva].find(conhecida)
       if (alvo) return setAba(alvo as AbaId)
@@ -364,8 +372,17 @@ export function Shell({
             className="sem-impressao fixed inset-x-0 bottom-0 z-50 h-[85dvh] rounded-t-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-2)] md:inset-y-0 md:right-0 md:left-auto md:h-full md:w-[27rem] md:rounded-t-none md:rounded-l-2xl"
           >
             <Assistente
+              modo={modoGuia}
               aba={ABAS.find((x) => x.id === ativa)?.nome}
-              aoFechar={() => setGuiaAberto(false)}
+              aberturaAutomatica={
+                modoGuia === 'criar_viagem'
+                  ? 'Monte o roteiro desta viagem e proponha os itens: cidades, dias com título e resumo, e passeios com horário plausível.'
+                  : undefined
+              }
+              aoFechar={() => {
+                setGuiaAberto(false)
+                setModoGuia('duvida')
+              }}
             />
           </aside>
         </>

@@ -23,7 +23,9 @@ import {
   sistema,
   propostasDe,
   contextoDeAgora,
+  fontesDe,
   MODOS,
+  type BlocoBusca,
   type Modo,
   type BlocoFerramenta,
 } from '@/lib/assistente.ts'
@@ -165,25 +167,8 @@ export const POST = rota(async (req) => {
 
   // As fontes vao para a tela junto da resposta: informacao de internet sem
   // procedencia e pior que informacao ausente, porque nao da para conferir.
-  const fontes: { titulo: string; url: string }[] = []
-  let buscas = 0
-  for (const bloco of resposta.content as unknown as {
-    type: string
-    content?: unknown
-  }[]) {
-    if (bloco.type !== 'web_search_tool_result') continue
-    buscas += 1
-    // Sucesso vem como LISTA de resultados; erro vem como objeto unico. Indexar
-    // sem checar transformaria um erro de busca em um crash da rota.
-    if (!Array.isArray(bloco.content)) continue
-    for (const r of bloco.content as { title?: string; url?: string }[]) {
-      if (r.url) fontes.push({ titulo: r.title ?? r.url, url: r.url })
-    }
-  }
+  const { fontes, buscas } = fontesDe(resposta.content as unknown as BlocoBusca[])
 
-  // Telemetria antes de responder: se a gravação falhar, a pessoa ainda recebe a
-  // resposta que já foi paga. Um relatório com um buraco é melhor que uma
-  // resposta perdida por causa do relatório.
   try {
     await registrarUso({
       tripId,

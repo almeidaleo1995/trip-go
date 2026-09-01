@@ -43,7 +43,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | **Runtime deps** | 5 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react`, `@anthropic-ai/sdk` (server only) |
 | **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
-| **Tests** | 400 unit tests, `node --test`, zero test frameworks |
+| **Tests** | 411 unit tests, `node --test`, zero test frameworks; plus `db/teste-assistente.sql` against a real Postgres |
 | **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
@@ -1186,6 +1186,8 @@ That split is the security design, not a refactor. The conversation route does n
 Tools are derived from `POR_ENTIDADE` via `z.toJSONSchema()` (zod 4) — there is no hand-written field list to drift. The set is filtered by role, but that is ergonomics: `autorizar` is the barrier, checked again on accept.
 
 **Cost.** Every response's `usage` is written to `ai_usage` (tokens only — price is a table, applied at read time from `config/precos.ts`). The report also tries to show consolidated organization spend, which needs `ANTHROPIC_ADMIN_KEY` and **does not work on individual accounts** — Anthropic's Admin API is unavailable for them. That half degrades with an explanation instead of an error.
+
+**Testing it.** `db/teste-assistente.sql` runs four assertions against a throwaway Postgres — the ones no unit test can reach because they are database behaviour, not JavaScript. The sharpest is the undo ordering: with two edits to the same field, replaying the `change_log` backwards restores the original value and replaying it forwards restores the *intermediate* one. `lib/arquitetura.test.ts` locks the properties that hold by reading the code rather than running it, starting with "the conversation route does not import `lib/escrita.ts`".
 
 **Offline.** The guide is the first part of the app that requires network. It says so and refuses to queue, rather than pretending a question was sent.
 

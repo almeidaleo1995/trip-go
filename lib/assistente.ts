@@ -463,3 +463,38 @@ export function contextoDeAgora(s: FonteAgora | null | undefined, relogio: Date)
   if (hotel) p.push(`Hospedagem de hoje: ${hotel.nome ?? 'reservada'}.`)
   return p.join(' ')
 }
+
+// ---------------------------------------------------------------- fontes
+
+export type BlocoBusca = { type: string; content?: unknown }
+export type Fonte = { titulo: string; url: string }
+
+/**
+ * As fontes de uma resposta que usou busca na web.
+ *
+ * A armadilha que esta funcao existe para evitar: em SUCESSO o `content` do
+ * bloco e uma LISTA de resultados; em ERRO ele e um OBJETO unico
+ * (`{error_code: ...}`). Indexar sem checar transforma uma busca que falhou em
+ * um crash da rota — e a busca falha por motivo banal, como estourar o
+ * `max_uses`.
+ *
+ * Devolve tambem a contagem de buscas, que vai para `ai_usage`: elas sao
+ * cobradas a parte e a tela precisa dizer isso.
+ */
+export function fontesDe(blocos: readonly BlocoBusca[]): { fontes: Fonte[]; buscas: number } {
+  const fontes: Fonte[] = []
+  const vistas = new Set<string>()
+  let buscas = 0
+
+  for (const b of blocos) {
+    if (b.type !== 'web_search_tool_result') continue
+    buscas += 1
+    if (!Array.isArray(b.content)) continue
+    for (const r of b.content as { title?: string; url?: string }[]) {
+      if (!r?.url || vistas.has(r.url)) continue
+      vistas.add(r.url)
+      fontes.push({ titulo: r.title ?? r.url, url: r.url })
+    }
+  }
+  return { fontes, buscas }
+}

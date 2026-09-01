@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:push": "node --env-file=.env.local scripts/db-push.mjs",
-    "test": "node --test lib/*.test.ts",
+    "test": "node --import ./scripts/alias.mjs --test lib/*.test.ts",
     "test:api": "node --env-file=.env.local scripts/test-api.mjs"
   },
   "dependencies": {

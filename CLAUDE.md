@@ -50,10 +50,12 @@ The shape to keep in mind: content has **no top-level routes**. Roteiro, voos, f
 npm run dev          # localhost:3000
 npm run build        # includes typecheck
 npm run lint
-npm test             # 400 unit tests, node --test, no framework
+npm test             # 411 unit tests, node --test, no framework
 npm run db:push      # applies db/schema.sql (idempotent) to DATABASE_URL
 node --env-file=.env.local scripts/seed.mjs   # demo@tripgo.com / 123456
 ```
+
+`db/teste-assistente.sql` roda 4 asserções contra um Postgres descartável (comportamento de banco, fora do alcance de teste unitário). `scripts/alias.mjs` resolve `@/` sob `node --test` — é o que torna rota testável.
 
 `npm run test:api` **fails wholesale** — the 26 integration tests target the removed PIN auth. Don't treat it as a regression you caused; see README → Testing.
 
