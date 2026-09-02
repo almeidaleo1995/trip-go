@@ -165,24 +165,43 @@ export const LIMITES_ASSISTENTE: Limites = {
 }
 
 /**
- * Limites do upload do cofre. Por CONTA, como o assistente, e nao por IP: cinco
- * pessoas subindo passaporte do mesmo wi-fi do hotel dividiriam um balde so.
+/**
+ * Limites da SINCRONIZAÇÃO: /api/mutate, /api/viagens, /api/perfil.
  *
- * O que se barra aqui nao e o roubo, e o VOLUME: cada arquivo ocupa 25 MB no
- * Postgres e desce inteiro para o IndexedDB de quem marcar offline, e a rota e
- * autenticada mas alcancavel por script. Generoso de proposito — 120 partes por
- * hora sao trinta arquivos grandes fatiados, muito acima de uma viagem inteira.
+ * Um quarto motivo. Aqui não se barra chute de senha, nem conta em massa, nem
+ * gasto: barra-se o script que descobriu um endpoint autenticado e resolveu
+ * varrer a viagem inteira com ele. O teto é folgado de propósito — quem volta de
+ * um dia offline sobe a fila acumulada de uma vez, e um limite apertado
+ * transformaria "voltei a ter sinal" em "o app recusou minhas anotações".
+ *
+ * Por CONTA, como o assistente: cinco pessoas no mesmo wi-fi de hotel não podem
+ * dividir um balde só.
+ */
+export const LIMITES_ESCRITA: Limites = {
+  limite: 240,
+  janelaMs: 5 * 60 * 1000,
+  bloqueioMs: 5 * 60 * 1000,
+}
+
+/**
+ * Limites do UPLOAD de arquivo do cofre.
+ *
+ * Mais baixo que o da escrita e medido em REQUISIÇÕES, não em arquivos: um PDF de
+ * 25 MB sobe em 7 partes, então 120 por hora são ~17 documentos grandes — mais do
+ * que qualquer viagem precisa numa sentada, e longe do que serve para usar o
+ * cofre como hospedagem de arquivo alheio.
  */
 export const LIMITES_UPLOAD: Limites = {
   limite: 120,
   janelaMs: 60 * 60 * 1000,
-  bloqueioMs: 10 * 60 * 1000,
+  bloqueioMs: 15 * 60 * 1000,
 }
 
 /**
- * Limites da importacao. Bem mais apertados que o upload, porque o custo e outro:
- * um arquivo de importacao CRIA uma viagem inteira, com centenas de linhas em
- * dezenas de tabelas, e nada obriga a pessoa a apagar depois.
+ * Limites da IMPORTAÇÃO. Bem mais apertados que os da escrita, e balde próprio,
+ * porque o custo é de outra ordem: cada chamada CRIA uma viagem inteira, com
+ * centenas de linhas em dezenas de tabelas, e nada obriga a pessoa a apagar
+ * depois. Deixá-la no balde da sincronização daria 240 viagens em cinco minutos.
  */
 export const LIMITES_IMPORTACAO: Limites = {
   limite: 10,
@@ -198,10 +217,12 @@ export const LIMITES_IMPORTACAO: Limites = {
  * o cadastro registra tudo. A janela e por chave, entao namespaces diferentes
  * (`cadastro:1.2.3.4`) nao disputam o mesmo contador.
  *
- * ponytail: contador em memoria do processo. Em serverless cada instancia tem o
- * seu, entao um atacante distribuido consegue mais que o limite por janela -
- * mitigacao parcial, assumida e documentada no README. Se virar preocupacao real,
- * mover o contador para uma tabela no Neon e uma troca local.
+ * ESTE contador vive na memoria do processo, e hoje ele e o PLANO B. O contador
+ * de verdade e `registrar_tentativa` no Postgres, chamado por `registrarTentativa`
+ * em lib/db.ts: em serverless cada instancia tinha o seu balde, e dez instancias
+ * valiam dez vezes o limite. A versao em memoria continua aqui porque falha de
+ * rede no banco nao pode derrubar o login — degradar para "limite por instancia"
+ * e melhor do que trancar a viagem para fora ou do que ficar sem limite nenhum.
  */
 export function registrarFalha(
   chave: string,

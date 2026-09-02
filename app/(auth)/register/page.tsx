@@ -5,12 +5,16 @@ import { MapPinned } from 'lucide-react'
 import { CadastroSchema, SENHA_MINIMA } from '@/lib/schema.ts'
 import { Botao, Campo } from '@/components/ui.tsx'
 import { Turnstile, captchaAtivo } from '@/components/Turnstile.tsx'
+import { CAMPO_ARMADILHA } from '@/lib/seguranca.ts'
 
 export default function Register() {
   const [nome, setNome] = useState('')
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [confirmacao, setConfirmacao] = useState('')
+  // O campo-armadilha: ninguém enxerga, então gente nunca preenche. Ver
+  // CAMPO_ARMADILHA em lib/seguranca.ts.
+  const [armadilha, setArmadilha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   // O captcha importa MAIS aqui do que no login: no login o abuso e o chute de
@@ -33,7 +37,14 @@ export default function Register() {
       const r = await fetch('/api/usuarios', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ nome, email, senha, confirmacao, captcha }),
+        body: JSON.stringify({
+          nome,
+          email,
+          senha,
+          confirmacao,
+          captcha,
+          [CAMPO_ARMADILHA]: armadilha,
+        }),
       })
       if (r.ok) {
         // Igual ao login: navegação dura para a sessão nova valer já na próxima tela.
@@ -150,6 +161,21 @@ export default function Register() {
               autoComplete="new-password"
               obrigatorio
               erro={confirmacao && senha !== confirmacao ? 'As senhas não são iguais.' : null}
+            />
+
+            {/* A armadilha. `hidden` sozinho não bastaria: parte dos robôs pula campo
+                escondido por CSS, e nenhum deles lê `aria-hidden`. `tabIndex={-1}` e
+                `autoComplete="off"` mantêm teclado e gerenciador de senha longe dele,
+                para que ninguém preencha sem querer e leve um 400 sem entender. */}
+            <input
+              type="text"
+              name={CAMPO_ARMADILHA}
+              value={armadilha}
+              onChange={(e) => setArmadilha(e.target.value)}
+              tabIndex={-1}
+              autoComplete="off"
+              aria-hidden="true"
+              className="absolute left-[-9999px] h-0 w-0 opacity-0"
             />
 
             {erro && (

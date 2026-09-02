@@ -1,21 +1,23 @@
-// Os cabecalhos vem de `lib/seguranca.ts`, nao daqui: a lista e conferida por
-// teste, e teste que importa `next.config.ts` arrasta o Next inteiro para dentro
-// do `node --test`.
 import type { NextConfig } from 'next'
-import { CABECALHOS_SEGURANCA } from './lib/seguranca.ts'
+import { cabecalhosEstaticos } from './lib/seguranca.ts'
 
+// Os cabeçalhos de segurança que NÃO dependem da requisição moram aqui, e não no
+// proxy.ts, por um motivo só: o `matcher` do proxy exclui /api/*, e uma resposta
+// de API sem `nosniff` é um arquivo do cofre que o navegador pode decidir tratar
+// como HTML. `headers()` alcança tudo — página, rota e arquivo estático.
+//
+// O que continua no proxy é o que muda a cada requisição: a política de conteúdo,
+// porque ela carrega um nonce novo por resposta.
 const nextConfig: NextConfig = {
-  // `X-Powered-By: Next.js` nao protege ninguem e diz ao scanner qual lista de
-  // CVE tentar primeiro. Nao e defesa — e so nao entregar de graca.
+  // `X-Powered-By: Next.js` não é vulnerabilidade, é só dizer a versão do alvo de
+  // graça para quem estiver varrendo.
   poweredByHeader: false,
 
   async headers() {
     return [
       {
-        // Tudo: pagina, rota de API e arquivo estatico. O cofre acrescenta os
-        // seus proprios por cima, na resposta.
         source: '/:caminho*',
-        headers: CABECALHOS_SEGURANCA,
+        headers: cabecalhosEstaticos(process.env.NODE_ENV === 'production'),
       },
     ]
   },

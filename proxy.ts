@@ -1,13 +1,19 @@
-// Redirecionamento de rota por sessao. No Next 16 este arquivo se chama `proxy`
-// (era `middleware` ate a 15) e roda no runtime Node por padrao.
+// Redirecionamento de rota por sessão, exigência de HTTPS e política de conteúdo.
+// No Next 16 este arquivo se chama `proxy` (era `middleware` até a 15) e roda no
+// runtime Node por padrão.
 //
-// Checagem OTIMISTA, de proposito: so confere a assinatura do cookie, nunca vai
-// ao banco. O proxy roda em toda rota, inclusive nas que o navegador pre-carrega,
-// e uma consulta aqui viraria carga por link visitado. A barreira real e
-// `exigirViagem` em lib/auth.ts, colada na fonte do dado.
+// Checagem de sessão OTIMISTA, de propósito: só confere a assinatura do cookie,
+// nunca vai ao banco. O proxy roda em toda rota, inclusive nas que o navegador
+// pré-carrega, e uma consulta aqui viraria carga por link visitado. A barreira
+// real é `exigirViagem` em lib/auth.ts, colada na fonte do dado.
+//
+// A política de conteúdo mora AQUI e não no next.config.ts porque ela carrega um
+// nonce, e nonce que se repete não é nonce. Os cabeçalhos fixos (HSTS, nosniff,
+// Referrer-Policy) estão no next.config.ts, que alcança também o /api/*.
 import { NextResponse, type NextRequest } from 'next/server'
 import { COOKIE, lerToken } from '@/lib/session.ts'
 import { rotasPrivadas, rotasPublicas } from '@/config/navigation.ts'
+import { politicaCsp, precisaHttps } from '@/lib/seguranca.ts'
 
 function temSessao(req: NextRequest): boolean {
   const token = req.cookies.get(COOKIE)?.value
@@ -22,9 +28,46 @@ function temSessao(req: NextRequest): boolean {
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
+  const producao = process.env.NODE_ENV === 'production'
+
+  // HTTPS antes de qualquer outra coisa. Redirecionar DEPOIS de decidir a
+  // sessão só adiantaria o trabalho de uma resposta que vai ser jogada fora —
+  // e, pior, mandaria um Set-Cookie por texto puro.
+  const anfitriao = req.headers.get('x-forwarded-host') ?? req.headers.get('host')
+  if (precisaHttps(req.headers.get('x-forwarded-proto'), producao, anfitriao)) {
+    const url = req.nextUrl.clone()
+    url.protocol = 'https:'
+    // 308 e não 302: preserva o método e o corpo, então um POST que chegou em
+    // http não vira GET no caminho. Permanente porque, com HSTS, é.
+    return NextResponse.redirect(url, 308)
+  }
+
+  // Um nonce novo por requisição. O Next lê este mesmo cabeçalho da REQUISIÇÃO,
+  // extrai o `'nonce-…'` e carimba sozinho os scripts que ele gera — por isso o
+  // valor entra nos dois lados, requisição e resposta.
+  const nonce = crypto.randomUUID().replace(/-/g, '')
+  const csp = politicaCsp(nonce, !producao)
+
+  const cabecalhos = new Headers(req.headers)
+  cabecalhos.set('x-nonce', nonce)
+  cabecalhos.set('Content-Security-Policy', csp)
+
+  const seguir = () => {
+    const r = NextResponse.next({ request: { headers: cabecalhos } })
+    r.headers.set('Content-Security-Policy', csp)
+    return r
+  }
+
+  const comCsp = (r: NextResponse) => {
+    r.headers.set('Content-Security-Policy', csp)
+    return r
+  }
+
   const privada = rotasPrivadas.some((r) => pathname === r || pathname.startsWith(`${r}/`))
   const publica = rotasPublicas.some((r) => pathname === r || pathname.startsWith(`${r}/`))
-  if (!privada && !publica) return NextResponse.next()
+  // Rota fora das duas listas continua passando direto — mas com CSP. Antes ela
+  // saía por um `return` adiantado, e era metade do app sem política nenhuma.
+  if (!privada && !publica) return seguir()
 
   const logado = temSessao(req)
 
@@ -32,18 +75,19 @@ export function proxy(req: NextRequest) {
     const url = new URL('/login', req.url)
     // Guarda o destino para devolver a pessoa onde ela tentou entrar.
     if (pathname !== '/dashboard') url.searchParams.set('proximo', pathname)
-    return NextResponse.redirect(url)
+    return comCsp(NextResponse.redirect(url))
   }
 
   if (publica && logado) {
-    return NextResponse.redirect(new URL('/dashboard', req.url))
+    return comCsp(NextResponse.redirect(new URL('/dashboard', req.url)))
   }
 
-  return NextResponse.next()
+  return seguir()
 }
 
 export const config = {
-  // Fora: rotas de API (respondem 401 em JSON, nao redirecionam), arquivos do
-  // build e assets da pasta public. Sem isto, o redirecionamento engoliria CSS.
+  // Fora: rotas de API (respondem 401 em JSON, não redirecionam, e recebem os
+  // cabeçalhos fixos pelo next.config.ts), arquivos do build e assets da pasta
+  // public. Sem isto, o redirecionamento engoliria CSS.
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico|sw.js|.*\\.(?:svg|png|jpg|webp)$).*)'],
 }

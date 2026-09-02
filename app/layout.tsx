@@ -24,6 +24,23 @@ export const metadata: Metadata = {
   },
 }
 
+/**
+ * Renderização por requisição para o app inteiro.
+ *
+ * É requisito da política de conteúdo, não preferência: o CSP em proxy.ts usa
+ * NONCE, e o Next só carimba o nonce nos scripts que ele gera durante a
+ * renderização de uma requisição. Página pré-renderizada no build não tem
+ * requisição, logo não tem nonce — e como `script-src` traz `'strict-dynamic'`,
+ * o navegador ignora o `'self'` e BLOQUEIA todo script sem nonce. Na prática:
+ * /login e /register, que eram estáticas, abririam em branco.
+ *
+ * O que se perde é pequeno aqui. Toda tela desta aplicação depende do cookie de
+ * sessão (o proxy redireciona nas duas direções) e o conteúdo vem do
+ * /api/snapshot depois da hidratação — não havia página cujo HTML pudesse ser
+ * servido de um CDN para duas pessoas diferentes.
+ */
+export const dynamic = 'force-dynamic'
+
 export const viewport: Viewport = {
   themeColor: '#0F766E',
   width: 'device-width',

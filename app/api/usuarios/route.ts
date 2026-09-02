@@ -11,7 +11,7 @@ import {
 import { hashSenha, criarToken, gravarCookie, LIMITES_CADASTRO, ErroHttp } from '@/lib/session.ts'
 import { CadastroSchema, formatarErroZod } from '@/lib/schema.ts'
 import { rota, lerJson, chaveOrigem } from '@/lib/api.ts'
-import { verificarTurnstile } from '@/lib/seguranca.ts'
+import { CAMPO_ARMADILHA, pareceRobo, verificarTurnstile } from '@/lib/seguranca.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,6 +33,17 @@ export const POST = rota(async (req) => {
   }
 
   const corpo = (await lerJson(req, 8192)) as Record<string, unknown>
+
+  // O campo-armadilha, lido do corpo CRU e não do schema: ele não é um dado da
+  // conta, e colocá-lo no CadastroSchema faria um campo inexistente aparecer na
+  // folha de edição, no export e em tudo que deriva do schema.
+  //
+  // A resposta é a mesma que um erro de validação daria. Dizer "detectamos um
+  // robô" ensina quem escreveu o robô exatamente qual campo apagar.
+  if (pareceRobo(corpo?.[CAMPO_ARMADILHA])) {
+    throw new ErroHttp(400, 'Não consegui criar a conta. Confira os dados e tente de novo.')
+  }
+
   const parsed = CadastroSchema.safeParse(corpo)
   if (!parsed.success) throw new ErroHttp(400, formatarErroZod(parsed.error))
 

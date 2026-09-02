@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { FATIA, LIMITE_ARQUIVO, LIMITE_TEXTO, fatias, prepararArquivo } from './arquivo.ts'
+import {
+  BYTES_ASSINATURA,
+  FATIA,
+  LIMITE_ARQUIVO,
+  LIMITE_TEXTO,
+  assinaturaConfere,
+  fatias,
+  prepararArquivo,
+} from './arquivo.ts'
 
 // `encolher` precisa de canvas e `enviarArquivo` precisa de rede — nenhum roda
 // aqui. O que se testa e o que decide se o arquivo chega inteiro: o portao de
@@ -63,4 +71,53 @@ test('fatia nunca passa do corpo aceito pela borda (4,5 MB)', () => {
 
 test('arquivo vazio ainda gera uma requisicao, nao zero', () => {
   assert.deepEqual(fatias(0), [0])
+})
+
+// ---------------------------------------------------------------- assinatura
+
+/** Os primeiros bytes de um arquivo daquele formato, seguidos de enchimento. */
+const inicio = (...bytes: (number | string)[]) => {
+  const lista: number[] = []
+  for (const b of bytes) {
+    if (typeof b === 'number') lista.push(b)
+    else for (const c of b) lista.push(c.charCodeAt(0))
+  }
+  while (lista.length < BYTES_ASSINATURA) lista.push(0)
+  return new Uint8Array(lista)
+}
+
+test('assinatura: os quatro formatos de verdade passam', () => {
+  assert.ok(assinaturaConfere('application/pdf', inicio('%PDF-1.7')))
+  assert.ok(assinaturaConfere('image/jpeg', inicio(0xff, 0xd8, 0xff, 0xe0)))
+  assert.ok(assinaturaConfere('image/png', inicio(0x89, 'PNG', 0x0d, 0x0a, 0x1a, 0x0a)))
+  assert.ok(assinaturaConfere('image/webp', inicio('RIFF', 0, 0, 0, 0, 'WEBP')))
+})
+
+test('assinatura: HTML jurado como PDF é recusado', () => {
+  // O ataque que esta checagem existe para barrar: `arquivo.type` no multipart é
+  // o que o CLIENTE declarou, então renomear e declarar `application/pdf` passa
+  // por qualquer lista de mimes. O conteúdo é que não mente.
+  assert.equal(assinaturaConfere('application/pdf', inicio('<html><scr')), false)
+})
+
+test('assinatura: um formato não pode se passar por outro', () => {
+  const png = inicio(0x89, 'PNG', 0x0d, 0x0a, 0x1a, 0x0a)
+  assert.equal(assinaturaConfere('application/pdf', png), false)
+  assert.equal(assinaturaConfere('image/jpeg', png), false)
+})
+
+test('assinatura: RIFF sem WEBP não é WEBP', () => {
+  // Um WAV também começa com RIFF. Conferir só os quatro primeiros bytes o aceitaria.
+  assert.equal(assinaturaConfere('image/webp', inicio('RIFF', 0, 0, 0, 0, 'WAVE')), false)
+})
+
+test('assinatura: mime fora da lista é sempre falso', () => {
+  // Nada de `default: true`: no dia em que MIMES_ARQUIVO crescer sem alguém
+  // lembrar desta função, o formato novo é recusado, não liberado sem conferência.
+  assert.equal(assinaturaConfere('image/gif', inicio('GIF89a')), false)
+  assert.equal(assinaturaConfere('', inicio('%PDF-')), false)
+})
+
+test('assinatura: arquivo curto demais para decidir é recusado', () => {
+  assert.equal(assinaturaConfere('application/pdf', new Uint8Array([0x25, 0x50])), false)
 })

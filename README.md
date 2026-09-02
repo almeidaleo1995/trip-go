@@ -29,6 +29,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Shipping a new update](#shipping-a-new-update)
 - [The itinerary, day by day](#the-itinerary-day-by-day)
 - [Known limitations](#known-limitations)
+- [Security](#security)
 - [Security checklist](#security-checklist)
 
 ---
@@ -1224,18 +1225,91 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | **The guide does not stream** | Responses arrive whole, behind a "pensando…" state. Long answers feel slow. | SSE. The seam is one route and one component. |
 | **Creating a trip from nothing still uses the normal screen** | The guide fills an existing trip's itinerary in bulk; it does not create the `trips` row itself. | A write path for trip creation, or reuse `/api/viagens` before the first proposal. |
 | **`db:push` is not part of the build** | Deploying does not migrate. | Intentional. Automate only with a real migration tool. |
+| **Encryption stops at the account profile** | CPF, RG and passport number are encrypted in `users`. The same passport number typed into a *trip requirement* lands plaintext in `document_submissions.numero`, and `change_log` records the **previous value** of every edit in plaintext too — so a dump still yields numbers, from a different table. | Encrypt `document_submissions.numero` in `aplicar()` and decrypt in `documentacaoDaViagem`, and stop logging the old value of an encrypted column (log that it changed, not to what). The change-log half is the larger piece: the undo replay in `/api/assistente/desfazer` writes `change_log.de` back into the column directly. |
+| **The rate-limit counter is still in memory** | Item 11 above. The new write and upload limits share `lib/session.ts`'s in-process map, so they inherit the same per-instance ceiling. | One Neon table, as already documented for sign-in. |
+| **The honeypot only catches generic bots** | A script written against *this* form just omits the field. | Nothing wanted alone — the same-origin check and the per-account limits are what bound a targeted script, and a CAPTCHA would tax five travellers to inconvenience one attacker. |
 | **Social sign-in is inert** | Google and Apple buttons render disabled with a reason, driven by `siteConfig.social`. | Flip `ativo` once a provider is wired. |
 
 ---
 
-## Security checklist
+## Security
+
+Twenty measures, in the order someone would ask about them. Each one says **where it lives** and **what it is not**, because a control whose limits are not written down is a control someone will over-trust.
+
+### The perimeter
+
+| # | Measure | Where | The honest limit |
+| --- | --- | --- | --- |
+| 1 | **Keys never reach the browser** | `lib/db.ts`, `/api/assistente` | `DATABASE_URL`, `SESSION_SECRET`, `DADOS_SECRET` and both Anthropic keys are read only in server modules. `lib/arquitetura.test.ts` fails the build if any of them is ever prefixed `NEXT_PUBLIC_`. |
+| 2 | **No secret in git history** | `.gitignore` | `.env*` is ignored, `.env.example` carries names only. The history was scanned: no key, no connection string. **The one open action is below** — the development Neon password travelled through a chat conversation and must be rotated. |
+| 3 | **The database is never public** | `lib/db.ts` | The browser knows `/api/*` and nothing else. There is no anonymous key, no client-side SDK, no row reachable without a route. |
+| 4 | **Least privilege in Postgres** | `db/privilegios.sql` | Optional role `tripgo_app`: select/insert/update/delete, and no DDL. A bug cannot `drop table`. **RLS is deliberately not enabled** — see [What is not here](#what-is-not-here). |
+| 5 | **Encryption at rest for identity fields** | `lib/cripto.ts` | CPF, RG and passport number are AES-256-GCM in `users`, keyed by `DADOS_SECRET`. Protects a dump, a backup, a replica, an admin's screen — **not** someone running code on the server, who has the key. Blank key is a supported mode: everything works and the three fields stay plaintext. |
+| 6 | **Authentication is server-side** | `lib/auth.ts` | `exigirUsuario`/`exigirViagem` sit on the data, not on the route. `proxy.ts` is an *optimistic* cookie check for redirects and never queries the database. |
+| 7 | **Access is scoped, twice** | `config/navigation.ts`, `lib/escrita.ts` | `posso()` on screen, `papelAlcanca` on the server, in every route. A trip you do not belong to answers **404, not 403** — a 403 would confirm the trip exists. |
+| 8 | **Mass assignment is blocked** | `lib/schema.ts` | Zod strips unknown keys, so an extra `papel` or `admin` in a request body never reaches a column. The dynamic `INSERT`/`UPDATE` builders interpolate **only column names derived from the schema** — `colunaValida` is the whitelist. |
+| 9 | **Cookies are hardened** | `lib/session.ts` | `httpOnly` + `SameSite=Lax` + `Secure` in production + `path=/`. The token carries the account id and an expiry, signed with HMAC-SHA256 and compared in constant time. Role is **not** in the cookie: a demotion would otherwise stay valid for 90 days. |
+| 10 | **Passwords are hashed** | `lib/session.ts` | scrypt, N=16384, 16-byte salt per password, 64-byte key, `timingSafeEqual`. Sign-in returns the same message for unknown e-mail and wrong password, so the form is not an account-enumeration oracle. |
+
+### The traffic
+
+| # | Measure | Where | The honest limit |
+| --- | --- | --- | --- |
+| 11 | **Rate limits, five different reasons** | `lib/session.ts` | Sign-in counts *wrong* attempts and success clears (blocking guessing). Sign-up counts **every** attempt and never clears (the abuse is the account created). The AI guide caps spend, per account. Writes and uploads cap volume, per account. Password change reuses the sign-in limit so a stolen cookie is not a password oracle. **In-process counter** — on serverless each instance keeps its own, so a distributed attacker gets more than the limit per window. `ponytail:` at the source. |
+| 12 | **Bot protection** | `lib/seguranca.ts`, `/api/usuarios` | Two layers: a hidden honeypot field on sign-up, and the same-origin check below, which refuses every state-changing request without browser headers — that is curl, script and bot. Neither stops someone who scripted *this* app specifically; the rate limits are what bound that. |
+| 13 | **Queries are parameterised** | everywhere | The Neon tagged template binds every value. The only interpolated strings are table and column names from a static map and from the zod schema. |
+| 14 | **Inputs are validated** | `lib/schema.ts` | One zod contract for the import file, the mutation queue and the account forms — the server validates against the same schemas the editor sheet is generated from. Every route caps its body size. |
+| 15 | **Content is scoped at the endpoint** | `lib/db.ts` | `financeiro` is **two different responses**, not one payload with a filter: a `visualizador` gets their own obligations, and the trip's totals never leave the server. Personal documents are cut in the read query, in `autorizar` and in `/api/documento` — three places that must agree. |
+| 16 | **Uploads are restricted** | `lib/arquivo.ts`, `/api/documento` | Size cap, format list, **and the file's real signature** — the declared mime is what the client claimed, so the magic bytes are checked on the first chunk. HTML renamed to `.pdf` is refused. |
+| 17 | **API responses are trimmed** | `lib/db.ts`, `/api/assistente/consumo` | `senha_hash` never leaves its two internal functions. Anthropic's raw cost body (workspace and key ids) is reduced to one number — and that number is [operator-only](#the-consolidated-spend-is-the-operators). Document bytes never enter the snapshot. |
+| 18 | **Security headers** | `next.config.ts`, `proxy.ts` | `nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, `X-Robots-Tag`, no `X-Powered-By` — in `next.config.ts`, so **API routes get them too**. CSP with a per-request nonce is in `proxy.ts`. |
+| 19 | **HTTPS is forced** | `proxy.ts`, `next.config.ts` | 308 (method-preserving) when the edge reports `http`, plus HSTS for a year with `includeSubDomains` and `preload`. Neither fires in development, and neither fires for `localhost` — checking a production build on your own machine used to 308 into a certificate error. |
+| 20 | **Dependencies are scanned** | `.github/workflows/ci.yml` | `npm audit --omit=dev --audit-level=high` on every push and PR, plus weekly on a schedule — the code does not change but the advisory feed does. Dev-tool findings are logged, not blocking. |
+
+### The content security policy
+
+It carries a nonce, generated per request in `proxy.ts`. The line that matters is `script-src 'self' 'nonce-…' 'strict-dynamic'`: the browser trusts only what the nonced script loads, so an injected `<script>` has no way in — the nonce changes every response.
+
+Three deliberate loosenings, each with a reason:
+
+- **`style-src` keeps `'unsafe-inline'`.** The app has ~170 `style={{…}}` attributes (map tile positions, derived trip colours), and a nonce does not apply to a style *attribute* — only to a `<style>` element. Removing it without rewriting those 170 positions as classes would not make the page safer; it would make the map tileless.
+- **`img-src` allows `https:` wholesale.** `users.avatar_url` and `trips.capa_url` accept any link, and the map loads tiles from OpenStreetMap. An image does not execute; what `img-src` narrows here is referer leakage, not XSS.
+- **`object-src` allows `blob:`.** The vault previews a PDF in `<object data={blob:…}>`, and those bytes already came through our own authorized route.
+
+`connect-src` is `'self'` plus `api.open-meteo.com` — the only third party the *browser* talks to. **Anthropic is not on that list, and a day it appears is a day the key went to the browser**; `lib/seguranca.test.ts` asserts it.
+
+One consequence worth knowing: nonces require dynamic rendering, so `app/layout.tsx` sets `dynamic = 'force-dynamic'`. A prerendered page has no request and therefore no nonce, and `'strict-dynamic'` makes the browser ignore `'self'` — `/login` and `/register` would open blank. Little is lost: every screen here depends on the session cookie anyway.
+
+### Same-origin, and why `SameSite` was not enough
+
+`rota()` in `lib/api.ts` refuses any POST/PUT/PATCH/DELETE that did not come from one of our own pages, reading `Sec-Fetch-Site` first (the browser writes it; no page script can forge it) and falling back to `Origin` versus `Host`.
+
+The cookie is already `SameSite=Lax`, which blocks the cross-site POST — but the *browser* is what enforces Lax, and the server has no way to know that it did. This is the same rule checked again on the side we control, exactly as `papelAlcanca` is re-checked on the server despite `posso()` on screen.
+
+It lives in the route shell, not in each handler, so a new route is born protected. A list of routes-to-protect is a list somebody forgets to update.
+
+### The consolidated spend is the operator's
+
+`/api/assistente/consumo` has two halves. The top one is the trip's, so it belongs to whoever owns the trip. The bottom one is not: Anthropic's `cost_report` returns the **whole organization's** spend — every trip of every account, for the month — which is the bill of whoever *hosts* the app. Registration is open and creating a trip makes you its `proprietario`, so trip ownership was never a barrier for it. It is now gated on `OPERADOR_EMAILS`, and empty (the default) hides it from everyone.
+
+### What is not here
+
+**Row Level Security.** It is the standard recommendation and it is deliberately absent, because in this architecture it could not enforce anything:
+
+1. There is one connection, from the server process, shared by all five travellers. The connected role does not say who is asking.
+2. `lib/db.ts` uses Neon's HTTP driver, where **each query is an independent HTTP request**. `set local app.usuario_id` does not survive to the next query, so there is nowhere to write "who I am" before the `SELECT`.
+
+A policy reading a variable that is never set either denies everything and stops the app, or is permissive and exists only so a report can say "RLS: enabled". The real cut lives in `exigirViagem`, in `financeiroDaViagem`/`documentosDaViagem` and in the `via` scoping of `lib/escrita.ts` — it is tested, and it is what a policy would have done. The upgrade path is written at the bottom of `db/privilegios.sql`: swap the HTTP driver for the WebSocket `Pool`, open a transaction per request, `set local` at its start.
+
+### Still open
 
 - [ ] **Rotate the Neon password.** The development connection string passed through a chat conversation and is in that history. Neon console → project → **Roles** → `neondb_owner` → **Reset password**, then update `.env.local` and the Vercel environment variable. Until that is done, assume anyone with access to that history has full database access.
 - [ ] **Generate a unique `SESSION_SECRET` per environment.** It signs every session token; sharing one across environments means a token minted in staging is valid in production.
 - [x] **`siteConfig.demo.mostrar` is already `false`** — verified in `config/site.ts`. It publishes working credentials on the login screen when true, so keep it false now that the trip holds real data.
+- [ ] **Set `DADOS_SECRET`** and back it up somewhere durable. Losing it makes the encrypted fields unreadable — rotating it is not like rotating the session secret.
+- [ ] **Set `siteConfig.demo.mostrar = false`** before real users arrive — it publishes working credentials on the login screen.
 - [ ] **Point `TEST_DATABASE_URL` at a throwaway database.** The runner refuses to start otherwise, but verify it anyway.
-
-What is already handled: scrypt with a per-password salt, timing-safe comparison everywhere, identical failure messages for unknown-email and wrong-password, httpOnly + `SameSite=Lax` + `Secure`-in-production cookies, request body size caps per route, SQL parameterised throughout — including the dynamic `INSERT`/`UPDATE` builders in `/api/mutate`, where only column names derived from validated zod schemas are ever interpolated.
+- [ ] **Run `db/privilegios.sql`** and point `DATABASE_URL` at `tripgo_app`. Until then the app connects as the schema owner.
 
 ### The 20-item audit
 
