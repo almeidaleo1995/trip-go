@@ -706,6 +706,16 @@ export async function aplicar(
         c,
         anterior[c],
         campos[c],
+        // A `marca` tem que vir ate aqui. Sem ela esta chamada caia no padrao
+        // ('pessoa', null), e uma EDICAO feita pelo assistente era registrada
+        // como edicao humana sem lote — entao `/api/assistente/desfazer`, que
+        // filtra por `origem = 'assistente' and lote = ...`, nao a encontrava.
+        // O efeito: um lote so de edicoes respondia "esse lote nao existe mais",
+        // e um lote misto revertia as criacoes e deixava as edicoes de pe. O
+        // desfazer e o que torna seguro aceitar uma proposta; um desfazer que
+        // reverte pela metade e pior do que nao ter desfazer nenhum.
+        marca.origem,
+        marca.lote,
       )
     }
   }

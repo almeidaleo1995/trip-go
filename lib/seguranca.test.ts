@@ -8,6 +8,8 @@ import {
   hrefSeguro,
   assinaturaConfere,
   mesmaOrigem,
+  turnstileConfigurado,
+  verificarTurnstile,
   BYTES_ASSINATURA,
 } from './seguranca.ts'
 import { MIMES_ARQUIVO } from './arquivo.ts'
@@ -226,4 +228,72 @@ test('mesmaOrigem deixa passar requisicao sem Origin', () => {
 
 test('mesmaOrigem recusa Origin malformada', () => {
   assert.ok(!mesmaOrigem(pedido('POST', { origin: 'nao-e-uma-url', host: 'viagem.exemplo' })))
+})
+
+// ---------------------------------------------------------------- captcha
+
+test('sem as duas chaves, o captcha esta desligado', () => {
+  // Este ambiente de teste nao tem nenhuma das duas. O comportamento certo e o
+  // app inteiro seguir de pe: a familia usa isto em viagem, e um captcha mal
+  // configurado que recusa todo mundo no aeroporto e pior do que captcha nenhum.
+  assert.equal(turnstileConfigurado(), false)
+})
+
+test('uma chave sozinha nao liga o captcha', () => {
+  // Meia configuracao e o caso perigoso: com so a secreta, a tela nao desenha
+  // widget nenhum e o servidor recusaria TODO login por falta de token.
+  const antes = { ...process.env }
+  try {
+    process.env.TURNSTILE_SECRET_KEY = 'segredo'
+    delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+    assert.equal(turnstileConfigurado(), false, 'so a secreta nao pode ligar')
+
+    delete process.env.TURNSTILE_SECRET_KEY
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'site'
+    assert.equal(turnstileConfigurado(), false, 'so a de site nao pode ligar')
+
+    process.env.TURNSTILE_SECRET_KEY = 'segredo'
+    assert.equal(turnstileConfigurado(), true, 'as duas juntas ligam')
+  } finally {
+    process.env = antes
+  }
+})
+
+test('desligado, verificarTurnstile deixa passar sem token', async () => {
+  assert.equal(await verificarTurnstile(null), true)
+  assert.equal(await verificarTurnstile(''), true)
+})
+
+test('ligado e SEM token, verificarTurnstile recusa sem ir a rede', async () => {
+  const antes = { ...process.env }
+  try {
+    process.env.TURNSTILE_SECRET_KEY = 'segredo'
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'site'
+    // Recusa antes do fetch: token ausente nao precisa de confirmacao externa,
+    // e ir a rede aqui daria ao atacante um jeito barato de nos fazer chamar a
+    // Cloudflare a cada requisicao.
+    assert.equal(await verificarTurnstile(null), false)
+    assert.equal(await verificarTurnstile(undefined), false)
+    assert.equal(await verificarTurnstile(''), false)
+  } finally {
+    process.env = antes
+  }
+})
+
+test('a CSP libera o Turnstile SEMPRE, mesmo com o captcha desligado', () => {
+  const csp = CABECALHOS_SEGURANCA.find((c) => c.key === 'Content-Security-Policy')!.value
+  // Incondicional de proposito, e a razao esta no comentario de `CAPTCHA` em
+  // seguranca.ts: o Next serializa `headers()` em routes-manifest.json durante o
+  // BUILD. Uma politica condicional passa a depender da variavel existir no
+  // build, e quem liga o Turnstile no painel e redeploya com cache fica trancado
+  // para fora — servidor exige o token, navegador nao carrega o widget que o
+  // produz. Este teste existe para que a "limpeza" de tornar isto condicional de
+  // novo quebre aqui, e nao em producao.
+  for (const diretiva of ['script-src', 'frame-src', 'connect-src']) {
+    const valor = new RegExp(`${diretiva} ([^;]*)`).exec(csp)?.[1] ?? ''
+    assert.ok(
+      valor.includes('https://challenges.cloudflare.com'),
+      `${diretiva} nao libera o Turnstile: ligar o captcha trancaria o login`,
+    )
+  }
 })

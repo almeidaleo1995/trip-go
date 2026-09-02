@@ -4,12 +4,18 @@ import { useState } from 'react'
 import { MapPinned, Plane, Map, Wallet, ClipboardCheck } from 'lucide-react'
 import { siteConfig } from '@/config/site.ts'
 import { Botao, Campo } from '@/components/ui.tsx'
+import { Turnstile, captchaAtivo } from '@/components/Turnstile.tsx'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+  // O token do captcha, quando ele esta ligado. `null` enquanto o desafio nao
+  // foi resolvido — e `captchaAtivo` false o deixa null para sempre, que e o
+  // que faz esta tela continuar idêntica num servidor sem Turnstile.
+  const [captcha, setCaptcha] = useState<string | null>(null)
+  const [refazerCaptcha, setRefazerCaptcha] = useState(0)
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault()
@@ -19,7 +25,7 @@ export default function Login() {
       const r = await fetch('/api/sessao', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, senha }),
+        body: JSON.stringify({ email, senha, captcha }),
       })
       if (r.ok) {
         // Navegação dura de propósito: recarrega com o cookie de sessão já posto.
@@ -28,6 +34,9 @@ export default function Login() {
         return
       }
       const d = await r.json()
+      // Um desafio so vale uma vez: sem refazer, a segunda tentativa mandaria o
+      // mesmo token e levaria uma recusa que parece erro de senha.
+      setRefazerCaptcha((n) => n + 1)
       setErro(d.erro || 'Não consegui entrar. Confira e-mail e senha.')
     } catch {
       setErro('Sem conexão. Tente de novo quando a internet voltar.')
@@ -148,7 +157,16 @@ export default function Login() {
               </p>
             )}
 
-            <Botao tipo="submit" carregando={carregando} className="w-full">
+            <Turnstile aoResolver={setCaptcha} reiniciar={refazerCaptcha} />
+
+            <Botao
+              tipo="submit"
+              carregando={carregando}
+              // Enquanto o desafio nao volta, o botao espera. Deixar enviar sem o
+              // token so trocaria uma espera curta por um 400 confuso.
+              desabilitado={captchaAtivo && !captcha}
+              className="w-full"
+            >
               Entrar
             </Botao>
           </form>

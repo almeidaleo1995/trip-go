@@ -44,18 +44,39 @@ The shape to keep in mind: content has **no top-level routes**. Roteiro, voos, f
 - **Contrast is measured, not guessed** — `#0D9488` and `#94A3B8` are banned for text (fail AA).
 - **`.specs/STATE.md` is a decision log, not current state.** AD-002/AD-003 predate the multiuser migration (they describe PIN auth and "no seed script"). README wins on any conflict.
 
+## Segurança é pré-condição, não etapa final
+
+**This app holds real people's passports, CPF, home addresses and money.** Five members of one family, their documents in the vault, their debts to each other in `financeiro`. A leak here is not a bug report — it is somebody's passport number in a stranger's hands, and it cannot be taken back. Treat every change as touching that.
+
+So: **no change ships without its security question answered.** Not a review at the end — a question asked while writing the line. Concretely, before you call any change done, walk this list. It is short because each row is a mistake this codebase has actually made or nearly made.
+
+1. **Did I add a field, column or entity?** Then say who may READ it, not only who may write it. The two are different questions and the gap between them is where this app leaked twice: only the `proprietario` could write `travelers.passaporte`, and every `visualizador` could read it. Cut it in the SQL — `getSnapshot`, `financeiroDaViagem`, `documentosDaViagem` are the three patterns to copy — never in React. **A field hidden in the component is published in the network tab.**
+2. **Did I add a query?** Every value is a placeholder. If you interpolate an *identifier* (table or column name), it must come from a closed set — `TABELA`, `recorte()`, `colunaValida()`, or `Object.keys` of a zod-parsed object. Nothing else. There is no fourth source.
+3. **Did I add a write path?** It calls `autorizar()`. `/api/assistente/desfazer` shipped without it once and became privilege escalation: the batch id is visible to every participant in the snapshot, so any editor could revert another person's personal document.
+4. **Did I add a route?** It is reachable by typing a URL. The snapshot having filtered something is not protection for a route that does its own query — `/api/documento` re-checks visibility by itself for exactly this reason.
+5. **Did I accept a file, a URL or free text that later becomes a `href`, a `src`, a MIME type or a filename?** The client's word is not evidence. Magic bytes (`assinaturaConfere`), scheme allowlist (`hrefSeguro`), `nosniff` on the way out.
+6. **Did I add something the browser fetches from another origin?** It goes in the CSP `connect-src`/`script-src` in `lib/seguranca.ts`, named host by host — never a `https:` wildcard, which would hand back the exfiltration that directive exists to stop. A service missing from the list fails **silently**: the weather panel just looks empty.
+7. **Did I add a personal-data field?** Check `PROIBIDOS` in `lib/assistente.ts` — but know that the real boundary is the explicit `campos` allowlist in `digest()`. Never make `linha()` dump a whole record; web search runs on a third party's servers, and what is not sent cannot leak.
+8. **Did I add an expensive or account-creating endpoint?** It gets a rate-limit bucket sized to what it actually costs, keyed by account when the cost is money and by IP when the abuse is account creation.
+
+**Write the security reasoning into the comment, not into the commit message.** Every barrier in this codebase says *what it stops* in the line above it, because a barrier whose reason is unwritten is a barrier the next person deletes for looking redundant. The pattern to match: "`via` is a security boundary, not bookkeeping."
+
+**When a defence is partial, it gets a `ponytail:` comment naming the ceiling — and a line in the README's 20-item table.** Silent partial defences are worse than absent ones: they buy false confidence. What is open must be written where somebody will read it.
+
+**A doubt about security is resolved by asking, never by assuming.** If you cannot tell whether an editor should read a field, ask. Guessing "probably fine" is how row 1 happened.
+
 ## Commands
 
 ```bash
 npm run dev          # localhost:3000
 npm run build        # includes typecheck
 npm run lint
-npm test             # 443 unit tests, node --test, no framework
+npm test             # 454 unit tests, node --test, no framework
 npm run db:push      # applies db/schema.sql (idempotent) to DATABASE_URL
 node --env-file=.env.local scripts/seed.mjs   # demo@tripgo.com / 123456
 ```
 
-`db/teste-assistente.sql` e `db/teste-recorte.sql` rodam asserções contra um Postgres descartável (comportamento de banco, fora do alcance de teste unitário — o segundo prova o recorte de papel do snapshot). `scripts/alias.mjs` resolve `@/` sob `node --test` — é o que torna rota testável.
+`db/teste-assistente.sql`, `db/teste-recorte.sql` e `db/teste-limite.sql` rodam asserções contra um Postgres descartável (comportamento de banco, fora do alcance de teste unitário: o segundo prova o recorte de papel do snapshot, o terceiro a janela deslizante do rate limit). `scripts/alias.mjs` resolve `@/` sob `node --test` — é o que torna rota testável.
 
 `npm run test:api` **fails wholesale** — the 26 integration tests target the removed PIN auth. Don't treat it as a regression you caused; see README → Testing.
 
@@ -105,5 +126,7 @@ node --env-file=.env.local scripts/seed.mjs   # demo@tripgo.com / 123456
 - **An upload's `type` is what the CLIENT claims.** `MIMES_ARQUIVO` alone let an HTML file announced as `application/pdf` be stored and served back from this origin. `assinaturaConfere` (`lib/seguranca.ts`) reads the magic bytes of the first part, and the `GET` answers with `nosniff`. Adding a format to `MIMES_ARQUIVO` without adding its signature fails a test on purpose.
 - **A stored value that becomes a `href` goes through `hrefSeguro`.** Two fields do this: `documents.valor` on a `link` and the `links` text of a roteiro item. Both are written by one participant and clicked by another, and `javascript:` there runs inside a page holding the whole snapshot. One guard, in `lib/seguranca.ts`, used by both.
 - **Security headers live in `lib/seguranca.ts`, not in `next.config.ts`.** The config only forwards the list. That is what lets a unit test assert the CSP without dragging Next into `node --test`.
+- **Um cabeçalho de segurança nunca pode depender de variável de ambiente de build.** O Next serializa o resultado de `headers()` em `routes-manifest.json` durante o `next build`. Uma CSP condicional (`ligado ? host : ''`) passa a valer conforme o ambiente do BUILD, não o do request — ligar o Turnstile no painel e redeployar com cache deixaria o servidor exigindo um token que o navegador está bloqueado de produzir. Ou a diretiva vale sempre, ou é uma configuração que falha calada.
+- **O rate limit conta no banco, sob `for update`.** `registrar_tentativa` lê, decide e grava numa ida só. Em memória, cada instância serverless tinha o seu contador e o limite valia N vezes; em três consultas separadas, a corrida entre instâncias volta. Falha de rede cai para o balde em memória — falhar fechado trancaria a viagem para fora, falhar aberto tiraria o limite justo quando o banco está instável.
 - **`AGENTS.md` is regenerated by `next dev`.** Commit it with your work; reverting only recreates the diff.
 - **Never create accounts or passwords for people.** Participants exist as name+email rows; each person registers at `/register` with that email and `vincularParticipantesPorEmail` links them automatically.

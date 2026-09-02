@@ -11,6 +11,28 @@
 // ---------------------------------------------------------------- cabecalhos
 
 /**
+ * O host do Turnstile, liberado SEMPRE — inclusive com o captcha desligado.
+ *
+ * A versao condicional (`turnstileConfigurado() ? host : ''`) parecia mais
+ * limpa e era uma armadilha: o Next SERIALIZA o resultado de `headers()` em
+ * `routes-manifest.json` durante o `next build`. A politica passa a depender de
+ * a variavel existir no momento do BUILD, nao no do request. Quem liga o
+ * Turnstile no painel da Vercel e clica em redeploy com cache de build fica com
+ * o manifest antigo: o servidor exige o token, o navegador nao consegue carregar
+ * o widget que o produz, e ninguem entra mais. Trancar a familia inteira para
+ * fora e um preco alto demais por uma linha de politica mais estreita.
+ *
+ * O que se perde liberando sempre e quase nada: `script-src` ja carrega
+ * `'unsafe-inline'`, e o endpoint do Turnstile em `connect-src` nao devolve dado
+ * arbitrario a quem chama, entao nao serve de canal de exfiltracao — que e o
+ * unico motivo de essa diretiva nomear host por host.
+ *
+ * Regra geral que fica: cabecalho de seguranca nao pode depender de variavel de
+ * ambiente de build. Ou vale sempre, ou vira uma configuracao que falha calada.
+ */
+const CAPTCHA = ' https://challenges.cloudflare.com'
+
+/**
  * Os cabecalhos de seguranca do app inteiro. Montados aqui e aplicados em
  * `next.config.ts`, que so os repassa.
  *
@@ -69,7 +91,7 @@ function politica(): string {
   return [
     "default-src 'self'",
     // `unsafe-eval` so em desenvolvimento: o refresh rapido do Next precisa dele.
-    `script-src 'self' 'unsafe-inline'${desenvolvimento ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'unsafe-inline'${desenvolvimento ? " 'unsafe-eval'" : ''}${CAPTCHA}`,
     // Tailwind v4 e os tokens de `config/theme.ts` entram como estilo inline.
     "style-src 'self' 'unsafe-inline'",
     // `data:` cobre o icone SVG embutido, `blob:` o preview do cofre, e `https:`
@@ -89,7 +111,10 @@ function politica(): string {
     // a um, e nao um `https:` solto: e justamente esta linha que impede script
     // injetado de mandar o snapshot da viagem, passaporte incluso, para fora.
     // Um servico novo consultado do cliente entra aqui, ou falha calado.
-    "connect-src 'self' https://api.open-meteo.com https://nominatim.openstreetmap.org",
+    `connect-src 'self' https://api.open-meteo.com https://nominatim.openstreetmap.org${CAPTCHA}`,
+    // O Turnstile desenha o desafio dentro de um iframe proprio. Sem esta linha
+    // o widget carrega o script e nao mostra nada.
+    `frame-src 'self'${CAPTCHA}`,
     "frame-ancestors 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -187,6 +212,69 @@ export function mesmaOrigem(req: Request): boolean {
 
   try {
     return new URL(origem).host === host
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------- captcha
+
+/**
+ * O Turnstile da Cloudflare, e por que ele e opcional.
+ *
+ * O rate limit barra volume vindo de uma origem so. O que ele NAO barra e o
+ * ataque distribuido: mil IPs tentando cinco senhas cada passam por baixo de
+ * qualquer balde por IP, porque nenhum deles chega perto do limite. Captcha e a
+ * defesa contra isso, e e a unica coisa da lista de pre-lancamento que o app nao
+ * tinha de forma nenhuma.
+ *
+ * Escolhido o Turnstile por dois motivos concretos: nao exige dependencia nova
+ * (um `<script>` e um `fetch`, dentro da regra do projeto) e nao manda dado da
+ * pessoa para um servico de anuncio, ao contrario do reCAPTCHA.
+ *
+ * DESLIGADO ate as duas variaveis existirem. Sem elas o app funciona exatamente
+ * como antes — importante porque a familia usa isto em viagem, e um captcha mal
+ * configurado que recusa todo mundo no aeroporto e pior do que captcha nenhum.
+ * A chave de site e publica por desenho (ela aparece no HTML); a secreta nunca
+ * sai do servidor.
+ */
+export function turnstileConfigurado(): boolean {
+  return Boolean(process.env.TURNSTILE_SECRET_KEY && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
+}
+
+/** Resposta do `siteverify`. So `success` importa; o resto e diagnostico. */
+type RespostaTurnstile = { success?: boolean; 'error-codes'?: string[] }
+
+/**
+ * Confere o token com a Cloudflare. Devolve true quando o captcha nao esta
+ * ligado — o app inteiro tem que continuar de pe sem ele.
+ *
+ * Falha de REDE derruba a tentativa (`false`), ao contrario do rate limit, que
+ * cai para o balde local. A diferenca e de proposito: um limite que degrada
+ * ainda limita alguma coisa, mas um captcha que "passa quando nao consegue
+ * verificar" nao e um captcha — e o caminho que um atacante procura primeiro.
+ */
+export async function verificarTurnstile(token: string | null | undefined, ip?: string) {
+  if (!turnstileConfigurado()) return true
+  if (!token) return false
+
+  const corpo = new URLSearchParams({
+    secret: String(process.env.TURNSTILE_SECRET_KEY),
+    response: String(token),
+  })
+  // O IP e opcional e ajuda a Cloudflare a pontuar; sem proxy confiavel,
+  // `chaveOrigem` devolve 'desconhecido', que nao e endereco nenhum.
+  if (ip && ip !== 'desconhecido') corpo.set('remoteip', ip)
+
+  try {
+    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: corpo,
+      signal: AbortSignal.timeout(5000),
+    })
+    const d = (await r.json()) as RespostaTurnstile
+    return d.success === true
   } catch {
     return false
   }

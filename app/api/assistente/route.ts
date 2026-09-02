@@ -10,9 +10,9 @@
 // recortado por `financeiroDaViagem` e `documentosDaViagem`. Montar uma consulta
 // própria aqui reabriria todos os vazamentos que essas duas funções fecham.
 import Anthropic from '@anthropic-ai/sdk'
-import { getSnapshot, registrarUso } from '@/lib/db.ts'
+import { getSnapshot, registrarUso, registrarTentativa } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
-import { ErroHttp, registrarFalha, LIMITES_ASSISTENTE } from '@/lib/session.ts'
+import { ErroHttp, LIMITES_ASSISTENTE } from '@/lib/session.ts'
 import { rota, lerJson } from '@/lib/api.ts'
 import { MODELO } from '@/config/precos.ts'
 import { contextoDoSnapshot, montarPreparacao } from '@/lib/preparacao.ts'
@@ -65,7 +65,7 @@ export const POST = rota(async (req) => {
 
   // Limite POR CONTA, não por IP: cinco pessoas no wi-fi do hotel dividiriam um
   // balde só. O custo de furar aqui é dinheiro, não segurança.
-  const limite = registrarFalha(`assistente:${u.id}`, Date.now(), LIMITES_ASSISTENTE)
+  const limite = await registrarTentativa(`assistente:${u.id}`, LIMITES_ASSISTENTE)
   if (limite.bloqueado) {
     const min = Math.ceil(limite.restamMs / 60000)
     throw new ErroHttp(429, `Muitas perguntas seguidas. Tente de novo em ${min} min.`)

@@ -2,18 +2,16 @@
 //
 // Quem se cadastra entra já logado: pedir para a pessoa fazer login logo depois
 // de digitar a senha duas vezes é uma etapa sem propósito.
-import { criarUsuario, vincularParticipantesPorEmail } from '@/lib/db.ts'
 import {
-  hashSenha,
-  criarToken,
-  gravarCookie,
-  registrarFalha,
-  estaBloqueado,
-  LIMITES_CADASTRO,
-  ErroHttp,
-} from '@/lib/session.ts'
+  criarUsuario,
+  vincularParticipantesPorEmail,
+  registrarTentativa,
+  consultarBloqueio,
+} from '@/lib/db.ts'
+import { hashSenha, criarToken, gravarCookie, LIMITES_CADASTRO, ErroHttp } from '@/lib/session.ts'
 import { CadastroSchema, formatarErroZod } from '@/lib/schema.ts'
 import { rota, lerJson, chaveOrigem } from '@/lib/api.ts'
+import { verificarTurnstile } from '@/lib/seguranca.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,14 +28,24 @@ export const POST = rota(async (req) => {
 
   // Antes do scrypt, que e caro de proposito — checar depois faria do proprio
   // limite um vetor de carga (mesma razao do /api/sessao).
-  if (estaBloqueado(chave)) {
+  if (await consultarBloqueio(chave)) {
     throw new ErroHttp(429, 'Muitas contas criadas deste local. Tente de novo mais tarde.')
   }
 
-  const parsed = CadastroSchema.safeParse(await lerJson(req, 8192))
+  const corpo = (await lerJson(req, 8192)) as Record<string, unknown>
+  const parsed = CadastroSchema.safeParse(corpo)
   if (!parsed.success) throw new ErroHttp(400, formatarErroZod(parsed.error))
 
-  const { bloqueado } = registrarFalha(chave, Date.now(), LIMITES_CADASTRO)
+  // Antes de contar a tentativa: um captcha recusado nao e uma conta criada, e
+  // gastar a cota de quem nem passou do desafio castigaria a rede inteira do
+  // hotel por causa de um bot. Aqui e onde o captcha vale mais — o abuso desta
+  // rota e a conta criada COM SUCESSO, e mil IPs distintos passam por baixo de
+  // qualquer limite por origem.
+  if (!(await verificarTurnstile(corpo.captcha as string, chaveOrigem(req)))) {
+    throw new ErroHttp(400, 'Refaça a verificação de segurança e tente de novo.')
+  }
+
+  const { bloqueado } = await registrarTentativa(chave, LIMITES_CADASTRO)
   if (bloqueado) {
     throw new ErroHttp(429, 'Muitas contas criadas deste local. Tente de novo mais tarde.')
   }

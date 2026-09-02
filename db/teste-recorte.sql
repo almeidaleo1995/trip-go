@@ -7,9 +7,13 @@
 --      total da viagem — o mesmo número que `financeiroDaViagem` recusa a
 --      mandar para um `visualizador`. Ele viajava por dentro de um
 --      `select * from trips` e a tela apenas o escondia.
---   B. `passaporte` e `telefone` de participante saem só para quem administra e
+--   B. `passaporte` e `telefone` de participante saem só para o PROPRIETÁRIO e
 --      para o dono da própria linha. Mesma regra de `documentosDaViagem`:
 --      planejar o roteiro não dá direito de ler o passaporte de ninguém.
+--   B2. E um EDITOR também não os lê. Os dois limiares desta consulta são
+--      diferentes de propósito: o orçamento corta em `editor` (o corte do
+--      dinheiro, de `financeiroDaViagem`) e o passaporte em `proprietario` (o
+--      corte do documento). Reusar um pelo outro foi o erro que este bloco pega.
 --   C. O `case when $1::boolean` funciona com o booleano chegando como TEXTO,
 --      que é como o driver HTTP do Neon manda parâmetro. Se essa coerção
 --      falhasse, o snapshot inteiro quebraria — toda tela do app.
@@ -28,9 +32,11 @@ insert into users (id, nome, email, senha_hash) values
   ('ru2','Viajante','viajante@ex.com','x');
 insert into trips (id, owner_id, nome, data_partida, data_retorno, orcamento_centavos)
   values ('rt1','ru1','Viagem de teste','2027-06-01','2027-06-10', 1820000);
+insert into users (id, nome, email, senha_hash) values ('ru3','Coorg','coorg@ex.com','x');
 insert into travelers (id, trip_id, user_id, nome, papel, telefone, passaporte) values
   ('rp1','rt1','ru1','Dono','proprietario','+5511999999','AA111111'),
-  ('rp2','rt1','ru2','Viajante','visualizador','+5511888888','BB222222');
+  ('rp2','rt1','ru2','Viajante','visualizador','+5511888888','BB222222'),
+  ('rp3','rt1','ru3','Coorganizador','editor','+5511777777','CC333333');
 
 -- As duas consultas exatamente como `getSnapshot` em lib/db.ts as monta. O
 -- booleano entra como texto de propósito: é o que o driver do Neon envia.
@@ -64,7 +70,7 @@ begin
   if orc is distinct from 1820000 then
     raise exception 'A FALHOU: quem administra perdeu o orcamento (veio %)', orc;
   end if;
-  raise notice 'A ok: o total da viagem so sai para quem administra';
+  raise notice 'A ok: o total da viagem so sai para quem administra (editor para cima)';
 end $$;
 
 -- ---------------------------------------------------------------- B
@@ -94,15 +100,52 @@ begin
     raise exception 'B FALHOU: visualizador viu % telefones, esperado 1', quantos;
   end if;
 
-  -- Quem administra continua vendo os dois: a ficha de quem viaja sem app so
-  -- existe porque o proprietario a preenche.
+  -- O PROPRIETARIO continua vendo todos: a ficha de quem viaja sem app so existe
+  -- porque ele a preenche.
   select count(*) into quantos from travelers p
    where p.trip_id='rt1'
      and (case when 'true'::boolean or p.id='rp1' then p.passaporte end) is not null;
-  if quantos <> 2 then
-    raise exception 'B FALHOU: proprietario perdeu acesso a ficha (% de 2)', quantos;
+  if quantos <> 3 then
+    raise exception 'B FALHOU: proprietario perdeu acesso a ficha (% de 3)', quantos;
   end if;
   raise notice 'B ok: passaporte e telefone recortados por papel';
+end $$;
+
+-- ---------------------------------------------------------------- B2
+\echo 'B2. um EDITOR tambem nao le o passaporte alheio'
+
+do $$
+declare passa text; quantos int;
+begin
+  -- O limiar aqui e `proprietario`, nao `editor`. E o erro que a primeira versao
+  -- deste recorte cometeu: reusou o corte do DINHEIRO (`financeiroDaViagem`, onde
+  -- editor recebe a forma de admin) para o corte do DOCUMENTO. Sao regras
+  -- diferentes -- `documentosDaViagem`, `documentacaoDaViagem` e o
+  -- `documentoVisivel` de /api/documento usam `proprietario`, e a razao esta
+  -- escrita no CLAUDE.md: editar o roteiro nao da direito de ler passaporte.
+  --
+  -- Um co-organizador e o caso COMUM, nao o exotico: e para isso que o papel
+  -- 'editor' existe. Este bloco e a diferenca entre o vazamento e a correcao.
+  select (case when 'false'::boolean or p.id='rp3' then p.passaporte end) into passa
+    from travelers p where p.id='rp1';
+  if passa is not null then
+    raise exception 'B2 FALHOU: editor leu o passaporte do dono (%)', passa;
+  end if;
+
+  select (case when 'false'::boolean or p.id='rp3' then p.passaporte end) into passa
+    from travelers p where p.id='rp2';
+  if passa is not null then
+    raise exception 'B2 FALHOU: editor leu o passaporte do visualizador (%)', passa;
+  end if;
+
+  -- Mas o proprio continua vindo: o editor guarda a propria ficha.
+  select count(*) into quantos from travelers p
+   where p.trip_id='rt1'
+     and (case when 'false'::boolean or p.id='rp3' then p.passaporte end) is not null;
+  if quantos <> 1 then
+    raise exception 'B2 FALHOU: editor viu % passaportes, esperado 1 (o proprio)', quantos;
+  end if;
+  raise notice 'B2 ok: editor ve so o proprio passaporte';
 end $$;
 
 -- ---------------------------------------------------------------- C

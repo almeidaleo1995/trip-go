@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { MapPinned } from 'lucide-react'
 import { CadastroSchema, SENHA_MINIMA } from '@/lib/schema.ts'
 import { Botao, Campo } from '@/components/ui.tsx'
+import { Turnstile, captchaAtivo } from '@/components/Turnstile.tsx'
 
 export default function Register() {
   const [nome, setNome] = useState('')
@@ -12,6 +13,11 @@ export default function Register() {
   const [confirmacao, setConfirmacao] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+  // O captcha importa MAIS aqui do que no login: no login o abuso e o chute de
+  // senha, que o rate limit ja corta; aqui o abuso e a conta criada com sucesso,
+  // e mil contas de mil IPs passam por baixo de qualquer balde por origem.
+  const [captcha, setCaptcha] = useState<string | null>(null)
+  const [refazerCaptcha, setRefazerCaptcha] = useState(0)
 
   async function criar(e: React.FormEvent) {
     e.preventDefault()
@@ -27,7 +33,7 @@ export default function Register() {
       const r = await fetch('/api/usuarios', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ nome, email, senha, confirmacao }),
+        body: JSON.stringify({ nome, email, senha, confirmacao, captcha }),
       })
       if (r.ok) {
         // Igual ao login: navegação dura para a sessão nova valer já na próxima tela.
@@ -35,6 +41,9 @@ export default function Register() {
         return
       }
       const d = await r.json()
+      // Um desafio so vale uma vez; sem refazer, a segunda tentativa reenviaria
+      // o mesmo token.
+      setRefazerCaptcha((n) => n + 1)
       setErro(d.erro || 'Não consegui criar a conta.')
     } catch {
       setErro('Sem conexão. Tente de novo quando a internet voltar.')
@@ -152,7 +161,14 @@ export default function Register() {
               </p>
             )}
 
-            <Botao tipo="submit" carregando={carregando} className="w-full">
+            <Turnstile aoResolver={setCaptcha} reiniciar={refazerCaptcha} />
+
+            <Botao
+              tipo="submit"
+              carregando={carregando}
+              desabilitado={captchaAtivo && !captcha}
+              className="w-full"
+            >
               Criar conta
             </Botao>
           </form>

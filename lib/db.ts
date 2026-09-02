@@ -10,6 +10,7 @@
 import { neon } from '@neondatabase/serverless'
 import { papelAlcanca, type Papel } from '../config/navigation.ts'
 import { resumoPessoal, type ResumoPessoal } from './financeiro.ts'
+import { registrarFalha, estaBloqueado, limparFalhas, type Limites } from './session.ts'
 
 function conectar() {
   const url = process.env.DATABASE_URL
@@ -293,9 +294,19 @@ export async function getSnapshot(
   papel: Papel,
   participanteId: string,
 ): Promise<Snapshot> {
-  // O mesmo corte de papel que `financeiroDaViagem` faz, calculado uma vez: as
-  // duas consultas abaixo tambem carregam dado que so quem administra pode ver.
+  // DOIS limiares, e a diferenca entre eles nao e detalhe.
+  //
+  // `administra` (editor) e o corte do DINHEIRO — o mesmo de `financeiroDaViagem`,
+  // onde editor recebe a forma de admin. Vale para o orcamento da viagem.
+  //
+  // `veDadoPessoal` (proprietario) e o corte do DOCUMENTO, e ele e mais alto de
+  // proposito: planejar o roteiro nao da direito de ler o passaporte de ninguem.
+  // E a mesma regra que `documentosDaViagem`, `documentacaoDaViagem` e o
+  // `documentoVisivel` de /api/documento ja aplicam — usar `editor` aqui daria a
+  // um co-organizador exatamente o dado que essas tres funcoes se dao ao trabalho
+  // de esconder dele, e por uma porta que nenhuma tela mostra.
   const administra = papelAlcanca(papel, 'editor')
+  const veDadoPessoal = papelAlcanca(papel, 'proprietario')
 
   const [
     viagem,
@@ -327,19 +338,20 @@ export async function getSnapshot(
                moeda, fuso, cor_destaque, capa_url, arquivada, updated_at,
                case when ${administra}::boolean then orcamento_centavos end as orcamento_centavos
         from trips where id = ${tripId}`,
-    // Passaporte e telefone de participante saem so para quem administra a
-    // viagem e para o dono da propria linha.
+    // Passaporte e telefone de participante saem so para o PROPRIETARIO e para o
+    // dono da propria linha.
     //
-    // Mesma regra de `documentosDaViagem`: planejar o roteiro nao da direito de
-    // ler o passaporte de ninguem. A coluna existe porque o proprietario preenche
-    // a ficha de quem viaja junto sem app (`participante` tem minimo
-    // 'proprietario' na TABELA de lib/escrita.ts) — mas quem ESCREVE era o dono e
-    // quem LIA era a viagem inteira, inclusive o visualizador. O recorte e na
-    // consulta, nao no React: campo escondido na tela continua na aba de rede.
+    // A coluna existe porque o proprietario preenche a ficha de quem viaja junto
+    // sem usar o app (`participante` tem minimo 'proprietario' na TABELA de
+    // lib/escrita.ts) — mas quem ESCREVIA era o dono e quem LIA era a viagem
+    // inteira, visualizador incluso. Duas coisas nesta consulta, e as duas
+    // importam: o recorte e na CONSULTA, porque campo escondido no React continua
+    // na aba de rede; e o limiar e `proprietario`, nao `editor`, porque e o mesmo
+    // de `documentosDaViagem` — editar o roteiro nao da direito de ler passaporte.
     sql`select p.id, p.trip_id, p.user_id, p.nome, p.email, p.papel, p.ordem,
                p.updated_at, u.avatar_url,
-               case when ${administra}::boolean or p.id = ${participanteId} then p.telefone end as telefone,
-               case when ${administra}::boolean or p.id = ${participanteId} then p.passaporte end as passaporte
+               case when ${veDadoPessoal}::boolean or p.id = ${participanteId} then p.telefone end as telefone,
+               case when ${veDadoPessoal}::boolean or p.id = ${participanteId} then p.passaporte end as passaporte
         from travelers p left join users u on u.id = p.user_id
         where p.trip_id = ${tripId} order by p.ordem, p.nome`,
     // `ocorre_em`/`fim_em` saem como TEXTO, não como Date — mesmo motivo do `dia`
@@ -849,5 +861,76 @@ export async function envelope(acesso: {
       participanteId: acesso.participanteId,
       papel: acesso.papel,
     },
+  }
+}
+
+// ---------------------------------------------------------------- limite de tentativas
+
+/**
+ * O rate limit no BANCO, compartilhado por todas as instancias.
+ *
+ * O contador em memoria de `lib/session.ts` funcionava numa maquina so. Na
+ * Vercel cada instancia serverless tinha o seu, entao dez instancias davam dez
+ * vezes o limite — e quem chuta senha nao precisa de mais do que isso. A decisao
+ * (janela deslizante, quando bloquear, por quanto tempo) continua sendo a mesma;
+ * o que muda e ONDE ela e contada.
+ *
+ * A conta inteira acontece dentro de `registrar_tentativa` no Postgres, sob
+ * `for update`: ler, decidir e gravar em ida unica e sob trava. Fazer isso aqui
+ * em tres consultas reabriria a corrida entre instancias que a tabela existe
+ * para fechar.
+ *
+ * Falha de rede NAO derruba o login: cai para o contador em memoria, que limita
+ * por instancia em vez de nada. Falhar fechado trancaria a viagem inteira para
+ * fora por causa de um soluco do banco; falhar aberto tiraria o limite justo
+ * quando o banco esta instavel. O meio-termo e o balde local.
+ */
+export async function registrarTentativa(
+  chave: string,
+  limites: Limites,
+): Promise<{ bloqueado: boolean; restamMs: number }> {
+  try {
+    const r = await sql`
+      select bloqueado, restam_ms from registrar_tentativa(
+        ${chave},
+        ${limites.limite},
+        ${`${Math.round(limites.janelaMs / 1000)} seconds`}::interval,
+        ${`${Math.round(limites.bloqueioMs / 1000)} seconds`}::interval
+      )
+    `
+    const linha = r[0] as { bloqueado: boolean; restam_ms: string | number } | undefined
+    if (!linha) return registrarFalha(chave, Date.now(), limites)
+    return { bloqueado: Boolean(linha.bloqueado), restamMs: Number(linha.restam_ms) }
+  } catch (e) {
+    console.error('[rate-limit] caiu para o contador em memoria', e)
+    return registrarFalha(chave, Date.now(), limites)
+  }
+}
+
+/** Consulta sem contar tentativa. Usado antes de gastar CPU com scrypt. */
+export async function consultarBloqueio(chave: string): Promise<boolean> {
+  try {
+    const r = await sql`
+      select bloqueado_ate from rate_limit where chave = ${chave} and bloqueado_ate > now()
+    `
+    return r.length > 0
+  } catch {
+    return estaBloqueado(chave)
+  }
+}
+
+/**
+ * Zera a janela. So o login chama: acertar a senha prova que nao era chute.
+ *
+ * O cadastro e o assistente nunca chamam, e por motivos diferentes — no cadastro
+ * o abuso E a conta criada com sucesso, e no assistente o que custa e a chamada
+ * que deu certo. Ver os comentarios de LIMITES_* em lib/session.ts.
+ */
+export async function limparTentativas(chave: string): Promise<void> {
+  limparFalhas(chave)
+  try {
+    await sql`delete from rate_limit where chave = ${chave}`
+  } catch {
+    // A janela em memoria ja foi zerada acima; a linha no banco expira sozinha.
   }
 }

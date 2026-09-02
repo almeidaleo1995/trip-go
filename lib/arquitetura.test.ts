@@ -187,3 +187,67 @@ test('toda escrita passa pela conferencia de origem', () => {
       'volta a ser o SameSite=Lax do cookie, herdado do padrao do navegador.',
   )
 })
+
+test('o passaporte de participante corta em proprietario, nao em editor', () => {
+  const db = ler('lib/db.ts')
+  // O erro que este teste existe para impedir ja foi cometido uma vez: o recorte
+  // reusou `administra` (editor), que e o corte do DINHEIRO em
+  // `financeiroDaViagem`, para o corte do DOCUMENTO. Sao regras diferentes, e a
+  // do documento e mais alta — `documentosDaViagem`, `documentacaoDaViagem` e o
+  // `documentoVisivel` de /api/documento usam todas `proprietario`.
+  assert.ok(
+    /const veDadoPessoal = papelAlcanca\(papel, 'proprietario'\)/.test(db),
+    'sumiu o limiar `proprietario` do dado pessoal em getSnapshot',
+  )
+  assert.ok(
+    /then p\.passaporte end/.test(db) && !/\$\{administra\}::boolean or p\.id/.test(db),
+    'o passaporte voltou a cortar por `administra` (editor). Um co-organizador ' +
+      'passaria a ler o passaporte de todo mundo — o dado que documentosDaViagem ' +
+      'se da ao trabalho de esconder exatamente desse papel.',
+  )
+})
+
+test('a marca do assistente chega ao registro de uma EDICAO', () => {
+  const escrita = ler('lib/escrita.ts')
+  // Sem `marca.origem`/`marca.lote` aqui, uma edicao feita pelo assistente era
+  // gravada como edicao humana sem lote, e `/api/assistente/desfazer` — que
+  // filtra por origem e lote — nao a encontrava. Um lote so de edicoes respondia
+  // "esse lote nao existe mais"; um lote misto revertia as criacoes e deixava as
+  // edicoes de pe. O desfazer e o que torna seguro aceitar uma proposta.
+  const trecho = escrita.slice(escrita.indexOf('for (const c of cols) {'))
+  assert.ok(
+    /marca\.origem/.test(trecho) && /marca\.lote/.test(trecho),
+    'o registro de edicao voltou a perder a marca: o desfazer do assistente ' +
+      'reverteria pela metade, em silencio',
+  )
+})
+
+test('o rate limit conta no banco, sob trava', () => {
+  const schema = ler('db/schema.sql')
+  assert.ok(
+    /create or replace function registrar_tentativa/.test(schema),
+    'sumiu a funcao do rate limit persistente',
+  )
+  assert.ok(
+    /for update/.test(schema),
+    'a funcao do rate limit perdeu o `for update`. Sem a trava, duas instancias ' +
+      'leem o mesmo contador, cada uma soma 1, e o limite vale o dobro — que e o ' +
+      'mesmo furo do contador em memoria, so mais dificil de enxergar.',
+  )
+  const db = ler('lib/db.ts')
+  assert.ok(
+    /registrar_tentativa\(/.test(db),
+    'lib/db.ts parou de usar a funcao; o limite voltou a ser por instancia',
+  )
+})
+
+test('login e cadastro conferem o captcha antes de gastar scrypt', () => {
+  for (const a of ['app/api/sessao/route.ts', 'app/api/usuarios/route.ts']) {
+    const rota = ler(a)
+    assert.ok(
+      /verificarTurnstile\(/.test(rota),
+      `${a} parou de conferir o captcha. O rate limit barra volume de UMA origem; ` +
+        'mil IPs tentando cinco senhas cada passam por baixo dele.',
+    )
+  }
+})

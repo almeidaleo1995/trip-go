@@ -7,9 +7,9 @@
 // Este é o passo 1 de `DocumentStorage`: os bytes ficam no Postgres, que já tem
 // backup, transação e autorização. Trocar por um bucket depois reescreve esta
 // rota — a tela continua chamando GET/POST /api/documento.
-import { sql, getSnapshot, registrarAlteracao, usuarioPorId } from '@/lib/db.ts'
+import { sql, getSnapshot, registrarAlteracao, usuarioPorId, registrarTentativa } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
-import { ErroHttp, registrarFalha, LIMITES_UPLOAD } from '@/lib/session.ts'
+import { ErroHttp, LIMITES_UPLOAD } from '@/lib/session.ts'
 import { validarCampos } from '@/lib/schema.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
 import { rota } from '@/lib/api.ts'
@@ -188,7 +188,7 @@ export const POST = rota(async (req) => {
 
   // Por parte, nao por arquivo: e a parte que custa banco e banda, e contar por
   // arquivo deixaria um laco de 4 MB por chamada passar sem tocar no contador.
-  const limite = registrarFalha(`upload:${u.id}`, Date.now(), LIMITES_UPLOAD)
+  const limite = await registrarTentativa(`upload:${u.id}`, LIMITES_UPLOAD)
   if (limite.bloqueado) {
     const min = Math.ceil(limite.restamMs / 60000)
     throw new ErroHttp(429, `Muitos envios seguidos. Tente de novo em ${min} min.`)

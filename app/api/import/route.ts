@@ -4,7 +4,8 @@
 // única isso arquivava a anterior; com várias viagens por conta, substituir seria
 // destruição silenciosa — a pessoa passa a ter duas e escolhe qual manter.
 import { exigirUsuario } from '@/lib/auth.ts'
-import { gravarViagemAtual, registrarFalha, LIMITES_IMPORTACAO, ErroHttp } from '@/lib/session.ts'
+import { registrarTentativa } from '@/lib/db.ts'
+import { gravarViagemAtual, LIMITES_IMPORTACAO, ErroHttp } from '@/lib/session.ts'
 import { validarImportacao, resumirImportacao } from '@/lib/schema.ts'
 import { importarViagem } from '@/lib/importar.ts'
 import { rota, lerJson } from '@/lib/api.ts'
@@ -19,7 +20,7 @@ export const POST = rota(async (req) => {
   // linhas — e a rota e autenticada mas nao limitada. Uma conta valida em laco
   // enchia o banco de graca. O `dry_run` conta junto de proposito: ele valida o
   // arquivo inteiro, que e o mesmo trabalho, menos a escrita.
-  const limite = registrarFalha(`importacao:${u.id}`, Date.now(), LIMITES_IMPORTACAO)
+  const limite = await registrarTentativa(`importacao:${u.id}`, LIMITES_IMPORTACAO)
   if (limite.bloqueado) {
     throw new ErroHttp(429, 'Muitas importações seguidas. Tente de novo mais tarde.')
   }

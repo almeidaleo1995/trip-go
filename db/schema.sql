@@ -640,6 +640,82 @@ create table if not exists ai_usage (
   criado_em      timestamptz not null default now()
 );
 
+-- ---------------------------------------------------------------- limite de tentativas
+--
+-- O contador do rate limit, no BANCO e nao na memoria do processo.
+--
+-- Em memoria ele funcionava numa maquina so. Na Vercel cada instancia serverless
+-- tinha o seu contador, entao dez instancias davam dez vezes o limite -- e quem
+-- ataca senha nao precisa de mais do que isso. O que estava escrito como
+-- `ponytail:` em lib/session.ts era exatamente esta tabela.
+--
+-- Uma linha por chave (`login:1.2.3.4`, `cadastro:1.2.3.4`, `assistente:<userId>`).
+-- `tentativas` guarda os instantes dentro da janela; `bloqueado_ate` o fim do
+-- castigo. Duas colunas em vez de um contador porque a janela e DESLIZANTE: um
+-- inteiro nao sabe quais das dez tentativas ja envelheceram.
+create table if not exists rate_limit (
+  chave          text primary key,
+  tentativas     timestamptz[] not null default '{}',
+  bloqueado_ate  timestamptz,
+  atualizado_em  timestamptz not null default now()
+);
+
+-- Conta uma tentativa e diz se ela passou do limite, ATOMICAMENTE.
+--
+-- O `for update` e o ponto inteiro desta funcao. Sem ele, duas instancias leem o
+-- mesmo contador, cada uma soma 1 e grava, e o limite vale o dobro -- que e o
+-- mesmo furo do contador em memoria, so que mais dificil de enxergar. Ler,
+-- decidir e gravar acontecem sob a trava da linha, numa ida so ao banco.
+--
+-- Idempotente: `create or replace` roda de novo sem erro, como o resto do arquivo.
+create or replace function registrar_tentativa(
+  p_chave    text,
+  p_limite   integer,
+  p_janela   interval,
+  p_bloqueio interval
+) returns table (bloqueado boolean, restam_ms bigint)
+language plpgsql as $$
+declare
+  v_ate      timestamptz;
+  v_recentes timestamptz[];
+begin
+  -- Faxina oportunista: 1% das chamadas varre o que ja nao vale. A tabela e
+  -- limitada por chaves distintas (IPs e contas), entao cresce devagar -- mas
+  -- "devagar" sem limite ainda e sem limite.
+  if random() < 0.01 then
+    delete from rate_limit
+     where atualizado_em < now() - interval '1 day'
+       and (bloqueado_ate is null or bloqueado_ate < now());
+  end if;
+
+  insert into rate_limit (chave) values (p_chave) on conflict (chave) do nothing;
+  select bloqueado_ate, tentativas into v_ate, v_recentes
+    from rate_limit where chave = p_chave for update;
+
+  -- Ja de castigo: nao acumula tentativa nova. Sem isto, quem insiste durante o
+  -- bloqueio empurraria o fim dele para sempre.
+  if v_ate is not null and v_ate > now() then
+    return query select true, (extract(epoch from (v_ate - now())) * 1000)::bigint;
+    return;
+  end if;
+
+  -- Descarta o que saiu da janela deslizante e conta esta tentativa.
+  v_recentes := array(select t from unnest(v_recentes) t where t > now() - p_janela) || now();
+
+  if array_length(v_recentes, 1) > p_limite then
+    update rate_limit
+       set tentativas = '{}', bloqueado_ate = now() + p_bloqueio, atualizado_em = now()
+     where chave = p_chave;
+    return query select true, (extract(epoch from p_bloqueio) * 1000)::bigint;
+    return;
+  end if;
+
+  update rate_limit
+     set tentativas = v_recentes, bloqueado_ate = null, atualizado_em = now()
+   where chave = p_chave;
+  return query select false, 0::bigint;
+end $$;
+
 -- ================================================================ migracoes
 -- Levam um banco da versao anterior (viagem unica, login por PIN) ate aqui.
 -- Em banco novo todas sao no-op, porque as colunas ja nasceram acima.
@@ -987,3 +1063,4 @@ create index if not exists idx_doc_sub_documento      on document_submissions (d
 create index if not exists idx_change_log_lote       on change_log (trip_id, lote);
 create index if not exists idx_ai_usage_user         on ai_usage (user_id, criado_em desc);
 create index if not exists idx_ai_usage_trip         on ai_usage (trip_id, criado_em desc);
+create index if not exists idx_rate_limit_faxina    on rate_limit (atualizado_em);
