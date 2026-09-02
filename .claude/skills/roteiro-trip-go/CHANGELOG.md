@@ -5,6 +5,45 @@ revisada/aplicada não entra aqui — ela vive só no relatório da skill até
 alguém aceitar.
 
 
+
+## 1.5.0
+
+**A linha entre dado e codigo virou a regra numero 1, e as duas metades ganharam
+autorizacoes opostas.**
+
+- **Em DADO, decide e executa.** Ler os arquivos, escolher o que entra, montar o
+  roteiro e gravar na viagem que ja existe deixou de ser coisa para pedir
+  permissao. "Adiciona um passeio no dia 12" tem como resposta o passeio no app,
+  nao um plano de como adiciona-lo.
+- **Em CODIGO, nunca mexe — especifica.** Pedido que so seria possivel com campo,
+  tabela ou tela nova vira `.specs/propostas/<slug>.md`, com seis coisas: o
+  pedido na frase da pessoa, por que nao da hoje, o que da para fazer so com
+  dado, a mudanca minima na ordem do checklist de 10 passos do README, a
+  pergunta de seguranca (quem pode LER o campo) e o que quebra se ninguem fizer.
+  A proposta e a entrega; implementar e outra conversa, fora da skill.
+  Enfiar o dado num `nota` para "resolver" tambem esta proibido: e o campo que
+  nenhuma tela le, nenhum filtro acha e nenhuma exportacao carrega.
+
+**Passo 0 deixou de exigir round de perguntas.** Pedido pequeno e definido segue
+direto; viagem inteira a partir de documentos mantem as 4 perguntas (cidades,
+lugares, valores, quem vai). A quinta pergunta (onde salvar) so existe quando ha
+arquivo a entregar — "sobe na minha viagem" nao gera arquivo nenhum.
+
+**`scripts/viagens.mjs`** (novo): lista as contas e as viagens de cada uma, com o
+id. E o que tira o uuid da conversa — uma viagem so na conta e essa, varias
+perguntam pelo NOME. Le `trips` + `travelers` + `users` e nada mais: descobrir
+para ONDE escrever nao exige ler o que ja esta escrito la, e `lib/skill.test.ts`
+falha se ele encostar em `expenses`/`documents`.
+
+**O PDF deixou de ser "sempre".** Item solto que subiu para o app nao vira PDF —
+o app e a tela offline dele. Viagem montada do zero, backup ou pedido explicito,
+sim.
+
+**Quando parar antes de gravar** ficou escrito: acrescentar item novo grava;
+MUDAR o que ja esta la (trocar a cidade do Reveillon, remexer em custo com
+pagador, mexer em participante) pergunta antes, porque nao e acrescentar, e
+reescrever a decisao de outra pessoa.
+
 ## 1.4.0
 
 **A skill passou a subir a viagem sozinha.** Antes, "escrita direta" era uma

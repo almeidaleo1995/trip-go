@@ -31,7 +31,7 @@ const semComentarios = (codigo: string) =>
 const SKILL = '.claude/skills/roteiro-trip-go/scripts'
 
 /** Os scripts que alcancam o banco. `extrair.mjs` fica de fora: ele SO escreve arquivo. */
-const NO_BANCO = [`${SKILL}/subir.mjs`, `${SKILL}/desfazer.mjs`]
+const NO_BANCO = [`${SKILL}/subir.mjs`, `${SKILL}/desfazer.mjs`, `${SKILL}/viagens.mjs`]
 
 test('os scripts de banco da skill nao escrevem arquivo nenhum', () => {
   // Ler e permitido (o JSON da viagem entra por `readFileSync`). Escrever nao:
@@ -113,6 +113,25 @@ test('o desfazer da skill autoriza linha a linha e filtra a coluna', () => {
   assert.ok(
     /colunaValida\(/.test(desfazer),
     'desfazer.mjs interpola `campo` no SQL sem a lista branca de colunas',
+  )
+})
+
+test('achar a viagem nao vira uma leitura do que ha dentro dela', () => {
+  // `viagens.mjs` existe para responder "para ONDE escrever", e so isso. Ele le
+  // `trips` + `travelers` + `users`; um join com `expenses` ou `documents` daria
+  // ao console da skill uma visao que nem o dono da viagem tem pela tela, e sem
+  // nenhum recorte de papel no caminho.
+  const viagens = semComentarios(ler(`${SKILL}/viagens.mjs`))
+  for (const tabela of ['expenses', 'documents', 'document_files', 'document_submissions']) {
+    assert.ok(
+      !new RegExp(`\\b${tabela}\\b`).test(viagens),
+      `viagens.mjs alcancou ${tabela}. Descobrir para onde escrever nao exige ler ` +
+        'o que ja esta escrito la — e o que sai daqui nao passa por recorte de papel.',
+    )
+  }
+  assert.ok(
+    !/insert |update |delete /i.test(viagens),
+    'viagens.mjs escreve. Ele responde uma pergunta; quem grava e subir.mjs.',
   )
 })
 

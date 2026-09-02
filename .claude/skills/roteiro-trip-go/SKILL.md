@@ -1,7 +1,7 @@
 ---
 name: roteiro-trip-go
-description: Monta e atualiza a viagem do TripGo. Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app, e entrega junto um PDF do roteiro para usar sem sinal. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Sobe o resultado direto para o app (scripts/subir.mjs) — viagem nova ou somando numa que já existe —, sem duplicar o que já está lá e deixando a carga inteira desfazível por um lote. Só mexe em dados, nunca em código. Também gera lotes de sugestão de checklist (ver reference/checklist-sugestoes.md e a árvore schema/rules/templates/mappings/validators). Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, montar ou detalhar um dia do roteiro, atualizar a viagem, sugerir itens de checklist, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí", "sobe isso no app", "monta meu roteiro", "sugere checklist".
-skillVersion: 1.4.0
+description: Monta e atualiza a viagem do TripGo. Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app, e entrega junto um PDF do roteiro para usar sem sinal. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Sobe o resultado direto para o app (scripts/subir.mjs) — viagem nova ou somando numa que já existe —, achando a viagem sozinha (scripts/viagens.mjs), sem duplicar o que já está lá e deixando a carga inteira desfazível por um lote. Em DADO ela decide e executa; em CÓDIGO ela nunca mexe — escreve a proposta da funcionalidade em .specs/propostas/ e entrega para quem revisa. Também gera lotes de sugestão de checklist (ver reference/checklist-sugestoes.md e a árvore schema/rules/templates/mappings/validators). Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, montar ou detalhar um dia do roteiro, atualizar a viagem, sugerir itens de checklist, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí", "sobe isso no app", "monta meu roteiro", "adiciona um passeio no dia X", "atualiza minha viagem", "sugere checklist".
+skillVersion: 1.5.0
 schemaVersion: 3
 ---
 
@@ -15,20 +15,29 @@ O app nunca lê PDF. Esta conversão acontece aqui fora, com julgamento, e o res
 
 ## As duas regras que governam tudo
 
-**1. Esta skill mexe em DADO. Nunca em código.**
+**1. Em DADO, decida e execute. Em CÓDIGO, pare e proponha.**
 
-Ela lê `lib/schema.ts` e chama as funções de `lib/` — e é só isso que faz com o
-projeto. Não edita arquivo do app, não muda schema, não instala dependência, não
-altera configuração. Se cumprir um pedido parecer exigir mudar código, **isso não
-é um pedido de dado**: pare e diga qual mudança seria necessária, em texto. Quem
-revisa decide.
+São duas autorizações diferentes, e a linha entre elas é a regra inteira.
 
-A regra é verificável, não uma promessa: `lib/skill.test.ts`, no projeto, falha se
-`subir.mjs` ou `desfazer.mjs` ganharem qualquer escrita de arquivo ou execução de
-comando. Roda em `npm test`, junto com o resto.
+**Do lado do dado, a skill tem poder total e deve usá-lo.** Ler os arquivos que a
+pessoa mandou, decidir o que entra, montar o roteiro, escolher os campos,
+escrever na viagem que já existe no app — tudo isso é para fazer, não para
+perguntar se pode. Quando alguém diz *"adiciona um passeio no dia 12"*, a
+resposta certa é o passeio no app, não um plano de como adicioná-lo. O padrão é
+**executar**; ver o passo 5 para quando parar.
 
-(Os arquivos que a skill **entrega** — o `.json` e o `.pdf` do roteiro — são
-produto, não código, e vão para a pasta que o usuário escolher no passo 0.)
+**Do lado do código, a skill não toca — ela especifica.** Não edita arquivo do
+app, não muda schema, não instala dependência, não altera configuração. Se o
+pedido só for possível com uma mudança de código, isso deixa de ser um pedido de
+dado: escreva a proposta (formato em **Quando o pedido esbarra em código**, mais
+abaixo) e entregue. Quem revisa decide e implementa.
+
+A separação é verificável, não uma promessa: `lib/skill.test.ts`, no projeto,
+falha se `subir.mjs` ou `desfazer.mjs` ganharem qualquer escrita de arquivo ou
+execução de comando. Roda em `npm test`, junto com o resto.
+
+(Os arquivos que a skill **entrega** — o `.json`, o `.pdf`, a proposta em
+`.specs/propostas/` — são produto, não código.)
 
 **2. Não invente dado.** Não vai `"cabine": "a confirmar"` nem um valor plausível.
 Um app de viagem com dado inventado é pior que um app vazio, porque a pessoa
@@ -39,37 +48,54 @@ algo importante, liste no relatório final sob **"Faltando nos documentos"**.
 
 ## Processo
 
-### 0. Perguntar antes de montar — sempre
+### 0. Descobrir o tamanho do pedido, e perguntar só o que trava
 
-**Nunca entregue um JSON sem perguntar primeiro.** Mesmo com os documentos na
-mão, o documento diz o que foi comprado, não o que a pessoa quer. Faça as
-perguntas em **uma única mensagem**, numeradas, e espere a resposta:
+Dois pedidos muito diferentes chegam por esta porta, e tratá-los igual é o que
+faz a skill parecer burocrática ou imprudente, dependendo do lado que erra.
 
-1. **Cidades** — quais entram de verdade na viagem, e quantos dias em cada uma?
-   Cidade citada num PDF não é cidade visitada (ver Armadilhas). Se o documento
-   já resolve isso, confirme a lista em vez de perguntar aberto:
-   *"Entendi Madri (2), Hamburgo (2), Bruges (bate-volta do navio) — falta ou
-   sobra alguma?"*
-2. **Lugares** — dentro de cada cidade, o que a pessoa quer ver/fazer? É o que
-   vira `lugares[].notas` e itens de roteiro. Pergunte o interesse
-   (museu, caminhada, comida, com criança, mobilidade reduzida), não uma lista
-   pronta.
+**Pedido pequeno e definido** — *"adiciona um passeio no Prado dia 14 às 18h"*,
+*"marca o voo de volta como comprado"*, *"cria o checklist do visto"*. O
+conteúdo está na frase. **Não faça round de perguntas.** Descubra a viagem
+(abaixo), monte, mostre com `--conferir`, e grave. Perguntar "em qual viagem?"
+quando a conta tem uma só é ruído.
+
+**Viagem inteira a partir de documentos** — um monte de PDF, um caderno, uma
+conversa longa. Aí sim o documento diz o que foi comprado e não o que a pessoa
+quer, e as respostas mudam o resultado. Pergunte em **uma única mensagem**,
+numeradas, e espere:
+
+1. **Cidades** — quais entram de verdade, e quantos dias em cada uma? Cidade
+   citada num PDF não é cidade visitada (ver Armadilhas). Se o documento já
+   resolve, confirme em vez de perguntar aberto: *"Entendi Madri (2), Hamburgo
+   (2), Bruges (bate-volta do navio) — falta ou sobra alguma?"*
+2. **Lugares** — dentro de cada cidade, o que a pessoa quer ver/fazer? Pergunte o
+   interesse (museu, caminhada, comida, com criança, mobilidade reduzida), não
+   uma lista pronta.
 3. **Valores** — o que está pago, o que é cotação, e quem pagou cada coisa.
    Decide `estimado`, `pagador` e `divisoes[]`, que nenhum PDF traz.
-4. **Quem vai** — os nomes exatos dos participantes, do jeito que já estão no
-   app (a divisão de despesa e o `assigned_to_nomes` do checklist casam **por
-   nome**; nome errado importa como despesa sem dono).
-5. **Onde salvar, e se sobe agora** — a pasta do `.json` e do `.pdf`, e se a
-   viagem deve ir direto para o app (passo 8) ou ficar só como arquivo. Se for
-   subir, peça o **e-mail da conta** e, para viagem existente, o `tripId` (está
-   na URL `/viagens/<id>`). **Nunca escolha a pasta sozinha**:
-   scratchpad de sessão some, a raiz do repositório entra no git sem ninguém
-   pedir. Ofereça opções concretas e aceite um caminho digitado.
+4. **Quem vai** — os nomes exatos, do jeito que já estão no app. A divisão de
+   despesa e o `assigned_to_nomes` casam **por nome**; nome errado importa como
+   despesa sem dono.
 
 Se a pessoa responder "tanto faz, decide você", grave só o que o documento
 sustenta e liste o resto em **"Faltando nos documentos"**. Não preencha o
-silêncio com plausível. **A exceção é a pergunta 5**: destino de arquivo não
-tem padrão seguro, então insista uma vez em vez de adivinhar.
+silêncio com plausível.
+
+**Achar a viagem — sem pedir uuid a ninguém:**
+
+```bash
+node --env-file=.env.local .claude/skills/roteiro-trip-go/scripts/viagens.mjs
+```
+
+Lista as contas e as viagens de cada uma, com o id. Uma viagem só na conta: é
+essa, siga. Várias: pergunte pelo **nome**, nunca pelo id. Nenhuma: é caso de
+viagem nova (passo 5).
+
+**Onde salvar arquivo** — só pergunte quando for entregar `.json`/`.pdf`. Se o
+pedido é "sobe na minha viagem", não há arquivo para salvar e não há o que
+perguntar. Quando houver, **nunca escolha a pasta sozinha**: scratchpad de sessão
+some, a raiz do repositório entra no git sem ninguém pedir. Ofereça opções
+concretas e aceite um caminho digitado.
 
 ### 1. Extrair o texto
 
@@ -137,8 +163,9 @@ A consequência governa esta skill inteira:
 
 | A viagem… | O destino |
 | --- | --- |
-| ainda não existe no app | `subir.mjs --nova` (ou o arquivo, e a pessoa importa pela tela) |
-| já existe, e o pedido é adicionar/detalhar (um dia, um voo, um lote de checklist) | `subir.mjs --viagem <tripId>` |
+| já existe, e o pedido é adicionar/detalhar (um passeio, um dia, um voo, um lote de checklist) | `subir.mjs --viagem <tripId>` — **o caso mais comum, e o padrão** |
+| ainda não existe no app | `subir.mjs --nova` |
+| a pessoa pediu o arquivo, e não a viagem no app | gere o `.json` e diga numa frase que importar CRIA viagem nova |
 | já existe, e o pedido é backup/portabilidade | **Dados → Exportar** no app; não replique o mapeamento de `/api/export` |
 
 Entregar um arquivo de importação para o segundo caso é o erro mais caro desta
@@ -146,8 +173,13 @@ skill: o usuário importa achando que soma, e ganha uma viagem duplicada pela
 metade. Se ele pedir o arquivo mesmo assim, gere — e diga numa frase o que vai
 acontecer se ele subir.
 
-Para descobrir o `tripId`, pergunte ao usuário (está na URL: `/viagens/<id>`) ou
-liste as viagens da conta dele.
+O `tripId` sai do `viagens.mjs` (passo 0), não de uma pergunta.
+
+**Quando parar antes de gravar:** o `--conferir` é sempre; a pausa para o humano
+não é. Pare e pergunte quando a escrita **muda o que já está lá** — trocar a
+cidade do Réveillon, remexer em `custos` que já têm pagador, mexer em
+`participantes` — porque isso não é acrescentar, é reescrever a decisão de
+outra pessoa. Acrescentar item novo a uma viagem: grave, e mostre o lote.
 
 ### 6. Montar o JSON
 
@@ -243,10 +275,14 @@ Documento `pessoal` cujo `dono_nome` não bate com ninguém da viagem entra como
 **global** — a viagem inteira passa a ver. O script avisa, e esse aviso vai para
 o relatório: é mudança de quem enxerga o quê.
 
-### 9. Gerar o PDF — junto com o JSON, sempre
+### 9. Gerar o PDF — quando houver arquivo para entregar
+
+Vale quando a entrega inclui arquivo: viagem montada do zero, backup, ou pedido
+explícito. Um item solto que já subiu para o app não vira PDF — o app é a tela
+offline dele.
 
 O objetivo do produto é **funcionar sem sinal**. Um JSON não se lê no
-aeroporto, então a entrega padrão são **dois arquivos**, na pasta que o
+aeroporto, então a entrega com arquivo são **dois arquivos**, na pasta que o
 usuário deu no passo 0:
 
 ```
@@ -286,6 +322,49 @@ Entregue junto com os arquivos:
 - **Se subiu para o app**: o link (`/viagens/<id>`), a contagem por seção, o que
   foi **pulado por já existir**, e o **número do lote** com o comando de desfazer.
   Uma carga sem caminho de volta não se entrega.
+- **Se algo virou proposta de código**: uma frase dizendo o quê e o caminho do
+  `.specs/propostas/<slug>.md`. Ver **Quando o pedido esbarra em código**.
+
+## Quando o pedido esbarra em código
+
+Uma hora vem um pedido que o app ainda não sabe guardar: *"marca quem é
+vegetariano em cada refeição"*, *"quero anexar o áudio do guia"*, *"a despesa
+precisa de uma segunda moeda"*. Não há campo, não há tabela, não há tela.
+
+**Não improvise um lugar para o dado.** Enfiar "vegetariano" dentro de `nota`
+resolve a tarde e cria o problema de sempre: um dado que nenhuma tela lê, nenhum
+filtro acha e nenhuma exportação carrega, morando num campo de texto livre. Seis
+meses depois ninguém sabe que está lá.
+
+**Também não mude o código.** Não é o que esta skill faz, e um schema alterado
+por baixo é a mudança que ninguém revisou.
+
+**O que fazer: especificar a funcionalidade.** Escreva
+`.specs/propostas/<slug>.md` — em `.specs/`, que é onde este projeto guarda
+decisão e desenho, nunca em `lib/`, `app/` ou `db/` — com estas seis coisas:
+
+```markdown
+# <o que a pessoa pediu, na frase dela>
+
+**Pedido:** a frase original, e o que ela quer no fim.
+**Por que não dá hoje:** o campo/tabela/tela que falta, nomeada.
+**O que dá para fazer agora:** o mais próximo possível só com dado — e o que
+  isso deixa de fora. Às vezes é suficiente e a proposta morre aqui, o que é bom.
+**Mudança mínima:** os arquivos, na ordem do checklist de 10 passos do README
+  (db/schema.sql nas DUAS metades, lib/schema.ts, /api/export, lib/importar.ts,
+  a tela, VERSAO em lib/offline.ts…).
+**A pergunta de segurança:** quem pode LER esse campo, não só quem escreve. Se
+  identifica uma pessoa, ele entra em CAMPOS_CIFRADOS e sai do snapshot dos
+  outros. Ver a lista de 8 itens no CLAUDE.md.
+**O que quebra se ninguém fizer:** nada, ou o dado fica num lugar errado?
+```
+
+Depois **diga em uma frase**, na conversa, o que ficou proposto e onde. Não
+implemente e não peça permissão para implementar — a proposta é a entrega.
+
+Se a pessoa responder "faz aí", aí sim é uma tarefa de código normal, fora da
+skill: quem mexe no projeto é o assistente na conversa, com o diff à vista, e o
+`npm test` no fim.
 
 ## O roteiro alimenta a aba HOJE
 

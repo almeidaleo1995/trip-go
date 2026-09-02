@@ -942,6 +942,9 @@ skill in `.claude/skills/` — and the result goes straight into the database, s
 the trip is on screen when you open it.
 
 ```bash
+# which trips exist, and whose — this is what keeps uuids out of the conversation
+node --env-file=.env.local .claude/skills/roteiro-trip-go/scripts/viagens.mjs
+
 # what the app's contract accepts, read live from lib/schema.ts
 node .claude/skills/roteiro-trip-go/scripts/campos.mjs [secao]
 
@@ -973,7 +976,17 @@ That is the whole security argument, and it is verifiable by reading imports
 rather than trusting a description. `lib/skill.test.ts` fails the build if
 `subir.mjs` stops calling `autorizar`/`aplicar`, or starts writing rows itself.
 
-### It only ever touches data, never code
+### On data it decides; on code it stops and specifies
+
+Reading the files, choosing what goes in, building the itinerary and writing into
+a live trip are all things the skill does without asking. What it never does is
+change code — and a request that would need a new field, table or screen becomes
+`.specs/propostas/<slug>.md` instead: the request in the person's own words, why
+it is not possible today, what is possible with data alone, the minimal change in
+the order of the ten-file checklist, and the security question (who may **read**
+the new field). Writing the value into a free-text `nota` to make it work is
+banned by the same rule — that is the data no screen reads, no filter finds and
+no export carries.
 
 The skill runs inside the repository with a `DATABASE_URL` and write permission —
 so "it only updates data" has to be enforced, not promised. `lib/skill.test.ts`
