@@ -9,6 +9,7 @@
 // inteira gerada de uma vez num toque — e é por isso que o lote existe mesmo
 // para um aceite de uma proposta só.
 import { randomUUID } from 'node:crypto'
+import { paraLog, motivoSeguro } from '@/lib/seguranca.ts'
 import { envelope } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { ErroHttp } from '@/lib/session.ts'
@@ -69,9 +70,15 @@ export const POST = rota(async (req) => {
       // aceitou várias propostas de uma vez e derrubar as boas por causa de uma
       // recusada seria punir o aceite inteiro por um item. Cada recusa é
       // relatada com o motivo, e a tela mostra o que não entrou.
+      // Mesma razao do /api/mutate: a recusa deliberada tem texto escrito para
+      // gente; o erro inesperado nao, e a mensagem crua do Postgres traz nome de
+      // constraint e tipo de coluna. O real vai sanitizado para o log.
+      if (!(e instanceof ErroHttp)) {
+        console.error('[aplicar] proposta recusada', { entidade: p.entidade, ...paraLog(e) })
+      }
       rejeitadas.push({
         ref: p.ref,
-        motivo: e instanceof ErroHttp ? e.message : e instanceof Error ? e.message : 'erro',
+        motivo: e instanceof ErroHttp ? e.message : motivoSeguro(e),
       })
     }
   }

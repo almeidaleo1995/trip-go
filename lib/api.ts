@@ -6,7 +6,7 @@
 // detalhe de erro de banco não deve chegar ao navegador.
 import { NextResponse } from 'next/server'
 import { ErroHttp, type Limites } from './session.ts'
-import { mesmaOrigem, mudaEstado } from './seguranca.ts'
+import { mesmaOrigem, mudaEstado, paraLog } from './seguranca.ts'
 import { registrarTentativa, consultarBloqueio } from './db.ts'
 
 export type Handler = (req: Request) => Promise<unknown>
@@ -32,7 +32,10 @@ export function rota(handler: Handler) {
       if (e instanceof ErroHttp) {
         return NextResponse.json({ erro: e.message }, { status: e.status })
       }
-      console.error('[api]', e)
+      // `paraLog` e nao `e`: o erro do driver carrega `detail` ("Key (email)=(...)")
+      // e `internalQuery`, e console.error imprime as proprias enumeraveis junto
+      // com o stack -- e-mail e codigo de convite iam para o log em texto.
+      console.error('[api]', paraLog(e))
       return NextResponse.json({ erro: 'Algo deu errado. Tente de novo.' }, { status: 500 })
     }
   }

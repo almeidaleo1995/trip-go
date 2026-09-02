@@ -104,9 +104,15 @@ export function AcoesViagem({
                 Editar viagem
               </Acao>
             )}
-            <Acao icone={Copy} onClick={() => setAberto('duplicar')}>
-              Duplicar viagem
-            </Acao>
+            {/* Mesmo limiar que /api/viagens/duplicar exige no servidor. A copia
+                carrega orcamento, despesas e parcelas, e quem duplica vira dono
+                dela -- oferecer isto a um visualizador era mostrar a porta de uma
+                escalada. A barreira real esta na rota; isto so para de mentir. */}
+            {editor && (
+              <Acao icone={Copy} onClick={() => setAberto('duplicar')}>
+                Duplicar viagem
+              </Acao>
+            )}
             {dono && (
               <Acao icone={Users} href={`/viagens/${viagem.id}?aba=dados`}>
                 Gerenciar participantes

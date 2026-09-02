@@ -7,7 +7,8 @@
 // teste que lê o import é feio, e é a única coisa que trava isso.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { sep } from 'node:path'
 
 const ler = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
 
@@ -299,4 +300,281 @@ test('o gasto consolidado da organização não é liberado por ser dono de viag
     'a lista de operadores precisa vir do ambiente — não há papel de administrador ' +
       'da instalação no banco',
   )
+})
+
+// ------------------------------------------------------- superficie sem sessao
+//
+// As quatro propriedades abaixo valem por leitura porque o que elas travam nao
+// aparece em tela nenhuma: uma rota dispensada do proxy, um caminho listado que
+// nao existe, uma mensagem de erro distinguivel e um layout sem guarda nao
+// quebram nada visivel -- a proxima pessoa so descobre auditando.
+
+test('o matcher do proxy dispensa caminhos, nunca extensoes', () => {
+  const m = /matcher:\s*\[([^\]]*)\]/.exec(ler('proxy.ts'))?.[1] ?? ''
+  assert.ok(m, 'nao achei o matcher em proxy.ts')
+  assert.ok(
+    !m.includes('$'),
+    'o matcher do proxy voltou a casar pelo FIM da URL. Uma dispensa por extensao ' +
+      'nao distingue /icone-192.png de /viagens/qualquer-coisa.png: a segunda sai ' +
+      'sem checagem de sessao e sem CSP. Dispense caminho, nunca sufixo.',
+  )
+})
+
+test('toda rota listada em navigation.ts tem pagina', () => {
+  // Grupo de rota -- (auth), (dashboard) -- nao entra na URL: some do caminho.
+  const paginas = new Set(
+    readdirSync(new URL('../app', import.meta.url), { recursive: true })
+      .map((p) => String(p).split(sep).join('/'))
+      .filter((p) => p === 'page.tsx' || p.endsWith('/page.tsx'))
+      .map((p) => '/' + p.replace(/\/?page\.tsx$/, '').replace(/\([^)]*\)\/?/g, '')),
+  )
+  const nav = ler('config/navigation.ts')
+  for (const lista of ['rotasPrivadas', 'rotasPublicas']) {
+    const trecho = nav.slice(nav.indexOf(lista + ' ='))
+    const bruto = trecho.slice(trecho.indexOf('[') + 1, trecho.indexOf(']'))
+    for (const aspas of bruto.match(/'([^']+)'/g) ?? []) {
+      const r = aspas.slice(1, -1)
+      assert.ok(
+        paginas.has(r),
+        lista +
+          ' lista ' +
+          r +
+          ', que nao tem page.tsx. Nome sem pagina ensina a ' +
+          'ler estas listas como intencao em vez de fato -- e a proxima entrada ' +
+          'morta pode ser uma que devia estar em rotasPrivadas.',
+      )
+    }
+  }
+})
+
+test('o cadastro nao denuncia e-mail ja cadastrado', () => {
+  const rota = ler('app/api/usuarios/route.ts')
+  assert.ok(
+    !/ErroHttp\(409/.test(rota),
+    'POST /api/usuarios voltou a responder diferente para e-mail duplicado. Isso faz ' +
+      'do cadastro um verificador de e-mails cadastrados -- e como ' +
+      'vincularParticipantesPorEmail transforma o e-mail de um participante em ' +
+      'credencial, quem enumera aprende quais ainda estao livres para reivindicar. ' +
+      'O /api/sessao paga o mesmo preco em "E-mail ou senha incorretos.".',
+  )
+})
+
+test('as telas privadas tem guarda de servidor, alem do proxy', () => {
+  assert.ok(
+    ler('app/(dashboard)/layout.tsx').includes('exigirUsuarioOuLogin'),
+    'o layout de (dashboard) parou de exigir sessao. As paginas do grupo sao ' +
+      "'use client' e nao conseguem checar sozinhas; sem este layout a unica " +
+      'barreira volta a ser o proxy, que so olha a assinatura do cookie e nunca o ' +
+      'banco -- token assinado de conta ja apagada passa.',
+  )
+})
+
+// ------------------------------------------------------- codigo do convite
+//
+// O codigo e o que separa "sei o e-mail de um participante" de "posso entrar
+// nesta viagem". As tres propriedades abaixo sao invisiveis em tela: o recorte
+// de papel, a condicao no vinculo e a coluna existir num banco JA EM USO.
+
+test('o codigo do convite so sai para o proprietario', () => {
+  const db = ler('lib/db.ts')
+  assert.ok(
+    /case when[^)]*then codigo_convite end/.test(db),
+    'sumiu o recorte de papel do `codigo_convite` em getSnapshot. Ele e a ' +
+      'credencial que deixa alguem reivindicar uma vaga desta viagem no cadastro: ' +
+      'um visualizador que o recebesse convidaria quem quisesse para uma viagem ' +
+      'que ele nem edita.',
+  )
+  const trecho = /then codigo_convite end/.exec(db)
+  assert.ok(trecho, 'nao achei o recorte para conferir o limiar')
+  const antes = db.slice(Math.max(0, trecho.index - 200), trecho.index)
+  assert.ok(
+    antes.includes('veDadoPessoal'),
+    'o `codigo_convite` passou a cortar por `administra` (editor). O limiar e ' +
+      'proprietario, o mesmo de quem pode ESCREVER participante na TABELA de ' +
+      'lib/escrita.ts -- senao um editor convida gente para a viagem de outro.',
+  )
+})
+
+test('o vinculo por e-mail exige o codigo do convite', () => {
+  const db = ler('lib/db.ts')
+  const i = db.indexOf('export async function vincularParticipantesPorEmail')
+  assert.ok(i > 0, 'nao achei vincularParticipantesPorEmail')
+  const corpo = db.slice(i, db.indexOf('\n}\n', i))
+  assert.ok(
+    corpo.includes('codigo_convite'),
+    'vincularParticipantesPorEmail voltou a ligar a conta so pelo e-mail. Este e ' +
+      'o unico caminho SEM sessao que escreve em dado de viagem, e o e-mail de um ' +
+      'participante nao e segredo: o dono digita o endereco no app muito antes da ' +
+      'pessoa se cadastrar, e quem chegasse primeiro em /register herdava a vaga.',
+  )
+  assert.ok(
+    corpo.includes('t.user_id is null'),
+    'sumiu o `user_id is null`: sem ele um cadastro novo rouba a vaga de quem ja entrou',
+  )
+})
+
+test('o codigo do convite existe tambem para banco ja em uso', () => {
+  const sql = ler('db/schema.sql')
+  const criar = sql.slice(sql.indexOf('create table if not exists trips'))
+  assert.ok(
+    criar.slice(0, criar.indexOf(');')).includes('codigo_convite'),
+    'o `codigo_convite` sumiu do create table de trips',
+  )
+  const migracoes = sql.slice(sql.indexOf('alter table trips'))
+  assert.ok(
+    /alter table trips add column if not exists codigo_convite/.test(migracoes),
+    'o `codigo_convite` esta so na metade do `create table`. Widening no create ' +
+      'nao faz NADA num banco que ja existe -- foi assim que documents.tipo deixou ' +
+      'todo upload morrer no documents_tipo_check. A migracao tem que estar nas duas.',
+  )
+  assert.ok(
+    /update trips set codigo_convite[\s\S]*where codigo_convite is null/.test(migracoes),
+    'a migracao nao preenche as viagens que ja existem. Viagem sem codigo tranca ' +
+      'para fora todo participante que ainda nao se cadastrou -- e as viagens reais ' +
+      'ja estao no ar com gente por cadastrar.',
+  )
+})
+
+// ------------------------------------------------------- barreiras que nao rodam
+//
+// Duas propriedades que nenhum teste comum pega: um minimo de papel errado numa
+// rota que copia dados, e um limite de taxa que existe no codigo e nao executa.
+
+test('duplicar viagem exige editor, nao o minimo padrao', () => {
+  const rota = ler('app/api/viagens/duplicar/route.ts')
+  assert.ok(
+    /exigirViagem\([^)]*,\s*'editor'\s*\)/.test(rota),
+    "POST /api/viagens/duplicar voltou ao minimo padrao ('visualizador'). A copia " +
+      'carrega `orcamento_centavos`, todas as `expenses` e todas as `installments`, ' +
+      'e quem duplica vira PROPRIETARIO dela -- entao um visualizador duplicava, ' +
+      'abria a copia como dono e o financeiroDaViagem respondia {admin: true} com o ' +
+      'razao inteiro. Regra: so se copia o que ja se pode ler.',
+  )
+})
+
+test('a copia da viagem nao leva item de checklist pessoal', () => {
+  const rota = ler('app/api/viagens/duplicar/route.ts')
+  const i = rota.indexOf('insert into checklist_items')
+  assert.ok(i > 0, 'nao achei a copia do checklist')
+  const bloco = rota.slice(i, rota.indexOf('`', rota.indexOf('from checklist_items', i)))
+  assert.ok(
+    bloco.includes("escopo = 'global'"),
+    'a copia do checklist parou de filtrar por escopo. `checklistDaViagem` esconde ' +
+      'o item `pessoal` de quem nao e dono nem proprietario, e a copia nasce sem ' +
+      'participante nenhum -- sem o filtro, duplicar e como um editor le o titulo, ' +
+      'o detalhe e o valor estimado do item pessoal de outra pessoa.',
+  )
+})
+
+test('toda chamada a limitar() e esperada', () => {
+  for (const a of [
+    'app/api/documento/route.ts',
+    'app/api/import/route.ts',
+    'app/api/mutate/route.ts',
+    'app/api/perfil/route.ts',
+  ]) {
+    for (const linha of ler(a).split('\n')) {
+      if (!/(^|[^a-zA-Z])limitar\(/.test(linha)) continue
+      assert.ok(
+        /await\s+limitar\(/.test(linha),
+        a +
+          ' chama limitar() sem await. limitar() e async e SINALIZA com throw: ' +
+          'sem esperar, o 429 vira rejeicao solta que o try/catch de rota() nao ' +
+          'pega, o handler segue e o pedido passa. O limite so aparece no log como ' +
+          'unhandledRejection -- defesa que parece existir e nao roda.',
+      )
+    }
+  }
+})
+
+test('o dono do checklist_state vem da sessao, nao do corpo', () => {
+  const escrita = ler('lib/escrita.ts')
+  const i = escrita.indexOf("if (op.entidade === 'checklist_state')")
+  assert.ok(i > 0, 'nao achei o caminho de gravacao do checklist_state')
+  const bloco = escrita.slice(i, escrita.indexOf('return true', i))
+
+  assert.ok(
+    /insert into checklist_state[\s\S]*values \(\$\{acesso\.participanteId\}/.test(bloco),
+    'o INSERT do checklist_state parou de tirar o `traveler_id` de ' +
+      '`acesso.participanteId`. E ali, e so ali, que mora a barreira: com o dono ' +
+      'vindo da sessao, marcar o checklist alheio nao e proibido, e impossivel de ' +
+      'expressar. Lendo do corpo, vira o mesmo furo que a `entrega` teve.',
+  )
+  // O bloco inteiro, e nao so o SQL: o que se quer impedir e alguem voltar a
+  // consultar o campo homonimo do corpo em qualquer ponto deste caminho.
+  assert.ok(
+    !/campos\.traveler_id/.test(bloco),
+    'o caminho do checklist_state passou a olhar o traveler_id vindo do corpo. ' +
+      'Hoje ele nem chega -- o zod o descarta -- e o dono sai da sessao; ler o ' +
+      'corpo devolve a pergunta "de quem e esta linha?" para quem escreve o pedido.',
+  )
+
+  const schema = ler('lib/schema.ts')
+  const linha = schema.split('\n').find((l) => l.includes('checklist_state:')) ?? ''
+  assert.ok(
+    linha && !linha.includes('traveler_id'),
+    'POR_ENTIDADE.checklist_state ganhou `traveler_id`. Hoje o zod descarta esse ' +
+      'campo, que e o que torna o dono inegociavel; aceita-lo reabre a pergunta ' +
+      '"de quem e esta linha?" para quem escreve o pedido.',
+  )
+})
+
+test('a importacao so vincula a conta de quem importa', () => {
+  const imp = ler('lib/importar.ts')
+  assert.ok(
+    !/from users where email = any/i.test(imp),
+    'lib/importar.ts voltou a resolver QUALQUER conta pelos e-mails do arquivo. ' +
+      'Subir um JSON com o endereco de outra pessoa prendia a conta dela a uma ' +
+      'viagem que ela nunca aceitou, sem sessao dela e sem prova do endereco -- o ' +
+      'mesmo pressuposto que o codigo_convite derrubou, pela porta oposta.',
+  )
+  assert.ok(
+    /email === meuEmail/.test(imp),
+    'sumiu a comparacao com o proprio e-mail: e ela que limita o vinculo a quem importa',
+  )
+})
+
+test('todo participante citado numa escrita e conferido contra a viagem', () => {
+  const escrita = ler('lib/escrita.ts')
+  const i = escrita.indexOf('async function conferirPai')
+  const corpo = escrita.slice(i, escrita.indexOf('async function conferirParticipantes'))
+  for (const entidade of ['documento', 'checklist_item', 'requisito', 'pagamento']) {
+    const j = corpo.indexOf(`entidade === '${entidade}'`)
+    assert.ok(j > 0, `conferirPai parou de tratar ${entidade}`)
+  }
+  // Recorta o bloco do `documento` ate o proximo `if`: sem isso a checagem
+  // alcanca a chamada do bloco seguinte e passa mesmo com esta removida.
+  const inicio = corpo.indexOf("entidade === 'documento'")
+  const bloco = corpo.slice(inicio, corpo.indexOf('if (entidade', inicio + 1))
+  assert.ok(
+    bloco.includes('conferirParticipantes') && bloco.includes('campos.traveler_id'),
+    '`documento` parou de conferir os participantes citados. `traveler_id` decide a ' +
+      'posse de um documento pessoal e `assigned_to` e um text[] que nenhuma chave ' +
+      'estrangeira cobre: sem isto a referencia so garante que a linha `travelers` ' +
+      'existe em ALGUMA viagem.',
+  )
+})
+
+test('nenhum log imprime o objeto de erro cru', () => {
+  const arquivos = [
+    'lib/api.ts',
+    'lib/db.ts',
+    'app/api/mutate/route.ts',
+    'app/api/assistente/route.ts',
+    'app/api/assistente/aplicar/route.ts',
+  ]
+  for (const a of arquivos) {
+    for (const linha of ler(a).split('\n')) {
+      if (linha.trim().startsWith('//') || linha.trim().startsWith('*')) continue
+      if (!/console\.(error|warn|log)\(/.test(linha)) continue
+      // `, e)` ou `, erro)` no fim: o objeto inteiro indo para o log.
+      assert.ok(
+        !/,\s*(e|erro|err)\s*\)/.test(linha),
+        `${a} loga o erro cru: "${linha.trim()}". O NeonDbError carrega \`detail\` ` +
+          '("Key (email)=(...)") e `internalQuery` como propriedades, e o console ' +
+          'imprime as enumeraveis junto com o stack -- e-mail, codigo de convite e ' +
+          'a chave do rate limit (um IP) iam para o log em texto. Use `paraLog(e)`.',
+      )
+    }
+  }
 })

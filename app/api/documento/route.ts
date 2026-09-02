@@ -187,7 +187,12 @@ export const POST = rota(async (req) => {
   const u = await exigirUsuario()
   // Por CONTA, e antes de ler o corpo: o multipart de uma parte tem 4 MiB, e
   // gastá-los para depois recusar seria o próprio limite virando o custo.
-  limitar(
+  // `await`, e ele e a diferenca entre o limite existir e nao existir: `limitar`
+  // e async e SINALIZA com throw. Sem esperar, o 429 vira uma rejeicao solta que
+  // o try/catch de `rota()` nao pega -- o handler segue, o arquivo entra, e o
+  // limite so aparece no log como unhandledRejection. Defesa que parece existir
+  // na leitura do codigo e nao roda e pior que defesa ausente.
+  await limitar(
     `upload:${u.id}`,
     LIMITES_UPLOAD,
     'Muitos envios de arquivo seguidos. Tente de novo mais tarde.',

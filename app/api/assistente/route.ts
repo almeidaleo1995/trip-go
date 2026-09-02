@@ -10,6 +10,7 @@
 // recortado por `financeiroDaViagem` e `documentosDaViagem`. Montar uma consulta
 // própria aqui reabriria todos os vazamentos que essas duas funções fecham.
 import Anthropic from '@anthropic-ai/sdk'
+import { paraLog } from '@/lib/seguranca.ts'
 import { getSnapshot, registrarUso, registrarTentativa } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { ErroHttp, LIMITES_ASSISTENTE } from '@/lib/session.ts'
@@ -182,7 +183,7 @@ export const POST = rota(async (req) => {
       buscaWeb: buscas,
     })
   } catch (e) {
-    console.error('[assistente] telemetria', e)
+    console.error('[assistente] telemetria', paraLog(e))
   }
 
   return {

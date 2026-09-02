@@ -86,8 +86,16 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Fora: rotas de API (respondem 401 em JSON, não redirecionam, e recebem os
-  // cabeçalhos fixos pelo next.config.ts), arquivos do build e assets da pasta
-  // public. Sem isto, o redirecionamento engoliria CSS.
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|sw.js|.*\\.(?:svg|png|jpg|webp)$).*)'],
+  // Fora: rotas de API (respondem 401 em JSON, nao redirecionam, e recebem os
+  // cabecalhos fixos pelo next.config.ts) e os arquivos do build. Sem isto, o
+  // redirecionamento engoliria CSS.
+  //
+  // A lista e de CAMINHOS, nunca de extensoes. Havia aqui um casamento por fim
+  // de URL (`.svg|.png|.jpg|.webp`) para poupar o proxy nos icones do public/, e
+  // ele dispensava QUALQUER rota cujo nome terminasse assim:
+  // `/viagens/qualquer-coisa.png` saia sem checagem de sessao E sem CSP. Hoje
+  // isso so alcanca 404 e casca de cliente, mas e uma dispensa que uma rota
+  // futura herda por acidente de nome. O preco e o proxy rodar sobre os tres
+  // PNGs do public/ -- que e ganho, porque agora eles tambem saem com politica.
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|sw.js).*)'],
 }

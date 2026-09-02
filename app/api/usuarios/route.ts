@@ -61,14 +61,31 @@ export const POST = rota(async (req) => {
     throw new ErroHttp(429, 'Muitas contas criadas deste local. Tente de novo mais tarde.')
   }
 
-  const { nome, email, senha } = parsed.data
+  const { nome, email, senha, convite } = parsed.data
   const usuario = await criarUsuario(nome, email, await hashSenha(senha))
 
   // `criarUsuario` devolve null quando o unique do e-mail barrou o insert. É a
   // única checagem de duplicidade que não tem corrida entre o select e o insert.
-  if (!usuario) throw new ErroHttp(409, 'Já existe uma conta com esse e-mail.')
+  //
+  // A resposta é IDÊNTICA à do erro de validação e à da armadilha — mesmo status,
+  // mesmo texto — pelo motivo que o /api/sessao já aplica: um 409 distinguível
+  // transforma o cadastro num verificador de e-mails cadastrados. Aqui isso pesa
+  // mais que no login, porque `vincularParticipantesPorEmail` (logo abaixo) faz
+  // do e-mail de um participante uma credencial: quem enumera aprende exatamente
+  // quais e-mails da viagem ainda estão livres para serem reivindicados.
+  //
+  // Custa a mensagem útil para quem esqueceu que já tem conta. É o mesmo preço
+  // que o login paga em 'E-mail ou senha incorretos.', e pelo mesmo motivo.
+  if (!usuario) {
+    throw new ErroHttp(400, 'Não consegui criar a conta. Confira os dados e tente de novo.')
+  }
 
-  await vincularParticipantesPorEmail(usuario.id, usuario.email)
+  // O codigo entra AQUI e nao vira campo da conta: ele e a prova de que quem se
+  // cadastrou foi convidado para aquela viagem, gasta uma vez, e nao um dado da
+  // pessoa. Codigo errado nao e erro -- a conta e criada, so nao entra em viagem
+  // nenhuma; dizer "codigo invalido" transformaria o cadastro num verificador de
+  // codigos de convite, que e o mesmo furo que o 409 do e-mail era.
+  await vincularParticipantesPorEmail(usuario.id, usuario.email, convite)
   await gravarCookie(criarToken(usuario.id))
   return { ok: true, usuario }
 })
