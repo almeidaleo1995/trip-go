@@ -719,7 +719,7 @@ function ImportarSugestoes() {
       voos: snapshot.voos.map((v) => ({
         id: String(v.id),
         companhia: String(v.companhia),
-        numero: v.numero ?? null,
+        numero: v.numero == null ? null : String(v.numero),
       })),
       cruzeiros: snapshot.cruzeiros.map((c) => ({ id: String(c.id), navio: String(c.navio) })),
       checklistExistente: (snapshot.checklist as { titulo: string }[]).map((c) => ({

@@ -610,12 +610,124 @@ create table if not exists change_log (
   campo        text,
   de           text,
   para         text,
+  -- quem ORIGINOU a escrita. `traveler_id` continua sendo quem assina; esta
+  -- coluna diz se a pessoa digitou ou se aceitou uma proposta do assistente.
+  origem       text not null default 'pessoa' check (origem in ('pessoa', 'assistente')),
+  -- agrupa as operacoes aceitas de uma vez. E o que permite desfazer uma viagem
+  -- inteira gerada pela IA num toque, em vez de linha por linha.
+  lote         text,
   criado_em    timestamptz not null default now()
 );
+
+-- Consumo da API de IA. Uma linha por chamada ao modelo.
+--
+-- `trip_id` e `on delete set null`, NAO cascade: apagar uma viagem nao pode
+-- apagar o registro do que ela custou — o gasto ja aconteceu e a conta ja veio.
+--
+-- Nao guarda dinheiro, so token. Preco muda; token e fato. O custo e calculado
+-- na leitura com a tabela vigente de `config/precos.ts`.
+create table if not exists ai_usage (
+  id             text primary key default gen_random_uuid()::text,
+  trip_id        text references trips(id) on delete set null,
+  user_id        text not null references users(id) on delete cascade,
+  modo           text not null,
+  modelo         text not null,
+  entrada        integer not null default 0,
+  saida          integer not null default 0,
+  cache_leitura  integer not null default 0,
+  cache_escrita  integer not null default 0,
+  busca_web      integer not null default 0,
+  criado_em      timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------- limite de tentativas
+--
+-- O contador do rate limit, no BANCO e nao na memoria do processo.
+--
+-- Em memoria ele funcionava numa maquina so. Na Vercel cada instancia serverless
+-- tinha o seu contador, entao dez instancias davam dez vezes o limite -- e quem
+-- ataca senha nao precisa de mais do que isso. O que estava escrito como
+-- `ponytail:` em lib/session.ts era exatamente esta tabela.
+--
+-- Uma linha por chave (`login:1.2.3.4`, `cadastro:1.2.3.4`, `assistente:<userId>`).
+-- `tentativas` guarda os instantes dentro da janela; `bloqueado_ate` o fim do
+-- castigo. Duas colunas em vez de um contador porque a janela e DESLIZANTE: um
+-- inteiro nao sabe quais das dez tentativas ja envelheceram.
+create table if not exists rate_limit (
+  chave          text primary key,
+  tentativas     timestamptz[] not null default '{}',
+  bloqueado_ate  timestamptz,
+  atualizado_em  timestamptz not null default now()
+);
+
+-- Conta uma tentativa e diz se ela passou do limite, ATOMICAMENTE.
+--
+-- O `for update` e o ponto inteiro desta funcao. Sem ele, duas instancias leem o
+-- mesmo contador, cada uma soma 1 e grava, e o limite vale o dobro -- que e o
+-- mesmo furo do contador em memoria, so que mais dificil de enxergar. Ler,
+-- decidir e gravar acontecem sob a trava da linha, numa ida so ao banco.
+--
+-- Idempotente: `create or replace` roda de novo sem erro, como o resto do arquivo.
+create or replace function registrar_tentativa(
+  p_chave    text,
+  p_limite   integer,
+  p_janela   interval,
+  p_bloqueio interval
+) returns table (bloqueado boolean, restam_ms bigint)
+language plpgsql as $$
+declare
+  v_ate      timestamptz;
+  v_recentes timestamptz[];
+begin
+  -- Faxina oportunista: 1% das chamadas varre o que ja nao vale. A tabela e
+  -- limitada por chaves distintas (IPs e contas), entao cresce devagar -- mas
+  -- "devagar" sem limite ainda e sem limite.
+  if random() < 0.01 then
+    delete from rate_limit
+     where atualizado_em < now() - interval '1 day'
+       and (bloqueado_ate is null or bloqueado_ate < now());
+  end if;
+
+  insert into rate_limit (chave) values (p_chave) on conflict (chave) do nothing;
+  select bloqueado_ate, tentativas into v_ate, v_recentes
+    from rate_limit where chave = p_chave for update;
+
+  -- Ja de castigo: nao acumula tentativa nova. Sem isto, quem insiste durante o
+  -- bloqueio empurraria o fim dele para sempre.
+  if v_ate is not null and v_ate > now() then
+    return query select true, (extract(epoch from (v_ate - now())) * 1000)::bigint;
+    return;
+  end if;
+
+  -- Descarta o que saiu da janela deslizante e conta esta tentativa.
+  v_recentes := array(select t from unnest(v_recentes) t where t > now() - p_janela) || now();
+
+  if array_length(v_recentes, 1) > p_limite then
+    update rate_limit
+       set tentativas = '{}', bloqueado_ate = now() + p_bloqueio, atualizado_em = now()
+     where chave = p_chave;
+    return query select true, (extract(epoch from p_bloqueio) * 1000)::bigint;
+    return;
+  end if;
+
+  update rate_limit
+     set tentativas = v_recentes, bloqueado_ate = null, atualizado_em = now()
+   where chave = p_chave;
+  return query select false, 0::bigint;
+end $$;
 
 -- ================================================================ migracoes
 -- Levam um banco da versao anterior (viagem unica, login por PIN) ate aqui.
 -- Em banco novo todas sao no-op, porque as colunas ja nasceram acima.
+
+-- Origem e lote do change_log: o assistente de IA grava por aqui, e um banco em
+-- uso nao ve o bloco `create` acima. Sem estas duas linhas, aceitar uma proposta
+-- estoura com "column origem does not exist" em producao e passa em banco novo.
+alter table change_log add column if not exists origem text not null default 'pessoa';
+alter table change_log add column if not exists lote   text;
+alter table change_log drop constraint if exists change_log_origem_check;
+alter table change_log add  constraint change_log_origem_check
+  check (origem in ('pessoa', 'assistente')) not valid;
 
 alter table trips     add column if not exists owner_id   text references users(id) on delete cascade;
 alter table trips     add column if not exists descricao  text;
@@ -948,3 +1060,7 @@ create index if not exists idx_doc_req_trip           on document_requirements (
 create index if not exists idx_doc_sub_req            on document_submissions (requirement_id);
 create index if not exists idx_doc_sub_traveler       on document_submissions (traveler_id);
 create index if not exists idx_doc_sub_documento      on document_submissions (documento_id);
+create index if not exists idx_change_log_lote       on change_log (trip_id, lote);
+create index if not exists idx_ai_usage_user         on ai_usage (user_id, criado_em desc);
+create index if not exists idx_ai_usage_trip         on ai_usage (trip_id, criado_em desc);
+create index if not exists idx_rate_limit_faxina    on rate_limit (atualizado_em);

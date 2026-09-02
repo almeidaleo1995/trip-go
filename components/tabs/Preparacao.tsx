@@ -51,7 +51,6 @@ import {
 } from '../ui.tsx'
 import type { AbaId } from '../Shell.tsx'
 import {
-  CAMPOS_PERFIL,
   montarMatriz,
   resumir,
   type PerfilResumo,
@@ -66,13 +65,11 @@ import {
   TOM_PRIORIDADE,
   embarqueDe,
   montarPreparacao,
-  type Contexto,
+  contextoDoSnapshot,
   type Degrau,
-  type Obrigacao,
   type Fonte,
   type ResumoCategoria,
   type Tarefa,
-  type Voo,
 } from '@/lib/preparacao.ts'
 import { parcelasDaViagem, percentual } from '@/lib/financeiro.ts'
 import {
@@ -101,87 +98,22 @@ const ICONE_FONTE: Record<Fonte, LucideIcon> = {
 /**
  * O `Contexto` do motor, montado do snapshot.
  *
- * O financeiro entra por dois caminhos porque são duas respostas diferentes do
- * servidor, não uma com filtro: quem administra recebe as parcelas da viagem,
- * quem viaja recebe só as próprias obrigações. As duas têm a mesma forma aqui —
- * id, descrição, valor, pago, vencimento — e é isso que deixa uma regra só
- * atender aos dois papéis sem nunca ver o que não deveria.
+ * A montagem em si vive em `lib/preparacao.ts` (`contextoDoSnapshot`), nao aqui:
+ * o assistente de IA monta o mesmo contexto no servidor, e duas montagens
+ * significariam duas listas de pendencias divergindo em silencio. Este hook e a
+ * casca de memoizacao.
  */
 function useCentral() {
   const { snapshot, posso } = useTrip()
   const admin = posso('editor')
 
   return useMemo(() => {
-    const v = snapshot?.viagem
-    const hoje = new Date()
-    const eu = String(snapshot?.eu?.participanteId ?? '')
-
-    const participantes = (snapshot?.participantes ?? []).map((p) => ({
-      id: String(p.id),
-      nome: String(p.nome),
-      avatar_url: (p.avatar_url as string | null) ?? null,
-    }))
-    const requisitos = (snapshot?.requisitos ?? []) as unknown as Requisito[]
-    const perfis = (snapshot?.perfis ?? []) as unknown as PerfilResumo[]
-    const matriz = montarMatriz(
-      requisitos,
-      (snapshot?.entregas ?? []) as unknown as Submissao[],
-      participantes,
-      perfis,
-      hoje,
-    )
-
-    // Campo do perfil que ALGUM requisito puxa e que esta pessoa não preencheu.
-    // Só os que a viagem pede: cobrar a nacionalidade de quem nunca vai precisar
-    // dela é inventar trabalho, e é assim que uma lista de pendências perde a
-    // credibilidade toda.
-    const meuPerfil = perfis.find((p) => p.traveler_id === eu)
-    const pedidos = [...new Set(requisitos.map((r) => r.campo_perfil).filter(Boolean))] as string[]
-    const perfilFaltando = pedidos
-      .filter((c) => !meuPerfil?.campos?.[c])
-      .map((c) => ({ chave: c, rotulo: CAMPOS_PERFIL[c]?.rotulo ?? c }))
-
-    const feitos = Object.fromEntries(
-      (snapshot?.checklist_state ?? [])
-        .filter((e) => String(e.traveler_id) === eu)
-        .map((e) => [String(e.item_id), Boolean(e.feito)]),
-    )
-
-    // A parcela da viagem e a obrigacao pessoal viram a MESMA forma aqui — id,
-    // descricao, valor, pago, vencimento. E o que deixa uma regra so atender aos
-    // dois papeis: o motor nunca precisa saber qual das duas respostas chegou.
-    const financeiro = snapshot?.financeiro
-    const obrigacoes: Obrigacao[] = !financeiro
-      ? []
-      : financeiro.admin
-        ? parcelasDaViagem(financeiro.despesas as never, financeiro.parcelas as never, hoje).map(
-            (p) => ({
-              id: String(p.id),
-              descricao: p.descricao,
-              valor_centavos: Number(p.valor_centavos),
-              pago_centavos: Number(p.pago_centavos ?? 0),
-              vence_em: p.vence_em,
-              status: p.status,
-            }),
-          )
-        : financeiro.obrigacoes
-
-    const contexto: Contexto = {
-      hoje,
-      partida: (v?.data_partida as string | null) ?? null,
-      retorno: (v?.data_retorno as string | null) ?? null,
-      matriz,
-      eu,
+    const { contexto, participantes } = contextoDoSnapshot(
+      snapshot as never,
+      String(snapshot?.eu?.participanteId ?? ''),
       admin,
-      perfilFaltando,
-      documentos: (snapshot?.documentos ?? []) as never,
-      checklist: (snapshot?.checklist ?? []) as never,
-      feitos,
-      voos: (snapshot?.voos ?? []) as unknown as Voo[],
-      reservas: (snapshot?.reservas ?? []) as never,
-      obrigacoes,
-    }
-
+      new Date(),
+    )
     return { contexto, participantes, central: montarPreparacao(contexto), admin }
   }, [snapshot, admin])
 }

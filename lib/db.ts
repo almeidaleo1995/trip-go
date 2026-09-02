@@ -10,6 +10,8 @@
 import { neon } from '@neondatabase/serverless'
 import { papelAlcanca, type Papel } from '../config/navigation.ts'
 import { resumoPessoal, type ResumoPessoal } from './financeiro.ts'
+import { registrarFalha, estaBloqueado, limparFalhas, type Limites } from './session.ts'
+import { cifrar, decifrarPerfil } from './cripto.ts'
 
 function conectar() {
   const url = process.env.DATABASE_URL
@@ -293,6 +295,20 @@ export async function getSnapshot(
   papel: Papel,
   participanteId: string,
 ): Promise<Snapshot> {
+  // DOIS limiares, e a diferenca entre eles nao e detalhe.
+  //
+  // `administra` (editor) e o corte do DINHEIRO — o mesmo de `financeiroDaViagem`,
+  // onde editor recebe a forma de admin. Vale para o orcamento da viagem.
+  //
+  // `veDadoPessoal` (proprietario) e o corte do DOCUMENTO, e ele e mais alto de
+  // proposito: planejar o roteiro nao da direito de ler o passaporte de ninguem.
+  // E a mesma regra que `documentosDaViagem`, `documentacaoDaViagem` e o
+  // `documentoVisivel` de /api/documento ja aplicam — usar `editor` aqui daria a
+  // um co-organizador exatamente o dado que essas tres funcoes se dao ao trabalho
+  // de esconder dele, e por uma porta que nenhuma tela mostra.
+  const administra = papelAlcanca(papel, 'editor')
+  const veDadoPessoal = papelAlcanca(papel, 'proprietario')
+
   const [
     viagem,
     participantes,
@@ -313,9 +329,30 @@ export async function getSnapshot(
     mensagens,
     alteracoes,
   ] = await Promise.all([
-    sql`select * from trips where id = ${tripId}`,
-    sql`select p.id, p.trip_id, p.user_id, p.nome, p.email, p.papel, p.telefone,
-               p.passaporte, p.ordem, p.updated_at, u.avatar_url
+    // `orcamento_centavos` NAO sai para visualizador. Ele e o total da viagem, e
+    // o total da viagem e exatamente o que `financeiroDaViagem` recusa a mandar
+    // para quem nao administra — deixa-lo passar por dentro de `select *` em
+    // `trips` publicaria pela porta dos fundos o numero que a outra consulta
+    // protege pela porta da frente. A tela ja escondia (`if (!fin.admin) return
+    // null` em Financeiro.tsx); esconder na tela nao e proteger.
+    sql`select id, owner_id, nome, subtitulo, descricao, data_partida, data_retorno,
+               moeda, fuso, cor_destaque, capa_url, arquivada, updated_at,
+               case when ${administra}::boolean then orcamento_centavos end as orcamento_centavos
+        from trips where id = ${tripId}`,
+    // Passaporte e telefone de participante saem so para o PROPRIETARIO e para o
+    // dono da propria linha.
+    //
+    // A coluna existe porque o proprietario preenche a ficha de quem viaja junto
+    // sem usar o app (`participante` tem minimo 'proprietario' na TABELA de
+    // lib/escrita.ts) — mas quem ESCREVIA era o dono e quem LIA era a viagem
+    // inteira, visualizador incluso. Duas coisas nesta consulta, e as duas
+    // importam: o recorte e na CONSULTA, porque campo escondido no React continua
+    // na aba de rede; e o limiar e `proprietario`, nao `editor`, porque e o mesmo
+    // de `documentosDaViagem` — editar o roteiro nao da direito de ler passaporte.
+    sql`select p.id, p.trip_id, p.user_id, p.nome, p.email, p.papel, p.ordem,
+               p.updated_at, u.avatar_url,
+               case when ${veDadoPessoal}::boolean or p.id = ${participanteId} then p.telefone end as telefone,
+               case when ${veDadoPessoal}::boolean or p.id = ${participanteId} then p.passaporte end as passaporte
         from travelers p left join users u on u.id = p.user_id
         where p.trip_id = ${tripId} order by p.ordem, p.nome`,
     // `ocorre_em`/`fim_em` saem como TEXTO, não como Date — mesmo motivo do `dia`
@@ -583,7 +620,10 @@ export async function perfilDeViagem(userId: string) {
            passaporte_pais, emergencia_nome, emergencia_telefone, emergencia_parentesco
     from users where id = ${userId}
   `
-  return (r[0] as Record<string, unknown> | undefined) ?? null
+  // CPF, RG e passaporte saem do banco cifrados — ver lib/cripto.ts. A volta ao
+  // texto puro acontece AQUI, no ponto mais fundo que ainda sabe que a resposta é
+  // para o dono da conta: esta função só é chamada com o userId da sessão.
+  return decifrarPerfil((r[0] as Record<string, unknown> | undefined) ?? null)
 }
 
 /**
@@ -598,15 +638,19 @@ export async function atualizarPerfilViagem(userId: string, d: Record<string, un
     const x = d[c]
     return x === null || x === undefined || String(x).trim() === '' ? null : String(x).trim()
   }
+  // Os três campos que identificam a pessoa vão cifrados para o banco. `cifrar`
+  // devolve null para vazio, então "não informado" continua sendo NULL de verdade
+  // — é disso que `documentacaoDaViagem` depende para saber o que falta.
+  const c = (col: string) => cifrar(v(col))
   await sql`
     update users set
       nome_completo = ${v('nome_completo')},
       nome_social = ${v('nome_social')},
       nascimento = ${v('nascimento')},
-      cpf = ${v('cpf')},
-      rg = ${v('rg')},
+      cpf = ${c('cpf')},
+      rg = ${c('rg')},
       nacionalidade = ${v('nacionalidade')},
-      passaporte_numero = ${v('passaporte_numero')},
+      passaporte_numero = ${c('passaporte_numero')},
       passaporte_nome = ${v('passaporte_nome')},
       passaporte_emissao = ${v('passaporte_emissao')},
       passaporte_validade = ${v('passaporte_validade')},
@@ -749,10 +793,152 @@ export async function registrarAlteracao(
   campo: string,
   de: unknown,
   para: unknown,
+  /**
+   * Quem originou a escrita. `travelerId` continua sendo quem assina — o que muda
+   * e se a pessoa digitou (`pessoa`) ou aceitou uma proposta do assistente.
+   * Opcionais e no fim de proposito: as 7 chamadas que ja existiam seguem valendo.
+   */
+  origem: 'pessoa' | 'assistente' = 'pessoa',
+  lote: string | null = null,
 ) {
   const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))
   await sql`
-    insert into change_log (trip_id, traveler_id, entidade, entidade_id, campo, de, para)
-    values (${tripId}, ${travelerId}, ${entidade}, ${entidadeId}, ${campo}, ${texto(de)}, ${texto(para)})
+    insert into change_log (trip_id, traveler_id, entidade, entidade_id, campo, de, para, origem, lote)
+    values (${tripId}, ${travelerId}, ${entidade}, ${entidadeId}, ${campo},
+            ${texto(de)}, ${texto(para)}, ${origem}, ${lote})
   `
+}
+
+// ---------------------------------------------------------------- consumo de IA
+
+/**
+ * Uma chamada ao modelo virou uma linha. Só token — preço é tabela e sai na
+ * leitura (`lib/consumo.ts`), porque gravar o preço junto congelaria um valor
+ * que muda e o relatório do mês passado passaria a mentir no reajuste.
+ */
+export async function registrarUso(u: {
+  tripId: string | null
+  userId: string
+  modo: string
+  modelo: string
+  entrada: number
+  saida: number
+  cacheLeitura: number
+  cacheEscrita: number
+  buscaWeb: number
+}) {
+  await sql`
+    insert into ai_usage (trip_id, user_id, modo, modelo, entrada, saida,
+                          cache_leitura, cache_escrita, busca_web)
+    values (${u.tripId}, ${u.userId}, ${u.modo}, ${u.modelo}, ${u.entrada}, ${u.saida},
+            ${u.cacheLeitura}, ${u.cacheEscrita}, ${u.buscaWeb})
+  `
+}
+
+/** As linhas de consumo de uma conta ou de uma viagem, para o relatório. */
+export async function usoDaViagem(tripId: string, desde: string) {
+  return sql`
+    select a.user_id, a.modo, a.modelo, a.entrada, a.saida, a.cache_leitura,
+           a.cache_escrita, a.busca_web, a.criado_em, u.nome
+    from ai_usage a join users u on u.id = a.user_id
+    where a.trip_id = ${tripId} and a.criado_em >= ${desde}
+    order by a.criado_em desc
+  `
+}
+
+/**
+ * O envelope que TODA rota de escrita devolve: snapshot + quem é você.
+ *
+ * Existe como função por um incidente registrado no README: `/api/mutate` e
+ * `/api/snapshot` divergiram uma vez no campo `eu`, e "every write crashed the
+ * next render" — a tela perdia o papel e o participanteId depois de qualquer
+ * escrita. Com três rotas de escrita (mutate, aplicar, desfazer) a chance de
+ * divergir triplicaria. Aqui é impossível: há um lugar só.
+ */
+export async function envelope(acesso: {
+  userId: string
+  tripId: string
+  papel: Papel
+  participanteId: string
+}) {
+  return {
+    ...(await getSnapshot(acesso.tripId, acesso.papel, acesso.participanteId)),
+    eu: {
+      userId: acesso.userId,
+      usuario: await usuarioPorId(acesso.userId),
+      participanteId: acesso.participanteId,
+      papel: acesso.papel,
+    },
+  }
+}
+
+// ---------------------------------------------------------------- limite de tentativas
+
+/**
+ * O rate limit no BANCO, compartilhado por todas as instancias.
+ *
+ * O contador em memoria de `lib/session.ts` funcionava numa maquina so. Na
+ * Vercel cada instancia serverless tinha o seu, entao dez instancias davam dez
+ * vezes o limite — e quem chuta senha nao precisa de mais do que isso. A decisao
+ * (janela deslizante, quando bloquear, por quanto tempo) continua sendo a mesma;
+ * o que muda e ONDE ela e contada.
+ *
+ * A conta inteira acontece dentro de `registrar_tentativa` no Postgres, sob
+ * `for update`: ler, decidir e gravar em ida unica e sob trava. Fazer isso aqui
+ * em tres consultas reabriria a corrida entre instancias que a tabela existe
+ * para fechar.
+ *
+ * Falha de rede NAO derruba o login: cai para o contador em memoria, que limita
+ * por instancia em vez de nada. Falhar fechado trancaria a viagem inteira para
+ * fora por causa de um soluco do banco; falhar aberto tiraria o limite justo
+ * quando o banco esta instavel. O meio-termo e o balde local.
+ */
+export async function registrarTentativa(
+  chave: string,
+  limites: Limites,
+): Promise<{ bloqueado: boolean; restamMs: number }> {
+  try {
+    const r = await sql`
+      select bloqueado, restam_ms from registrar_tentativa(
+        ${chave},
+        ${limites.limite},
+        ${`${Math.round(limites.janelaMs / 1000)} seconds`}::interval,
+        ${`${Math.round(limites.bloqueioMs / 1000)} seconds`}::interval
+      )
+    `
+    const linha = r[0] as { bloqueado: boolean; restam_ms: string | number } | undefined
+    if (!linha) return registrarFalha(chave, Date.now(), limites)
+    return { bloqueado: Boolean(linha.bloqueado), restamMs: Number(linha.restam_ms) }
+  } catch (e) {
+    console.error('[rate-limit] caiu para o contador em memoria', e)
+    return registrarFalha(chave, Date.now(), limites)
+  }
+}
+
+/** Consulta sem contar tentativa. Usado antes de gastar CPU com scrypt. */
+export async function consultarBloqueio(chave: string): Promise<boolean> {
+  try {
+    const r = await sql`
+      select bloqueado_ate from rate_limit where chave = ${chave} and bloqueado_ate > now()
+    `
+    return r.length > 0
+  } catch {
+    return estaBloqueado(chave)
+  }
+}
+
+/**
+ * Zera a janela. So o login chama: acertar a senha prova que nao era chute.
+ *
+ * O cadastro e o assistente nunca chamam, e por motivos diferentes — no cadastro
+ * o abuso E a conta criada com sucesso, e no assistente o que custa e a chamada
+ * que deu certo. Ver os comentarios de LIMITES_* em lib/session.ts.
+ */
+export async function limparTentativas(chave: string): Promise<void> {
+  limparFalhas(chave)
+  try {
+    await sql`delete from rate_limit where chave = ${chave}`
+  } catch {
+    // A janela em memoria ja foi zerada acima; a linha no banco expira sozinha.
+  }
 }

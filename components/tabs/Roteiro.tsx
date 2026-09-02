@@ -89,6 +89,7 @@ import { DocumentosVinculados } from '../CofreDocumento.tsx'
 import { RequisitosDoDia } from './Documentacao.tsx'
 import { type Papel } from '@/config/navigation.ts'
 import { AdminAcoes } from '../EditorSheet.tsx'
+import { GatilhoGuia } from '../GatilhoGuia.tsx'
 import {
   Badge,
   Botao,
@@ -193,8 +194,8 @@ const NOME_MODO: Record<string, string> = {
  * deslocamento fala por si. `transporte` no evento é TEXTO LIVRE ("metrô U3",
  * "Via BR-101") — vira legenda no cartão do item, nunca chave de ícone.
  */
-function modoDoPonto(e: Record<string, any>): { Icone: LucideIcon; nome: string } | null {
-  const modo = String(((e?.opcoes ?? []) as Record<string, any>[])[0]?.modo ?? '')
+function modoDoPonto(e: Record<string, unknown>): { Icone: LucideIcon; nome: string } | null {
+  const modo = String(((e?.opcoes ?? []) as Record<string, unknown>[])[0]?.modo ?? '')
   if (ICONE_MODO[modo]) return { Icone: ICONE_MODO[modo], nome: NOME_MODO[modo] ?? modo }
   const tipo = String(e?.tipo ?? '')
   const nome = TIPO_DESLOCAMENTO[tipo]
@@ -312,7 +313,19 @@ export function Roteiro() {
         <Vazio
           titulo="Seu roteiro ainda não foi montado"
           texto="Defina as datas da viagem em Participantes e dados, ou adicione o primeiro item para o roteiro começar a se montar sozinho."
-          acao={<AdminAcoes entidade="roteiro">Primeiro item</AdminAcoes>}
+          acao={
+            <span className="flex flex-wrap items-center justify-center gap-2">
+              {/* Montar com o guia vem primeiro: num roteiro vazio, escrever o
+                  primeiro item à mão é o caminho longo. */}
+              <GatilhoGuia
+                modo="criar_viagem"
+                aba="Roteiro"
+                rotulo="Montar com o guia"
+                pergunta="Monte o roteiro desta viagem inteira e proponha os itens: cidades, dias com título e resumo, e passeios com horário plausível. Prefira menos itens bem escolhidos a uma agenda cheia — dia de viagem tem deslocamento, fila e cansaço."
+              />
+              <AdminAcoes entidade="roteiro">Primeiro item</AdminAcoes>
+            </span>
+          }
         />
       </>
     )
@@ -410,7 +423,7 @@ function Cabecalho({
               {formatarData(dia.chave, { day: '2-digit', month: 'long', year: 'numeric' })}
             </h1>
             {dia.numero > 0 && <Badge tipo="destaque" texto={`Dia ${dia.numero}`} />}
-            {dia.meta?.ancora && (
+            {Boolean(dia.meta?.ancora) && (
               <Badge tipo="info" texto="Dia-âncora" icone={<Anchor size={11} />} />
             )}
             {tipoDia && (
@@ -436,8 +449,8 @@ function Cabecalho({
               )}
             </p>
           )}
-          {dia.meta?.titulo && (
-            <p className="mt-1 text-sm text-(--color-tinta-2)">{String(dia.meta.titulo)}</p>
+          {Boolean(dia.meta?.titulo) && (
+            <p className="mt-1 text-sm text-(--color-tinta-2)">{String(dia.meta?.titulo ?? '')}</p>
           )}
         </div>
 
@@ -633,8 +646,8 @@ type PlanoRegistro = {
   tipo: 'novo' | 'atualizado'
   id?: string
   resumo: string
-  campos: Record<string, any>
-  opcoes: Record<string, any>[]
+  campos: Record<string, unknown>
+  opcoes: Record<string, unknown>[]
   diffs: DiffCampo[]
 }
 type Plano = { dias: PlanoRegistro[]; itens: PlanoRegistro[] }
@@ -676,7 +689,10 @@ function valoresIguais(campo: string, a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 }
 
-function camposAlterados(existente: Record<string, any>, novos: Record<string, any>): DiffCampo[] {
+function camposAlterados(
+  existente: Record<string, unknown>,
+  novos: Record<string, unknown>,
+): DiffCampo[] {
   const diffs: DiffCampo[] = []
   for (const campo of Object.keys(novos)) {
     const antes = existente[campo] ?? null
@@ -695,10 +711,10 @@ function camposAlterados(existente: Record<string, any>, novos: Record<string, a
  * registro novo não tem nada para apagar, então usa o objeto cheio.
  */
 function apenasCamposDoArquivo(
-  bruto: Record<string, any>,
-  validado: Record<string, any>,
-): Record<string, any> {
-  const saida: Record<string, any> = {}
+  bruto: Record<string, unknown>,
+  validado: Record<string, unknown>,
+): Record<string, unknown> {
+  const saida: Record<string, unknown> = {}
   for (const chave of Object.keys(bruto)) {
     if (chave === 'id') continue
     saida[chave] = validado[chave]
@@ -706,8 +722,8 @@ function apenasCamposDoArquivo(
   return saida
 }
 
-function semChaves(obj: Record<string, any>, fora: string[]): Record<string, any> {
-  const saida: Record<string, any> = {}
+function semChaves(obj: Record<string, unknown>, fora: string[]): Record<string, unknown> {
+  const saida: Record<string, unknown> = {}
   for (const chave of Object.keys(obj)) {
     if (!fora.includes(chave)) saida[chave] = obj[chave]
   }
@@ -729,8 +745,8 @@ function formatarValorDiff(campo: string, valor: unknown): string {
 }
 
 function planejarDias(
-  entradas: { bruto: Record<string, any>; dados: Record<string, any> }[],
-  existentes: Record<string, any>[],
+  entradas: { bruto: Record<string, unknown>; dados: Record<string, unknown> }[],
+  existentes: Record<string, unknown>[],
 ): PlanoRegistro[] {
   return entradas.map(({ bruto, dados }) => {
     const existente = existentes.find((e) => String(e.dia) === String(dados.dia))
@@ -751,8 +767,8 @@ function planejarDias(
 }
 
 function planejarItens(
-  entradas: { bruto: Record<string, any>; dados: Record<string, any> }[],
-  existentes: Record<string, any>[],
+  entradas: { bruto: Record<string, unknown>; dados: Record<string, unknown> }[],
+  existentes: Record<string, unknown>[],
 ): PlanoRegistro[] {
   const usados = new Set<string>()
   return entradas.map(({ bruto, dados }) => {
@@ -766,7 +782,7 @@ function planejarItens(
     // vira mutações próprias depois de criado o item; `reserva`/`documento` (o
     // vínculo por NOME que só existe num arquivo de importação completo) fica
     // de fora nesta versão, então some do plano em vez de falhar a validação.
-    const opcoes = (dados.opcoes ?? []) as Record<string, any>[]
+    const opcoes = (dados.opcoes ?? []) as Record<string, unknown>[]
     const brutoLimpo = semChaves(bruto, ['opcoes', 'reserva', 'documento', 'id'])
     const dadosLimpos = semChaves(dados, ['opcoes', 'reserva', 'documento', 'id'])
 
@@ -780,7 +796,7 @@ function planejarItens(
       // já existe pode ter opções que alguém editou na mão, e casar a lista
       // antiga com a nova sem um id estável arrisca duplicar ou apagar opção —
       // exatamente o que a regra "nunca apagar em silêncio" proíbe.
-      opcoes: existente ? [] : ((opcoes ?? []) as Record<string, any>[]),
+      opcoes: existente ? [] : ((opcoes ?? []) as Record<string, unknown>[]),
       diffs: existente ? camposAlterados(existente, campos) : [],
     }
   })
@@ -803,7 +819,7 @@ function ImportarRoteiroModal({ aoFechar }: { aoFechar: () => void }) {
       setErro('Não consegui ler o arquivo como JSON — confira se ele não foi cortado.')
       return
     }
-    const obj = (bruto ?? {}) as Record<string, any>
+    const obj = (bruto ?? {}) as Record<string, unknown>
     const diasBrutos = Array.isArray(obj.dias) ? obj.dias : []
     const itensBrutos = Array.isArray(obj.roteiro)
       ? obj.roteiro
@@ -816,7 +832,7 @@ function ImportarRoteiroModal({ aoFechar }: { aoFechar: () => void }) {
       return
     }
 
-    const diasValidados: { bruto: Record<string, any>; dados: Record<string, any> }[] = []
+    const diasValidados: { bruto: Record<string, unknown>; dados: Record<string, unknown> }[] = []
     for (let i = 0; i < diasBrutos.length; i++) {
       const r = DiaSchema.safeParse(diasBrutos[i])
       if (!r.success) {
@@ -826,7 +842,7 @@ function ImportarRoteiroModal({ aoFechar }: { aoFechar: () => void }) {
       diasValidados.push({ bruto: diasBrutos[i], dados: r.data })
     }
 
-    const itensValidados: { bruto: Record<string, any>; dados: Record<string, any> }[] = []
+    const itensValidados: { bruto: Record<string, unknown>; dados: Record<string, unknown> }[] = []
     for (let i = 0; i < itensBrutos.length; i++) {
       const r = EventoSchema.safeParse(itensBrutos[i])
       if (!r.success) {
@@ -837,8 +853,8 @@ function ImportarRoteiroModal({ aoFechar }: { aoFechar: () => void }) {
     }
 
     setPlano({
-      dias: planejarDias(diasValidados, (snapshot?.dias ?? []) as Record<string, any>[]),
-      itens: planejarItens(itensValidados, (snapshot?.roteiro ?? []) as Record<string, any>[]),
+      dias: planejarDias(diasValidados, (snapshot?.dias ?? []) as Record<string, unknown>[]),
+      itens: planejarItens(itensValidados, (snapshot?.roteiro ?? []) as Record<string, unknown>[]),
     })
   }
 
@@ -1049,7 +1065,7 @@ function montarLinha(dia: DiaRoteiro, derivadas: Derivada[]) {
   ].sort((a, b) => String(a.item.ocorre_em ?? '').localeCompare(String(b.item.ocorre_em ?? '')))
 }
 
-function itemTemDetalhe(item: Record<string, any>, derivada: Derivada | null): boolean {
+function itemTemDetalhe(item: Record<string, unknown>, derivada: Derivada | null): boolean {
   return (
     Boolean(item.descricao || item.como_chegar || item.nota || item.endereco) ||
     linhas(item.dicas).length > 0 ||
@@ -1124,10 +1140,10 @@ function ItemLinha({
   mutate,
   podeEditar,
 }: {
-  item: Record<string, any>
+  item: Record<string, unknown>
   derivada: Derivada | null
-  anterior: Record<string, any> | null
-  posterior: Record<string, any> | null
+  anterior: Record<string, unknown> | null
+  posterior: Record<string, unknown> | null
   moeda: string
   mutate: ReturnType<typeof useTrip>['mutate']
   podeEditar: boolean
@@ -1173,7 +1189,7 @@ function ItemLinha({
    * mostrando 14:00 acima de 10:00, contando uma história diferente da dos
    * próprios horários que ela exibe.
    */
-  const trocar = (vizinho: Record<string, any> | null) => {
+  const trocar = (vizinho: Record<string, unknown> | null) => {
     if (!vizinho || !vizinho.id || !item.id) return
     const meu = paraCampo(item.ocorre_em)
     const dele = paraCampo(vizinho.ocorre_em)
@@ -1247,12 +1263,12 @@ function ItemLinha({
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               <p className="font-medium">{String(item.titulo)}</p>
-              {(item.local || item.cidade) && (
+              {Boolean(item.local || item.cidade) && (
                 <p className="mt-0.5 text-[13px] text-(--color-tinta-3)">
                   {[item.local, item.cidade].filter(Boolean).join(' · ')}
                 </p>
               )}
-              {item.fim_em && (
+              {Boolean(item.fim_em) && (
                 <p className="tab-num mt-0.5 text-[12px] text-(--color-tinta-3)">
                   {formatarHora(item.ocorre_em)} — {formatarHora(item.fim_em)}
                 </p>
@@ -1366,7 +1382,7 @@ function DetalheItem({
   moeda,
   podeEditar,
 }: {
-  item: Record<string, any>
+  item: Record<string, unknown>
   derivada: Derivada | null
   moeda: string
   podeEditar: boolean
@@ -1374,23 +1390,27 @@ function DetalheItem({
   const { snapshot } = useTrip()
   const dicas = linhas(item.dicas)
   const links = lerLinks(item.links)
-  const opcoes = ((item.opcoes ?? []) as Record<string, any>[])
+  const opcoes = ((item.opcoes ?? []) as Record<string, unknown>[])
     .slice()
     .sort(
       (a, b) => Number(b.recomendado) - Number(a.recomendado) || Number(a.ordem) - Number(b.ordem),
     )
-  const reserva = (snapshot?.reservas ?? []).find((r: any) => r.id === item.reserva_id) as
-    Record<string, any> | undefined
-  const documento = (snapshot?.documentos ?? []).find((d: any) => d.id === item.documento_id) as
-    Record<string, any> | undefined
+  const reserva = (snapshot?.reservas ?? []).find(
+    (r: Record<string, unknown>) => r.id === item.reserva_id,
+  ) as Record<string, unknown> | undefined
+  const documento = (snapshot?.documentos ?? []).find(
+    (d: Record<string, unknown>) => d.id === item.documento_id,
+  ) as Record<string, unknown> | undefined
 
   return (
     <div className="mt-3 space-y-3 border-t border-(--color-borda) pt-3">
       {derivada?.detalhe}
 
-      {item.descricao && <p className="text-sm text-(--color-tinta-2)">{String(item.descricao)}</p>}
+      {Boolean(item.descricao) && (
+        <p className="text-sm text-(--color-tinta-2)">{String(item.descricao)}</p>
+      )}
 
-      {item.endereco && (
+      {Boolean(item.endereco) && (
         <div className="flex items-start gap-2 text-sm text-(--color-tinta-2)">
           <MapPin size={14} className="mt-0.5 shrink-0 text-(--color-tinta-3)" />
           <span className="min-w-0 flex-1">{String(item.endereco)}</span>
@@ -1411,7 +1431,7 @@ function DetalheItem({
       {(item.como_chegar || opcoes.length > 0) && (
         <div>
           <Rotulo>Como chegar</Rotulo>
-          {item.como_chegar && (
+          {Boolean(item.como_chegar) && (
             <p className="mt-1 text-sm whitespace-pre-line text-(--color-tinta-2)">
               {String(item.como_chegar)}
             </p>
@@ -1438,7 +1458,7 @@ function DetalheItem({
                       <span className="text-[13px] font-semibold">
                         {NOME_MODO[String(o.modo)] ?? String(o.modo)}
                       </span>
-                      {o.recomendado && (
+                      {Boolean(o.recomendado) && (
                         <Star
                           size={12}
                           style={{ color: 'var(--destaque)' }}
@@ -1456,7 +1476,7 @@ function DetalheItem({
                         .filter(Boolean)
                         .join(' · ')}
                     </p>
-                    {o.detalhe && (
+                    {Boolean(o.detalhe) && (
                       <p className="mt-0.5 text-[12px] text-(--color-tinta-3)">
                         {String(o.detalhe)}
                       </p>
@@ -1488,10 +1508,10 @@ function DetalheItem({
           <Rotulo>Reserva</Rotulo>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <span className="font-medium">{String(reserva.nome)}</span>
-            {reserva.localizador && (
+            {Boolean(reserva.localizador) && (
               <Copiar valor={String(reserva.localizador)} rotulo="Localizador" />
             )}
-            {reserva.inicio_em && (
+            {Boolean(reserva.inicio_em) && (
               <span className="tab-num text-(--color-tinta-3)">
                 {formatarHora(reserva.inicio_em)}
               </span>
@@ -1506,7 +1526,7 @@ function DetalheItem({
           <p className="mt-1 flex items-center gap-2 text-sm">
             <FileText size={14} className="text-(--color-tinta-3)" />
             {String(documento.titulo)}
-            {documento.valor && (
+            {Boolean(documento.valor) && (
               <span className="tab-num text-(--color-tinta-3)">{String(documento.valor)}</span>
             )}
           </p>
@@ -1550,7 +1570,9 @@ function DetalheItem({
         </div>
       )}
 
-      {item.nota && <p className="text-sm text-(--color-tinta-3) italic">{String(item.nota)}</p>}
+      {Boolean(item.nota) && (
+        <p className="text-sm text-(--color-tinta-3) italic">{String(item.nota)}</p>
+      )}
     </div>
   )
 }
@@ -1567,11 +1589,11 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
   const itensComReserva = dia.itens
     .map((item) => ({
       item,
-      reserva: (snapshot?.reservas as Record<string, any>[] | undefined)?.find(
+      reserva: (snapshot?.reservas as Record<string, unknown>[] | undefined)?.find(
         (r) => r.id === item.reserva_id,
       ),
     }))
-    .filter((x): x is { item: Record<string, any>; reserva: Record<string, any> } =>
+    .filter((x): x is { item: Record<string, unknown>; reserva: Record<string, unknown> } =>
       Boolean(x.reserva),
     )
 
@@ -1590,35 +1612,35 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
         <Cartao>
           <Rotulo>Hospedagem</Rotulo>
           <p className="mt-1.5 font-semibold">{String(hospedagem.nome)}</p>
-          {hospedagem.endereco && (
+          {Boolean(hospedagem.endereco) && (
             <p className="mt-0.5 text-[13px] text-(--color-tinta-3)">
               {String(hospedagem.endereco)}
             </p>
           )}
           <div className="tab-num mt-2 space-y-0.5 text-[13px] text-(--color-tinta-2)">
-            {hospedagem.inicio_em && (
+            {Boolean(hospedagem.inicio_em) && (
               <p>
                 Check-in {formatarData(hospedagem.inicio_em)} ·{' '}
                 {formatarHora(hospedagem.inicio_em) || 'a confirmar'}
               </p>
             )}
-            {hospedagem.fim_em && (
+            {Boolean(hospedagem.fim_em) && (
               <p>
                 Check-out {formatarData(hospedagem.fim_em)} ·{' '}
                 {formatarHora(hospedagem.fim_em) || 'a confirmar'}
               </p>
             )}
-            {hospedagem.inicio_em && hospedagem.fim_em && (
+            {Boolean(hospedagem.inicio_em && hospedagem.fim_em) && (
               <p className="text-(--color-tinta-3)">
                 {noites(String(hospedagem.inicio_em), String(hospedagem.fim_em))} noites
               </p>
             )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-            {hospedagem.localizador && (
+            {Boolean(hospedagem.localizador) && (
               <Copiar valor={String(hospedagem.localizador)} rotulo="Localizador" />
             )}
-            {hospedagem.link && (
+            {Boolean(hospedagem.link) && (
               <a
                 href={String(hospedagem.link)}
                 target="_blank"
@@ -1652,7 +1674,7 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
             </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-            {reserva.localizador && (
+            {Boolean(reserva.localizador) && (
               <Copiar valor={String(reserva.localizador)} rotulo="Localizador" />
             )}
             {Number(reserva.valor_centavos) > 0 && (
@@ -1660,7 +1682,7 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
                 {formatarDinheiro(Number(reserva.valor_centavos), moeda)}
               </span>
             )}
-            {reserva.link && (
+            {Boolean(reserva.link) && (
               <a
                 href={String(reserva.link)}
                 target="_blank"
@@ -1784,7 +1806,7 @@ function DicasDia({ dia }: { dia: DiaRoteiro }) {
  */
 function ChecklistsDoDiaSecao({ dia }: { dia: DiaRoteiro }) {
   const { snapshot } = useTrip()
-  const doDia = ((snapshot?.checklist ?? []) as Record<string, any>[]).filter(
+  const doDia = ((snapshot?.checklist ?? []) as Record<string, unknown>[]).filter(
     (i) => chaveDia(i.prazo_ideal) === dia.chave || chaveDia(i.prazo_maximo) === dia.chave,
   )
   const sair = linhas(dia.meta?.antes_sair)
@@ -1884,7 +1906,7 @@ function usePrevisaoDoDia(cidade: string | null, chaveDiaAlvo: string) {
     if (!cidade) return null
     const alvo = cidade.trim().toLowerCase()
     return (
-      (snapshot?.lugares as Record<string, any>[] | undefined)?.find(
+      (snapshot?.lugares as Record<string, unknown>[] | undefined)?.find(
         (l) =>
           String(l.cidade ?? '')
             .trim()
@@ -1933,7 +1955,7 @@ function usePrevisaoDoDia(cidade: string | null, chaveDiaAlvo: string) {
  */
 function useClimaAgora(cidades: string[]) {
   const { snapshot } = useTrip()
-  const lugares = (snapshot?.lugares as Record<string, any>[] | undefined) ?? []
+  const lugares = (snapshot?.lugares as Record<string, unknown>[] | undefined) ?? []
 
   // Serializado para o efeito ter UMA dependência honesta: a lista derivada é
   // um array novo a cada render, e como dep faria a busca rodar sem parar.
@@ -2147,7 +2169,7 @@ function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
   // empilhados no mesmo lugar seriam um mapa que mente sobre a distância entre
   // eles. Nesse caso os pinos não são numerados, porque não correspondem um a
   // um às linhas da lista.
-  const lugares = (snapshot?.lugares as Record<string, any>[] | undefined) ?? []
+  const lugares = (snapshot?.lugares as Record<string, unknown>[] | undefined) ?? []
   const porCidade = locaisDoDia(dia, snapshot)
     .cidades.map((c) => lugares.find((l) => mesmaCidade(l.cidade, c)))
     .filter((l) => l?.lat != null && l?.lon != null)
@@ -2308,7 +2330,7 @@ function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
 function MapaGeralBotao() {
   const { snapshot } = useTrip()
   const [ampliado, setAmpliado] = useState(false)
-  const lugares = (snapshot?.lugares ?? []) as Record<string, any>[]
+  const lugares = (snapshot?.lugares ?? []) as Record<string, unknown>[]
   if (lugares.length < 2) return null
 
   return (
@@ -2326,7 +2348,7 @@ function MapaGeralBotao() {
           aoFechar={() => setAmpliado(false)}
         >
           <div className="h-[60dvh]">
-            <MapaRota lugares={snapshot?.lugares as any[]} />
+            <MapaRota lugares={snapshot?.lugares as Record<string, unknown>[]} />
           </div>
         </AppModal>
       )}
@@ -2923,7 +2945,7 @@ function TransportesDoDia({ dia }: { dia: DiaRoteiro }) {
         {trechos.map((e, i) => {
           const modo = modoDoPonto(e)
           const Icone = modo?.Icone ?? Route
-          const opcoes = (e.opcoes ?? []) as Record<string, any>[]
+          const opcoes = (e.opcoes ?? []) as Record<string, unknown>[]
           const numeros =
             [
               formatarHora(paraCampo(e.ocorre_em)),
@@ -2951,12 +2973,12 @@ function TransportesDoDia({ dia }: { dia: DiaRoteiro }) {
 
               {/* `transporte` é texto livre — "Via BR-101", "metrô U3". Serve de
                   legenda do trecho, nunca de chave de ícone. */}
-              {e.transporte && (
+              {Boolean(e.transporte) && (
                 <p className="mt-1.5 pl-[42px] text-[13px] text-(--color-tinta-2)">
                   {String(e.transporte)}
                 </p>
               )}
-              {e.como_chegar && (
+              {Boolean(e.como_chegar) && (
                 <p className="mt-1 pl-[42px] text-[13px] text-(--color-tinta-2)">
                   {String(e.como_chegar)}
                 </p>
@@ -2992,7 +3014,7 @@ function TransportesDoDia({ dia }: { dia: DiaRoteiro }) {
                             .filter(Boolean)
                             .join(' · ')}
                         </span>
-                        {o.recomendado && (
+                        {Boolean(o.recomendado) && (
                           <Star
                             size={11}
                             style={{ color: 'var(--destaque)' }}
@@ -3025,7 +3047,7 @@ function GastosDoDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
   if (!fin) return null
 
   const itens = fin.admin
-    ? (fin.despesas as Record<string, any>[])
+    ? (fin.despesas as Record<string, unknown>[])
         .filter((d) => chaveDia(d.ocorre_em) === dia.chave)
         .map((d) => ({
           id: String(d.id),
@@ -3082,7 +3104,7 @@ function ChecklistDoDia({ dia }: { dia: DiaRoteiro }) {
   if (!snapshot) return null
 
   const meuId = snapshot.eu.participanteId
-  const doDia = (snapshot.checklist as Record<string, any>[]).filter(
+  const doDia = (snapshot.checklist as Record<string, unknown>[]).filter(
     (i) => chaveDia(i.prazo_ideal) === dia.chave || chaveDia(i.prazo_maximo) === dia.chave,
   )
   if (doDia.length === 0) return null
@@ -3358,7 +3380,7 @@ function FaixaDias({
 
 type Derivada = {
   /** O item sintético que entra na linha do tempo. Nunca gravado. */
-  como: Record<string, any>
+  como: Record<string, unknown>
   /** De onde ele veio, dito na tela: "do cadastro de voos". */
   origem: string
   detalhe?: ReactNode
@@ -3378,7 +3400,7 @@ function entradasDerivadas(
   if (!snapshot) return []
   const saida: Derivada[] = []
 
-  for (const v of snapshot.voos as Record<string, any>[]) {
+  for (const v of snapshot.voos as Record<string, unknown>[]) {
     if (chaveDia(v.parte_em) !== dia.chave) continue
     const rota = [v.origem_iata ?? v.origem_cidade, v.destino_iata ?? v.destino_cidade]
       .filter(Boolean)
@@ -3406,7 +3428,7 @@ function entradasDerivadas(
     })
   }
 
-  for (const r of snapshot.reservas as Record<string, any>[]) {
+  for (const r of snapshot.reservas as Record<string, unknown>[]) {
     if (r.tipo !== 'hospedagem') continue
     if (chaveDia(r.inicio_em) === dia.chave) {
       saida.push({
@@ -3436,7 +3458,7 @@ function entradasDerivadas(
     }
   }
 
-  for (const c of snapshot.cruzeiros as Record<string, any>[]) {
+  for (const c of snapshot.cruzeiros as Record<string, unknown>[]) {
     if (chaveDia(c.embarque_em) === dia.chave) {
       saida.push({
         como: {
@@ -3463,7 +3485,7 @@ function entradasDerivadas(
         origem: 'da aba Cruzeiro',
       })
     }
-    for (const p of (c.portos ?? []) as Record<string, any>[]) {
+    for (const p of (c.portos ?? []) as Record<string, unknown>[]) {
       if (chaveDia(p.chega_em) !== dia.chave) continue
       saida.push({
         como: {
@@ -3509,7 +3531,7 @@ function locaisDoDia(
   dia: DiaRoteiro,
   snapshot: ReturnType<typeof useTrip>['snapshot'],
 ): { cidades: string[]; cidade: string | null; destino: string | null; pais: string | null } {
-  const lugares = (snapshot?.lugares as Record<string, any>[] | undefined) ?? []
+  const lugares = (snapshot?.lugares as Record<string, unknown>[] | undefined) ?? []
   const paisDe = (cidade: string | null) =>
     cidade ? (lugares.find((l) => mesmaCidade(l.cidade, cidade))?.pais ?? null) : null
 
@@ -3529,7 +3551,7 @@ function locaisDoDia(
 
 /** A hospedagem em que se dorme NESTE dia: check-in até a véspera do check-out. */
 function hospedagemDoDia(dia: DiaRoteiro, snapshot: ReturnType<typeof useTrip>['snapshot']) {
-  return (snapshot?.reservas as Record<string, any>[] | undefined)?.find((r) => {
+  return (snapshot?.reservas as Record<string, unknown>[] | undefined)?.find((r) => {
     if (r.tipo !== 'hospedagem') return false
     const entra = chaveDia(r.inicio_em)
     const sai = chaveDia(r.fim_em)

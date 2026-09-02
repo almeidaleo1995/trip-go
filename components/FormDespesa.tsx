@@ -63,19 +63,19 @@ export function FormDespesa({
   aoFechar,
 }: {
   /** Registro existente para editar, ou null para criar. */
-  despesa: Record<string, any> | null
+  despesa: Record<string, unknown> | null
   aoFechar: () => void
 }) {
   const { snapshot, mutate } = useTrip()
   const fin = snapshot?.financeiro
-  const pessoas = (snapshot?.participantes ?? []) as Record<string, any>[]
+  const pessoas = (snapshot?.participantes ?? []) as Record<string, unknown>[]
   const moeda = String(snapshot?.viagem?.moeda ?? 'BRL')
 
-  const categorias = (fin?.admin ? fin.categorias : []) as Record<string, any>[]
-  const divisoesAtuais = ((fin?.admin ? fin.divisoes : []) as Record<string, any>[]).filter(
+  const categorias = (fin?.admin ? fin.categorias : []) as Record<string, unknown>[]
+  const divisoesAtuais = ((fin?.admin ? fin.divisoes : []) as Record<string, unknown>[]).filter(
     (d) => d.expense_id === despesa?.id,
   )
-  const parcelasAtuais = ((fin?.admin ? fin.parcelas : []) as Record<string, any>[])
+  const parcelasAtuais = ((fin?.admin ? fin.parcelas : []) as Record<string, unknown>[])
     .filter((p) => p.expense_id === despesa?.id)
     .sort((a, b) => Number(a.numero) - Number(b.numero))
 
@@ -533,7 +533,7 @@ export function FormDespesa({
  * primeira e a segunda parcela. Serve só para reabrir o formulário com o que a
  * pessoa escolheu antes — o valor gravado é sempre a data de cada parcela.
  */
-function frequenciaDe(parcelas: Record<string, any>[]): Frequencia {
+function frequenciaDe(parcelas: Record<string, unknown>[]): Frequencia {
   if (parcelas.length < 2) return 'mensal'
   const dias = diasAte(paraDia(parcelas[0].vence_em), paraDia(parcelas[1].vence_em))
   if (dias > 0 && dias <= 10) return 'semanal'

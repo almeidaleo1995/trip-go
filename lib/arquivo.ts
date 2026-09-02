@@ -42,6 +42,57 @@ export const FATIA = 4 * 1024 * 1024
 
 export const MIMES_ARQUIVO = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
 
+/**
+ * As assinaturas de verdade dos quatro formatos aceitos — os primeiros bytes que
+ * todo arquivo daquele tipo começa, definidos pelo formato, não pelo nome.
+ *
+ * POR QUE ISTO EXISTE. `arquivo.type` num `FormData` é o que o CLIENTE declarou.
+ * Renomear `carga.html` para `passaporte.pdf` e mandar `application/pdf` no
+ * multipart passa por qualquer checagem de mime — e o resultado fica guardado no
+ * cofre com um `Content-Disposition: inline` e o `Content-Type` que a linha diz.
+ * O `X-Content-Type-Options: nosniff` do next.config.ts fecha a metade do
+ * problema (o navegador para de adivinhar); esta função fecha a outra, que é o
+ * arquivo nunca ter sido o que disse ser.
+ *
+ * WEBP tem dois pedaços separados: `RIFF` no começo e `WEBP` no oitavo byte, com
+ * o tamanho no meio. Conferir só o `RIFF` aceitaria um WAV.
+ */
+const ASSINATURAS: Record<string, (b: Uint8Array) => boolean> = {
+  'application/pdf': (b) => texto(b, 0, '%PDF-'),
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/png': (b) =>
+    b[0] === 0x89 && texto(b, 1, 'PNG') && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a,
+  'image/webp': (b) => texto(b, 0, 'RIFF') && texto(b, 8, 'WEBP'),
+}
+
+function texto(b: Uint8Array, inicio: number, esperado: string): boolean {
+  for (let i = 0; i < esperado.length; i++) {
+    if (b[inicio + i] !== esperado.charCodeAt(i)) return false
+  }
+  return true
+}
+
+/** Quantos bytes bastam para decidir. 12 cobre a assinatura mais longa (WEBP). */
+export const BYTES_ASSINATURA = 12
+
+/**
+ * O conteúdo confere com o tipo declarado?
+ *
+ * Puro e sem `File`, para ser testável: recebe os primeiros bytes e o mime que
+ * veio junto. Vale só para o PRIMEIRO pedaço do upload — do segundo em diante os
+ * bytes são o meio do arquivo, e ali não há assinatura nenhuma para conferir.
+ *
+ * Mime fora da lista devolve `false`: quem chama já recusou antes por outro
+ * motivo, e um `default: true` aqui viraria a porta dos fundos no dia em que a
+ * lista de mimes crescer sem alguém lembrar desta função.
+ */
+export function assinaturaConfere(mime: string, bytes: Uint8Array): boolean {
+  const confere = ASSINATURAS[mime]
+  if (!confere) return false
+  if (bytes.length < BYTES_ASSINATURA) return false
+  return confere(bytes)
+}
+
 /** O teto como a tela escreve: "25 MB". Um lugar só, quatro textos. */
 export const LIMITE_TEXTO = formatarTamanho(LIMITE_ARQUIVO)
 

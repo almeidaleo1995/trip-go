@@ -133,9 +133,7 @@ export function Titulo({
           recusa a encolher e empurra uma barra de rolagem horizontal para fora.
           `flex-wrap` + `max-w-full` mantêm a intenção e resolvem: em vez de
           transbordar, as ações caem para a linha de baixo. */}
-      {acao && (
-        <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{acao}</div>
-      )}
+      {acao && <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{acao}</div>}
     </div>
   )
 }
@@ -448,7 +446,7 @@ export function BotaoIcone({
   )
 }
 
-function Girando() {
+export function Girando() {
   return (
     <span
       className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
@@ -965,13 +963,16 @@ export function ProvedorAvisos({ children }: { children: ReactNode }) {
 /** Foto da pessoa, ou as iniciais quando não há foto. */
 export function Avatar({
   nome,
-  url,
+  url: urlBruta,
   tamanho = 40,
 }: {
   nome: string
-  url?: string | null
+  /** Campo cru de linha (`users.avatar_url`) em todas as seis chamadas: a
+      coercao mora aqui, e nao repetida em cada uma delas. */
+  url?: unknown
   tamanho?: number
 }) {
+  const url = typeof urlBruta === 'string' && urlBruta.trim() ? urlBruta : null
   const iniciais = String(nome || '?')
     .trim()
     .split(/\s+/)

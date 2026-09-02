@@ -17,7 +17,7 @@ app/(auth)/          login · register — anonymous only, proxy bounces logged-
 app/(dashboard)/     private: dashboard · viagens · perfil (+ dados de viagem: CPF,
                      passaporte, contato de emergência — da CONTA, não da viagem)
   viagens/[id]/      ← the trip app itself: Shell + TripProvider + 12 tabs
-app/api/             10 route handlers, all Node runtime, all trip-scoped
+app/api/             14 route handlers, all Node runtime, all trip-scoped
 components/          TripProvider (client state) · Shell (nav) · EditorSheet (schema-driven
                      editor for most entities) · FormDespesa (the money form — divisão
                      e parcelas) · CofreDocumento (vault: card, preview, modal, offline
@@ -39,10 +39,31 @@ The shape to keep in mind: content has **no top-level routes**. Roteiro, voos, f
 
 - **No brand string, brand color or institutional link outside `config/site.ts` and `config/theme.ts`.** Finding `"TripGo"` written into a component is a bug — the product must be rebrandable without touching components.
 - **The database is the source of truth; JSON is an importer, not a config file.** Never reintroduce a versioned `TRIP_CONFIG`.
-- **Add no dependency for what a few lines do.** 4 runtime deps on purpose: no PDF lib (`window.print()`), no auth lib, no ORM, no migration tool, no date lib (`Intl`).
+- **Add no dependency for what a few lines do.** 5 runtime deps on purpose: no PDF lib (`window.print()`), no auth lib, no ORM, no migration tool, no date lib (`Intl`). The fifth is `@anthropic-ai/sdk`, **server only** — it never enters the client bundle.
 - **Deliberate shortcuts get a `ponytail:` comment** naming the ceiling and the upgrade path (e.g. last-write-wins merge, in-process rate limit).
 - **Contrast is measured, not guessed** — `#0D9488` and `#94A3B8` are banned for text (fail AA).
 - **`.specs/STATE.md` is a decision log, not current state.** AD-002/AD-003 predate the multiuser migration (they describe PIN auth and "no seed script"). README wins on any conflict.
+
+## Segurança é pré-condição, não etapa final
+
+**This app holds real people's passports, CPF, home addresses and money.** Five members of one family, their documents in the vault, their debts to each other in `financeiro`. A leak here is not a bug report — it is somebody's passport number in a stranger's hands, and it cannot be taken back. Treat every change as touching that.
+
+So: **no change ships without its security question answered.** Not a review at the end — a question asked while writing the line. Concretely, before you call any change done, walk this list. It is short because each row is a mistake this codebase has actually made or nearly made.
+
+1. **Did I add a field, column or entity?** Then say who may READ it, not only who may write it. The two are different questions and the gap between them is where this app leaked twice: only the `proprietario` could write `travelers.passaporte`, and every `visualizador` could read it. Cut it in the SQL — `getSnapshot`, `financeiroDaViagem`, `documentosDaViagem` are the three patterns to copy — never in React. **A field hidden in the component is published in the network tab.**
+2. **Did I add a query?** Every value is a placeholder. If you interpolate an *identifier* (table or column name), it must come from a closed set — `TABELA`, `recorte()`, `colunaValida()`, or `Object.keys` of a zod-parsed object. Nothing else. There is no fourth source.
+3. **Did I add a write path?** It calls `autorizar()`. `/api/assistente/desfazer` shipped without it once and became privilege escalation: the batch id is visible to every participant in the snapshot, so any editor could revert another person's personal document.
+4. **Did I add a route?** It is reachable by typing a URL. The snapshot having filtered something is not protection for a route that does its own query — `/api/documento` re-checks visibility by itself for exactly this reason.
+5. **Did I accept a file, a URL or free text that later becomes a `href`, a `src`, a MIME type or a filename?** The client's word is not evidence. Magic bytes (`assinaturaConfere`), scheme allowlist (`hrefSeguro`), `nosniff` on the way out.
+6. **Did I add something the browser fetches from another origin?** It goes in the CSP `connect-src`/`script-src` in `lib/seguranca.ts`, named host by host — never a `https:` wildcard, which would hand back the exfiltration that directive exists to stop. A service missing from the list fails **silently**: the weather panel just looks empty.
+7. **Did I add a personal-data field?** Check `PROIBIDOS` in `lib/assistente.ts` — but know that the real boundary is the explicit `campos` allowlist in `digest()`. Never make `linha()` dump a whole record; web search runs on a third party's servers, and what is not sent cannot leak.
+8. **Did I add an expensive or account-creating endpoint?** It gets a rate-limit bucket sized to what it actually costs, keyed by account when the cost is money and by IP when the abuse is account creation.
+
+**Write the security reasoning into the comment, not into the commit message.** Every barrier in this codebase says *what it stops* in the line above it, because a barrier whose reason is unwritten is a barrier the next person deletes for looking redundant. The pattern to match: "`via` is a security boundary, not bookkeeping."
+
+**When a defence is partial, it gets a `ponytail:` comment naming the ceiling — and a line in the README's 20-item table.** Silent partial defences are worse than absent ones: they buy false confidence. What is open must be written where somebody will read it.
+
+**A doubt about security is resolved by asking, never by assuming.** If you cannot tell whether an editor should read a field, ask. Guessing "probably fine" is how row 1 happened.
 
 ## Commands
 
@@ -50,10 +71,14 @@ The shape to keep in mind: content has **no top-level routes**. Roteiro, voos, f
 npm run dev          # localhost:3000
 npm run build        # includes typecheck
 npm run lint
-npm test             # 290 unit tests, node --test, no framework
+npm test             # 483 unit tests, node --test, no framework
+npm test             # 462 unit tests, node --test, no framework
+npm run audit        # npm audit das dependencias de producao (o CI roda igual)
 npm run db:push      # applies db/schema.sql (idempotent) to DATABASE_URL
 node --env-file=.env.local scripts/seed.mjs   # demo@tripgo.com / 123456
 ```
+
+`db/teste-assistente.sql`, `db/teste-recorte.sql` e `db/teste-limite.sql` rodam asserções contra um Postgres descartável (comportamento de banco, fora do alcance de teste unitário: o segundo prova o recorte de papel do snapshot, o terceiro a janela deslizante do rate limit). `scripts/alias.mjs` resolve `@/` sob `node --test` — é o que torna rota testável.
 
 `npm run test:api` **fails wholesale** — the 26 integration tests target the removed PIN auth. Don't treat it as a regression you caused; see README → Testing.
 
@@ -94,5 +119,26 @@ node --env-file=.env.local scripts/seed.mjs   # demo@tripgo.com / 123456
 - **Zod strips unknown keys** on import — a renamed field doesn't error, it silently imports as empty. Adding a field means touching `db/schema.sql` (create block **and** migrations section), `lib/schema.ts`, `/api/export`, and `lib/importar.ts` together, or backups quietly drop it.
 - **Adding a whole entity is a 10-file checklist** with predictable failures per skipped step — README → Shipping a new update.
 - **`db/schema.sql` is idempotent by design; there is no migration tool.** Applying the whole file *is* the migration.
+- **`/api/assistente` must never import `lib/escrita.ts`.** The conversation route proposes; `/api/assistente/aplicar` is the only one that writes. A single route with an `aplicar: true` flag is a route that sometimes writes, and that is where someone eventually forgets the check. Today the absence of writes is verifiable by reading the imports — keep it that way.
+- **The assistant's context is `getSnapshot`, never its own query.** The role cut already lives in `financeiroDaViagem`/`documentosDaViagem`. A query written "so the AI can see the whole trip" reopens every leak those two close.
+- **`limpar()` in `lib/assistente.ts` is a privacy boundary, not formatting.** It drops passport, phone, e-mail, CPF and `documents.valor` before the digest exists. Web search runs on Anthropic's servers, so a prompt instruction would be trusting the wrong layer. A field with a new personal-data name must be added to `PROIBIDOS`.
+- **`ANTHROPIC_ADMIN_KEY` is read in exactly one file** (`/api/assistente/consumo`). It administers members, workspaces and keys — far more powerful than the usage key. It never goes near the module that builds prompts, and the route returns aggregates, never Anthropic's raw body (which carries workspace and key ids).
+- **Money and tokens: `ai_usage` stores tokens, never price.** Price is a table in `config/precos.ts` applied at read time — storing it would freeze a value that changes and make last month's report start lying at the next adjustment.
+- **`select *` in `getSnapshot` is how PII escapes.** `trips` carries `orcamento_centavos` (the trip total) and `travelers` carries `passaporte`/`telefone`; both were going to every participant, `visualizador` included, and the screen was merely hiding them. The two queries list their columns and cut by `papelAlcanca(papel, 'editor')` — the same test `financeiroDaViagem` uses — releasing a traveller's own row to them. `db/teste-recorte.sql` proves it against a real Postgres, and `lib/arquitetura.test.ts` fails if either query goes back to `select *`.
+- **An upload's `type` is what the CLIENT claims.** `MIMES_ARQUIVO` alone let an HTML file announced as `application/pdf` be stored and served back from this origin. `assinaturaConfere` (`lib/seguranca.ts`) reads the magic bytes of the first part, and the `GET` answers with `nosniff`. Adding a format to `MIMES_ARQUIVO` without adding its signature fails a test on purpose.
+- **A stored value that becomes a `href` goes through `hrefSeguro`.** Two fields do this: `documents.valor` on a `link` and the `links` text of a roteiro item. Both are written by one participant and clicked by another, and `javascript:` there runs inside a page holding the whole snapshot. One guard, in `lib/seguranca.ts`, used by both.
+- **Security headers live in `lib/seguranca.ts`, not in `next.config.ts`.** The config only forwards the list. That is what lets a unit test assert the CSP without dragging Next into `node --test`.
+- **Um cabeçalho de segurança nunca pode depender de variável de ambiente de build.** O Next serializa o resultado de `headers()` em `routes-manifest.json` durante o `next build`. Uma CSP condicional (`ligado ? host : ''`) passa a valer conforme o ambiente do BUILD, não o do request — ligar o Turnstile no painel e redeployar com cache deixaria o servidor exigindo um token que o navegador está bloqueado de produzir. Ou a diretiva vale sempre, ou é uma configuração que falha calada.
+- **O rate limit conta no banco, sob `for update`.** `registrar_tentativa` lê, decide e grava numa ida só. Em memória, cada instância serverless tinha o seu contador e o limite valia N vezes; em três consultas separadas, a corrida entre instâncias volta. Falha de rede cai para o balde em memória — falhar fechado trancaria a viagem para fora, falhar aberto tiraria o limite justo quando o banco está instável.
+- **The CSP nonce is why `app/layout.tsx` forces dynamic rendering.** `proxy.ts` mints a nonce per request and `script-src` carries `'strict-dynamic'`, which makes the browser ignore `'self'` — so a *prerendered* page, which has no request and therefore no nonce, loads zero scripts. Removing `export const dynamic = 'force-dynamic'` does not slow the app down; it opens `/login` blank.
+- **`style-src` keeps `'unsafe-inline'` on purpose, and a nonce would not fix it.** A nonce applies to a `<style>` element, never to a `style` attribute — and the app has ~170 `style={{…}}`. Tightening that directive without rewriting them as classes trades a working map for a stricter-looking header.
+- **`rota()` in `lib/api.ts` refuses cross-site writes, so a route is born protected.** The check lives in the shell rather than in each handler for the same reason `envelope()` was extracted: a list of routes-to-remember is a list someone forgets. A test that POSTs to a route directly must send `sec-fetch-site: same-origin`, the way a browser does — `lib/rotaAssistente.test.ts` is the example, and the two tests below it assert the refusal.
+- **`assinaturaConfere` exists because `arquivo.type` is what the CLIENT said.** The mime in a `FormData` is a claim; the magic bytes are the fact. It is checked only on the FIRST chunk — later chunks are the middle of the file and have no signature. Skipping it puts HTML in the vault, served back `inline` with a PDF `Content-Type`.
+- **The dona of an `entrega` comes from the DATABASE, never from `campos.traveler_id`.** Deriving it from the body worked through `/api/mutate` only because zod *requires* the field — the authorization was hanging off a schema property. The assistant's undo builds `campos` with a single key, so `traveler_id` vanished, `meu` became true by absence, and a `visualizador` could revert another traveller's passport number. `lib/arquitetura.test.ts` locks both halves.
+- **The consolidated Anthropic spend is the OPERATOR's, not the trip owner's.** `cost_report` is every trip of every account for the month — the bill of whoever hosts the app. Registration is open and creating a trip makes you its `proprietario`, so `exigirViagem(..., 'proprietario')` was never a barrier for that half. It is gated on `OPERADOR_EMAILS`, empty by default.
+- **`DADOS_SECRET` is not `SESSION_SECRET`, and the split is operational.** Rotating the session secret costs everyone one sign-in; rotating the data key makes what is stored unreadable. `lib/cripto.ts` reads plaintext rows back unchanged, so turning encryption on does not blank anyone's profile — and a field added to the identity set must be listed in `CAMPOS_CIFRADOS`, which never takes a `date` column.
+- **RLS is deliberately off, and `db/privilegios.sql` says why at the bottom.** The Neon HTTP driver makes each query its own request, so `set local app.usuario_id` never survives to the `SELECT` that would read it. A policy over a variable nobody sets is a report line, not a control. Don't "just enable RLS" without switching to the WebSocket `Pool` first.
+- **`Record<string, unknown>` é o tipo de uma linha do snapshot, e `any` está banido.** O projeto tem ZERO `any` e o lint barra o próximo. Quando um campo cru precisa virar texto na tela, `String(x ?? '')` — nunca `String(x)` sozinho, que imprime a palavra "undefined"; e quando ele guarda um `<jsx/>`, `Boolean(x) &&`, senão um campo `0` aparece como "0" na tela. Preservar a AUSÊNCIA importa: `String(x ?? '')` entrega `''`, e `''` não dispara o `?? '—'` de quem recebe — um voo sem IATA perdia o traço por causa disso.
+- **Função de `lib/derive.ts` que recebe campo cru declara `unknown`.** `parseData`, `formatarData`, `linhas`, `noites` e as outras já começavam com a própria guarda (`String(x ?? '')`, `Number(x) || 0`); `unknown` é a assinatura que essas guardas sempre descreveram. A exceção é `lib/financeiro.ts`: ali a coerção fica no CHAMADOR, porque as mesmas funções puras rodam no servidor para gravar e no cliente para a pintura otimista, e afrouxar a porta deixaria as duas pontas aceitarem entradas diferentes em silêncio.
 - **`AGENTS.md` is regenerated by `next dev`.** Commit it with your work; reverting only recreates the diff.
 - **Never create accounts or passwords for people.** Participants exist as name+email rows; each person registers at `/register` with that email and `vincularParticipantesPorEmail` links them automatically.

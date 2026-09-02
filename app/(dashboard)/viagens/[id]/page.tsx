@@ -5,6 +5,7 @@
 // a um :id da URL em vez de "a viagem atual" implícita.
 import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { MapPinOff } from 'lucide-react'
 import { Carregando } from '@/components/ui.tsx'
 import { TripProvider, useTrip } from '@/components/TripProvider.tsx'
@@ -19,6 +20,8 @@ import { Checklist } from '@/components/tabs/Checklist.tsx'
 import { Preparacao } from '@/components/tabs/Preparacao.tsx'
 import { Financeiro } from '@/components/tabs/Financeiro.tsx'
 import { Dados } from '@/components/tabs/Dados.tsx'
+import { AssistenteAba } from '@/components/tabs/AssistenteAba.tsx'
+import { Consumo } from '@/components/tabs/Consumo.tsx'
 import { Hoje } from '@/components/tabs/Hoje.tsx'
 
 export default function ViagemPagina({ params }: { params: Promise<{ id: string }> }) {
@@ -58,13 +61,13 @@ function App() {
             Ou ela não existe, ou sua conta não participa dela. Se já abriu uma vez com internet, os
             últimos dados sincronizados aparecem em modo avião.
           </p>
-          <a
+          <Link
             href="/viagens"
             className="toque mt-5 inline-flex items-center justify-center rounded-2xl px-4 text-sm font-semibold text-white"
             style={{ background: 'var(--destaque)' }}
           >
             Ver minhas viagens
-          </a>
+          </Link>
         </div>
       </div>
     )
@@ -89,6 +92,8 @@ function App() {
           {aba === 'emergencia' && <Emergencia />}
           {aba === 'financeiro' && <Financeiro />}
           {aba === 'dados' && <Dados />}
+          {aba === 'assistente' && <AssistenteAba />}
+          {aba === 'consumo' && <Consumo />}
         </Shell>
       </div>
       {/* Fora da casca: aparece só na impressão, de qualquer aba. */}

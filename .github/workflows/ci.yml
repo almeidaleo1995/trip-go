@@ -1,0 +1,72 @@
+# Verificação automática a cada push e a cada PR.
+#
+# São cinco portões, e o quinto é o motivo desta pasta existir: `npm audit` é a
+# única checagem do projeto que falha por algo que NINGUÉM aqui escreveu. Uma
+# vulnerabilidade publicada numa dependência transitiva não aparece em teste, em
+# tsc nem em lint — ela aparece num boletim que alguém precisa estar lendo. Isto
+# é esse alguém.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  # Uma vez por semana, mesmo sem commit: o código não mudou, mas o boletim de
+  # vulnerabilidade muda. Segunda de manhã, no fuso do runner.
+  schedule:
+    - cron: '0 9 * * 1'
+
+# Um push novo cancela a execução anterior do mesmo ramo.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Só leitura. O fluxo não comenta, não escreve e não publica nada.
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Mesma exigência do README: type stripping nativo e `--env-file`.
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Testes
+        run: npm test
+
+      - name: Tipos
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      # `--omit=dev` de propósito: o que roda em produção é o que importa. Uma
+      # falha numa ferramenta de build não expõe usuário nenhum, e tratá-la como
+      # se expusesse ensina o time a ignorar o alerta inteiro.
+      #
+      # `high` é o piso porque as 5 dependências de runtime deste projeto são
+      # escolhidas a dedo (ver CLAUDE.md → Regras): num projeto assim, `high` é
+      # sinal, não ruído.
+      - name: Vulnerabilidades nas dependências de produção
+        run: npm audit --omit=dev --audit-level=high
+
+      # Não falha o CI: serve para o log mostrar o que existe em ferramenta de
+      # desenvolvimento sem travar um PR por causa de algo que não vai para o ar.
+      - name: Vulnerabilidades em ferramentas (informativo)
+        run: npm audit --audit-level=moderate || true
+
+      - name: Build
+        run: npm run build
+        env:
+          # O build importa lib/db.ts, que exige a variável ao carregar. Fachada
+          # sintaticamente válida: nada aqui se conecta a banco nenhum.
+          DATABASE_URL: 'postgresql://fachada:fachada@localhost:5432/fachada'
+          SESSION_SECRET: 'fachada-de-ci-nao-usar-em-lugar-nenhum'

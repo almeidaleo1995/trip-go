@@ -25,7 +25,7 @@ const BANCO = 'viagem'
 //   5 -> 6  o cofre virou centro de documentacao: o snapshot ganhou `requisitos`,
 //           `entregas` e `perfis`. Sem a subida, a aba Documentos pinta pelo cache
 //           antigo, nao acha nenhum dos tres e quebra antes de a rede responder.
-const VERSAO = 6
+const VERSAO = 7
 const SNAPSHOT = 'snapshot'
 const FILA = 'fila'
 const ARQUIVOS = 'arquivos'

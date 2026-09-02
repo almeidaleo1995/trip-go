@@ -29,6 +29,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Shipping a new update](#shipping-a-new-update)
 - [The itinerary, day by day](#the-itinerary-day-by-day)
 - [Known limitations](#known-limitations)
+- [Security](#security)
 - [Security checklist](#security-checklist)
 
 ---
@@ -40,10 +41,10 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | **Framework** | Next.js 16.3.2, App Router, React 19.2, Node runtime |
 | **Database** | Neon serverless Postgres — 27 tables, one idempotent `schema.sql` |
 | **Auth** | Email + password, scrypt hashes, HMAC-signed httpOnly cookie, 90 days |
-| **Runtime deps** | 4 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react` |
+| **Runtime deps** | 5 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react`, `@anthropic-ai/sdk` (server only) |
 | **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
-| **Tests** | 284 unit tests, `node --test`, zero test frameworks |
+| **Tests** | 483 unit tests, `node --test`, zero test frameworks; plus `db/teste-assistente.sql`, `db/teste-recorte.sql` and `db/teste-limite.sql` against a real Postgres; CI runs tests, types, lint, `npm audit` and build |
 | **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
@@ -1162,6 +1163,37 @@ because one person writes the itinerary and everybody else's browser renders it.
 
 ---
 
+## The AI guide
+
+`POST /api/assistente` answers questions about the trip and **proposes** changes; it never writes. A separate route applies what the person accepts.
+
+That split is the security design, not a refactor. The conversation route does not import `lib/escrita.ts` — it *cannot* write, and you verify that by reading the imports rather than trusting a flag. Writes go through `/api/assistente/aplicar`, which runs the same `autorizar` + `validarCampos` that `/api/mutate` runs, with the `Acesso` of whoever is speaking. **The AI can never do anything the person could not already do from the screen.**
+
+| Route | Does | Writes? |
+| --- | --- | --- |
+| `POST /api/assistente` | Conversation, proposals, web search | No — by construction |
+| `POST /api/assistente/aplicar` | Applies accepted proposals under one `lote` | Yes, the only one |
+| `POST /api/assistente/desfazer` | Reverse replay of a `lote` from `change_log` | Yes |
+| `GET /api/assistente/consumo` | Cost report, `proprietario` only | No |
+
+**Three rules that are not obvious:**
+
+1. **The model's context is `getSnapshot(tripId, papel, participanteId)` — never a query of its own.** `financeiroDaViagem` and `documentosDaViagem` already cut by role at the source, so a `visualizador` asking for the trip total gets an answer that cannot contain it. A bespoke query "so the AI can see everything" would reopen every leak those two functions close.
+
+2. **Personal data is withheld structurally, not by instruction.** `limpar()` in `lib/assistente.ts` drops `passaporte`, `telefone`, `email`, `cpf`, `documents.valor` and submission numbers before any text is assembled. The AI knows the passport expires Tuesday; it does not know the number. This matters because web search runs on Anthropic's servers — a prompt rule would be trusting the wrong layer.
+
+3. **Removal has no undo, and the review screen says so.** `change_log` records that a row existed, never its contents, and `on delete cascade` takes the children. Creations and edits in a `lote` are reversible in one tap; removals are not, and the proposal list marks them before you accept.
+
+Tools are derived from `POR_ENTIDADE` via `z.toJSONSchema()` (zod 4) — there is no hand-written field list to drift. The set is filtered by role, but that is ergonomics: `autorizar` is the barrier, checked again on accept.
+
+**Cost.** Every response's `usage` is written to `ai_usage` (tokens only — price is a table, applied at read time from `config/precos.ts`). The report also tries to show consolidated organization spend, which needs `ANTHROPIC_ADMIN_KEY` and **does not work on individual accounts** — Anthropic's Admin API is unavailable for them. That half degrades with an explanation instead of an error.
+
+**Testing it.** `db/teste-assistente.sql` runs four assertions against a throwaway Postgres (`db/teste-recorte.sql` is its sibling, for the role cut in the snapshot) — the ones no unit test can reach because they are database behaviour, not JavaScript. The sharpest is the undo ordering: with two edits to the same field, replaying the `change_log` backwards restores the original value and replaying it forwards restores the *intermediate* one. `lib/arquitetura.test.ts` locks the properties that hold by reading the code rather than running it, starting with "the conversation route does not import `lib/escrita.ts`".
+
+**Offline.** The guide is the first part of the app that requires network. It says so and refuses to queue, rather than pretending a question was sent.
+
+---
+
 ## Known limitations
 
 Nothing here is a hidden surprise. Each is a deliberate choice with a known ceiling and a known upgrade path.
@@ -1188,19 +1220,149 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | **Reordering a day means changing times** | Every itinerary item has a mandatory `ocorre_em`, so the up/down buttons swap the *time* of two neighbours rather than a parallel `ordem`. `ordem` only breaks a tie between two items marked at the same minute. | None wanted — a timeline whose order disagrees with the clock it prints is worse. |
 | **Trip duplication drops item → reservation links** | `reserva_id` and `documento_id` are set to NULL on clone: the copy's reservations are new rows, and keeping the old id would point an item at another trip. | Copy reservations and documents with derived ids too, the way flights already are. |
 | **Debt simplification is greedy** | Largest debtor against largest creditor. At most n−1 transfers, which settles any group; not the proven minimum (that is NP-hard). | A partition solver, if a trip ever has enough participants for it to matter. |
+| **The AI guide cannot delete-and-undo** | `change_log` stores that a row existed, not its contents, and cascade takes the children. A removal accepted from the guide is as final as one made from the screen. | A `registro jsonb` column filled on removal, plus capturing cascade children. |
+| **Consolidated Anthropic spend needs an organization** | `ANTHROPIC_ADMIN_KEY` + the Admin API, which the docs state is unavailable for individual accounts. The per-app report always works. | None available — it is a property of the account, not the code. |
+| **The guide does not stream** | Responses arrive whole, behind a "pensando…" state. Long answers feel slow. | SSE. The seam is one route and one component. |
+| **Creating a trip from nothing still uses the normal screen** | The guide fills an existing trip's itinerary in bulk; it does not create the `trips` row itself. | A write path for trip creation, or reuse `/api/viagens` before the first proposal. |
 | **`db:push` is not part of the build** | Deploying does not migrate. | Intentional. Automate only with a real migration tool. |
+| **Encryption stops at the account profile** | CPF, RG and passport number are encrypted in `users`. The same passport number typed into a *trip requirement* lands plaintext in `document_submissions.numero`, and `change_log` records the **previous value** of every edit in plaintext too — so a dump still yields numbers, from a different table. | Encrypt `document_submissions.numero` in `aplicar()` and decrypt in `documentacaoDaViagem`, and stop logging the old value of an encrypted column (log that it changed, not to what). The change-log half is the larger piece: the undo replay in `/api/assistente/desfazer` writes `change_log.de` back into the column directly. |
+| **The rate-limit counter is still in memory** | Item 11 above. The new write and upload limits share `lib/session.ts`'s in-process map, so they inherit the same per-instance ceiling. | One Neon table, as already documented for sign-in. |
+| **The honeypot only catches generic bots** | A script written against *this* form just omits the field. | Nothing wanted alone — the same-origin check and the per-account limits are what bound a targeted script, and a CAPTCHA would tax five travellers to inconvenience one attacker. |
 | **Social sign-in is inert** | Google and Apple buttons render disabled with a reason, driven by `siteConfig.social`. | Flip `ativo` once a provider is wired. |
 
 ---
 
-## Security checklist
+## Security
+
+Twenty measures, in the order someone would ask about them. Each one says **where it lives** and **what it is not**, because a control whose limits are not written down is a control someone will over-trust.
+
+### The perimeter
+
+| # | Measure | Where | The honest limit |
+| --- | --- | --- | --- |
+| 1 | **Keys never reach the browser** | `lib/db.ts`, `/api/assistente` | `DATABASE_URL`, `SESSION_SECRET`, `DADOS_SECRET` and both Anthropic keys are read only in server modules. `lib/arquitetura.test.ts` fails the build if any of them is ever prefixed `NEXT_PUBLIC_`. |
+| 2 | **No secret in git history** | `.gitignore` | `.env*` is ignored, `.env.example` carries names only. The history was scanned: no key, no connection string. **The one open action is below** — the development Neon password travelled through a chat conversation and must be rotated. |
+| 3 | **The database is never public** | `lib/db.ts` | The browser knows `/api/*` and nothing else. There is no anonymous key, no client-side SDK, no row reachable without a route. |
+| 4 | **Least privilege in Postgres** | `db/privilegios.sql` | Optional role `tripgo_app`: select/insert/update/delete, and no DDL. A bug cannot `drop table`. **RLS is deliberately not enabled** — see [What is not here](#what-is-not-here). |
+| 5 | **Encryption at rest for identity fields** | `lib/cripto.ts` | CPF, RG and passport number are AES-256-GCM in `users`, keyed by `DADOS_SECRET`. Protects a dump, a backup, a replica, an admin's screen — **not** someone running code on the server, who has the key. Blank key is a supported mode: everything works and the three fields stay plaintext. |
+| 6 | **Authentication is server-side** | `lib/auth.ts` | `exigirUsuario`/`exigirViagem` sit on the data, not on the route. `proxy.ts` is an *optimistic* cookie check for redirects and never queries the database. |
+| 7 | **Access is scoped, twice** | `config/navigation.ts`, `lib/escrita.ts` | `posso()` on screen, `papelAlcanca` on the server, in every route. A trip you do not belong to answers **404, not 403** — a 403 would confirm the trip exists. |
+| 8 | **Mass assignment is blocked** | `lib/schema.ts` | Zod strips unknown keys, so an extra `papel` or `admin` in a request body never reaches a column. The dynamic `INSERT`/`UPDATE` builders interpolate **only column names derived from the schema** — `colunaValida` is the whitelist. |
+| 9 | **Cookies are hardened** | `lib/session.ts` | `httpOnly` + `SameSite=Lax` + `Secure` in production + `path=/`. The token carries the account id and an expiry, signed with HMAC-SHA256 and compared in constant time. Role is **not** in the cookie: a demotion would otherwise stay valid for 90 days. |
+| 10 | **Passwords are hashed** | `lib/session.ts` | scrypt, N=16384, 16-byte salt per password, 64-byte key, `timingSafeEqual`. Sign-in returns the same message for unknown e-mail and wrong password, so the form is not an account-enumeration oracle. |
+
+### The traffic
+
+| # | Measure | Where | The honest limit |
+| --- | --- | --- | --- |
+| 11 | **Rate limits, five different reasons** | `lib/session.ts` | Sign-in counts *wrong* attempts and success clears (blocking guessing). Sign-up counts **every** attempt and never clears (the abuse is the account created). The AI guide caps spend, per account. Writes and uploads cap volume, per account. Password change reuses the sign-in limit so a stolen cookie is not a password oracle. **In-process counter** — on serverless each instance keeps its own, so a distributed attacker gets more than the limit per window. `ponytail:` at the source. |
+| 12 | **Bot protection** | `lib/seguranca.ts`, `/api/usuarios` | Two layers: a hidden honeypot field on sign-up, and the same-origin check below, which refuses every state-changing request without browser headers — that is curl, script and bot. Neither stops someone who scripted *this* app specifically; the rate limits are what bound that. |
+| 13 | **Queries are parameterised** | everywhere | The Neon tagged template binds every value. The only interpolated strings are table and column names from a static map and from the zod schema. |
+| 14 | **Inputs are validated** | `lib/schema.ts` | One zod contract for the import file, the mutation queue and the account forms — the server validates against the same schemas the editor sheet is generated from. Every route caps its body size. |
+| 15 | **Content is scoped at the endpoint** | `lib/db.ts` | `financeiro` is **two different responses**, not one payload with a filter: a `visualizador` gets their own obligations, and the trip's totals never leave the server. Personal documents are cut in the read query, in `autorizar` and in `/api/documento` — three places that must agree. |
+| 16 | **Uploads are restricted** | `lib/arquivo.ts`, `/api/documento` | Size cap, format list, **and the file's real signature** — the declared mime is what the client claimed, so the magic bytes are checked on the first chunk. HTML renamed to `.pdf` is refused. |
+| 17 | **API responses are trimmed** | `lib/db.ts`, `/api/assistente/consumo` | `senha_hash` never leaves its two internal functions. Anthropic's raw cost body (workspace and key ids) is reduced to one number — and that number is [operator-only](#the-consolidated-spend-is-the-operators). Document bytes never enter the snapshot. |
+| 18 | **Security headers** | `next.config.ts`, `proxy.ts` | `nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, `X-Robots-Tag`, no `X-Powered-By` — in `next.config.ts`, so **API routes get them too**. CSP with a per-request nonce is in `proxy.ts`. |
+| 19 | **HTTPS is forced** | `proxy.ts`, `next.config.ts` | 308 (method-preserving) when the edge reports `http`, plus HSTS for a year with `includeSubDomains` and `preload`. Neither fires in development, and neither fires for `localhost` — checking a production build on your own machine used to 308 into a certificate error. |
+| 20 | **Dependencies are scanned** | `.github/workflows/ci.yml` | `npm audit --omit=dev --audit-level=high` on every push and PR, plus weekly on a schedule — the code does not change but the advisory feed does. Dev-tool findings are logged, not blocking. |
+
+### The content security policy
+
+It carries a nonce, generated per request in `proxy.ts`. The line that matters is `script-src 'self' 'nonce-…' 'strict-dynamic'`: the browser trusts only what the nonced script loads, so an injected `<script>` has no way in — the nonce changes every response.
+
+Three deliberate loosenings, each with a reason:
+
+- **`style-src` keeps `'unsafe-inline'`.** The app has ~170 `style={{…}}` attributes (map tile positions, derived trip colours), and a nonce does not apply to a style *attribute* — only to a `<style>` element. Removing it without rewriting those 170 positions as classes would not make the page safer; it would make the map tileless.
+- **`img-src` allows `https:` wholesale.** `users.avatar_url` and `trips.capa_url` accept any link, and the map loads tiles from OpenStreetMap. An image does not execute; what `img-src` narrows here is referer leakage, not XSS.
+- **`object-src` allows `blob:`.** The vault previews a PDF in `<object data={blob:…}>`, and those bytes already came through our own authorized route.
+
+`connect-src` is `'self'` plus `api.open-meteo.com` — the only third party the *browser* talks to. **Anthropic is not on that list, and a day it appears is a day the key went to the browser**; `lib/seguranca.test.ts` asserts it.
+
+One consequence worth knowing: nonces require dynamic rendering, so `app/layout.tsx` sets `dynamic = 'force-dynamic'`. A prerendered page has no request and therefore no nonce, and `'strict-dynamic'` makes the browser ignore `'self'` — `/login` and `/register` would open blank. Little is lost: every screen here depends on the session cookie anyway.
+
+### Same-origin, and why `SameSite` was not enough
+
+`rota()` in `lib/api.ts` refuses any POST/PUT/PATCH/DELETE that did not come from one of our own pages, reading `Sec-Fetch-Site` first (the browser writes it; no page script can forge it) and falling back to `Origin` versus `Host`.
+
+The cookie is already `SameSite=Lax`, which blocks the cross-site POST — but the *browser* is what enforces Lax, and the server has no way to know that it did. This is the same rule checked again on the side we control, exactly as `papelAlcanca` is re-checked on the server despite `posso()` on screen.
+
+It lives in the route shell, not in each handler, so a new route is born protected. A list of routes-to-protect is a list somebody forgets to update.
+
+### The consolidated spend is the operator's
+
+`/api/assistente/consumo` has two halves. The top one is the trip's, so it belongs to whoever owns the trip. The bottom one is not: Anthropic's `cost_report` returns the **whole organization's** spend — every trip of every account, for the month — which is the bill of whoever *hosts* the app. Registration is open and creating a trip makes you its `proprietario`, so trip ownership was never a barrier for it. It is now gated on `OPERADOR_EMAILS`, and empty (the default) hides it from everyone.
+
+### What is not here
+
+**Row Level Security.** It is the standard recommendation and it is deliberately absent, because in this architecture it could not enforce anything:
+
+1. There is one connection, from the server process, shared by all five travellers. The connected role does not say who is asking.
+2. `lib/db.ts` uses Neon's HTTP driver, where **each query is an independent HTTP request**. `set local app.usuario_id` does not survive to the next query, so there is nowhere to write "who I am" before the `SELECT`.
+
+A policy reading a variable that is never set either denies everything and stops the app, or is permissive and exists only so a report can say "RLS: enabled". The real cut lives in `exigirViagem`, in `financeiroDaViagem`/`documentosDaViagem` and in the `via` scoping of `lib/escrita.ts` — it is tested, and it is what a policy would have done. The upgrade path is written at the bottom of `db/privilegios.sql`: swap the HTTP driver for the WebSocket `Pool`, open a transaction per request, `set local` at its start.
+
+### Still open
 
 - [ ] **Rotate the Neon password.** The development connection string passed through a chat conversation and is in that history. Neon console → project → **Roles** → `neondb_owner` → **Reset password**, then update `.env.local` and the Vercel environment variable. Until that is done, assume anyone with access to that history has full database access.
 - [ ] **Generate a unique `SESSION_SECRET` per environment.** It signs every session token; sharing one across environments means a token minted in staging is valid in production.
+- [x] **`siteConfig.demo.mostrar` is already `false`** — verified in `config/site.ts`. It publishes working credentials on the login screen when true, so keep it false now that the trip holds real data.
+- [ ] **Set `DADOS_SECRET`** and back it up somewhere durable. Losing it makes the encrypted fields unreadable — rotating it is not like rotating the session secret.
 - [ ] **Set `siteConfig.demo.mostrar = false`** before real users arrive — it publishes working credentials on the login screen.
 - [ ] **Point `TEST_DATABASE_URL` at a throwaway database.** The runner refuses to start otherwise, but verify it anyway.
+- [ ] **Run `db/privilegios.sql`** and point `DATABASE_URL` at `tripgo_app`. Until then the app connects as the schema owner.
 
-What is already handled: scrypt with a per-password salt, timing-safe comparison everywhere, identical failure messages for unknown-email and wrong-password, httpOnly + `SameSite=Lax` + `Secure`-in-production cookies, request body size caps per route, SQL parameterised throughout — including the dynamic `INSERT`/`UPDATE` builders in `/api/mutate`, where only column names derived from validated zod schemas are ever interpolated.
+### The 20-item audit
+
+A full pass over the app against the usual pre-launch list. Each row says where the rule lives, so the next person checks the file instead of re-deriving the answer.
+
+| # | Item | State | Where |
+|---|------|-------|-------|
+| 1 | Hide API keys | ✅ | `DATABASE_URL`, `SESSION_SECRET`, `ANTHROPIC_API_KEY` are read only in server modules. `lib/arquitetura.test.ts` fails the build if any of them becomes a `NEXT_PUBLIC_*` |
+| 2 | Clean secrets from git | ✅ | `.gitignore` blocks `.env*`; only `.env.example` is tracked, and it holds names, never values. History scanned for connection strings and `sk-ant-` — clean |
+| 3 | Public key on the DB | n/a | There is no browser-side database client and no anon key. The browser knows `/api/*` and nothing else; the connection string stops at `lib/db.ts` |
+| 4 | Enable RLS | n/a, by architecture | Postgres row-level security protects a database the client talks to directly. Here every read and write goes through `exigirViagem` plus the `via` cut in `TABELA` (`lib/escrita.ts`), which scopes a row by the session's trip instead of by id alone. That is the same guarantee, enforced one layer up — see [Authorization](#authorization) |
+| 5 | Encrypt data | ⚠️ accepted | Neon encrypts at rest and every connection is TLS. Passport, CPF and phone are stored in clear inside that. Column-level encryption would need a key that the server holds anyway, so it would stop a leaked backup and nothing else; the leak that matters here — one participant reading another's documents — is closed by the role cut instead. Revisit if the trip data ever leaves Neon |
+| 6 | Auth on the server | ✅ | `proxy.ts` is an optimistic cookie check that never touches the database; `exigirUsuario`/`exigirViagem` in `lib/auth.ts` are the real barrier, glued to the data source |
+| 7 | Restrict access | ✅ | `posso()` on the client, `papelAlcanca` on the server, in every route. A trip the account does not belong to answers 404, not 403 — 403 would confirm the trip exists |
+| 8 | Block mass assignment | ✅ | zod strips unknown keys before anything reaches SQL, so `Object.keys` on the parsed object can only ever produce schema columns. `revisado_por`/`revisado_em` are deleted from the payload and stamped by the server — an approval can never be signed by the client |
+| 9 | Protect cookies | ✅ | `httpOnly`, `SameSite=Lax`, `Secure` in production, 90-day expiry, and the token carries only the account id — never the role, which would leave a demotion valid for 90 days. CSRF has a second lock: `rota()` in `lib/api.ts` rejects any non-GET whose `Origin` does not match the host |
+| 10 | Hash passwords | ✅ | scrypt N=16384, 16-byte salt per password, 64-byte key, `timingSafeEqual`. No password library — `node:crypto` does this better than a dependency would |
+| 11 | Rate limit | ✅ | Five buckets with deliberately different rules: sign-in counts only *wrong* attempts and a success clears the window; sign-up counts **every** attempt and never clears; the assistant, uploads and imports are keyed by account, not IP. The counter now lives in Postgres (`registrar_tentativa`, under `for update`), not in process memory — on Vercel each serverless instance had its own, so ten instances meant ten times the limit. A network failure falls back to the in-memory bucket rather than either locking everyone out or removing the limit |
+| 12 | Bot protection | ✅ opt-in | Cloudflare Turnstile on sign-in and sign-up, verified server-side before scrypt runs. No new dependency — a `<script>` tag and a `fetch`. **Off until `TURNSTILE_SECRET_KEY` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set**, because a misconfigured captcha refusing everyone at an airport is worse than no captcha. It closes what row 11 cannot: a thousand IPs trying five passwords each never approach a per-origin limit |
+| 13 | Parameterised queries | ✅ | Every value is a placeholder. The four places that interpolate an *identifier* build it from a closed set: `TABELA` (a literal map), `Object.keys` of a zod-parsed object, `recorte()` (a literal `switch`), and `colunaValida()` in the undo path, which checks the column against the same schema that validates writes. `lib/escrita.test.ts` feeds it injection strings and asserts each is rejected |
+| 14 | Validate inputs | ✅ | Every route body goes through a zod schema before anything else, with a byte cap chosen per route. The one place a stored value later becomes executable — a `href` — goes through `hrefSeguro` (`lib/seguranca.ts`), which drops `javascript:`, `data:` and anything else outside `http(s)`/`mailto:`/`tel:` |
+| 15 | Leak content | ✅ | Cuts made in the SQL rather than in React: `financeiroDaViagem` returns two different shapes, `documentosDaViagem` never selects another participant's personal document, and `getSnapshot` withholds the trip budget below `editor` and other travellers' passport and phone below **`proprietario`**. Note the two different thresholds — money cuts at editor, documents cut at owner. See "What this audit fixed" below |
+| 16 | Restrict uploads | ✅ | Extension is irrelevant, MIME allowlist is checked, size is capped at 25 MB, each part at 4 MiB, and the offset check makes an out-of-order or duplicated part fail loudly. On top of that `assinaturaConfere` reads the file's magic bytes: a `.html` announced as `application/pdf` is rejected at the door |
+| 17 | Trim API responses | ✅ | `usuarioPorId` lists its columns so the hash cannot escape; `hashDoUsuario` exists only so the hash leaves the database on the one path that needs it. The trip and traveller queries in `getSnapshot` now list columns too, for the same reason `select *` was wrong there |
+| 18 | Security headers | ✅ | `next.config.ts` applies the list from `lib/seguranca.ts` to every route: HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy` and a CSP. `/api/documento` adds its own on the file response |
+| 19 | Force HTTPS | ✅ | Vercel terminates TLS and redirects http at the edge, but that redirect happens *after* the first request has already gone out in the clear — and the session cookie rides on every request. HSTS (2 years, `includeSubDomains`) is what makes the browser stop trying. `preload` is deliberately left off: it is a domain-level decision with a slow exit |
+| 20 | Dependency scan | ✅ | 5 runtime dependencies on purpose, `npm audit` clean. The discipline that keeps this row green is the "add no dependency for what a few lines do" rule, not the audit |
+
+### What this audit fixed
+
+Six changes, in rough order of how much they mattered.
+
+**The snapshot was publishing other people's passports.** `getSnapshot` selected `p.passaporte` and `p.telefone` for every traveller and sent the lot to everyone on the trip, `visualizador` included. Only the `proprietario` can *write* those fields (`participante` has minimum `proprietario` in `TABELA`) — but everyone could read them. That is the exact inversion the vault rule exists to prevent: *planning the itinerary is not permission to open a passport*. The two columns are now cut in the query and released for one's own row.
+
+The first attempt at that fix landed **one role too low**, and the review caught it. It reused `administra` — `papelAlcanca(papel, 'editor')` — because that is the threshold `financeiroDaViagem` uses. But money and documents are different rules: `documentosDaViagem`, `documentacaoDaViagem` and `/api/documento`'s `documentoVisivel` all cut at `proprietario`, precisely so a co-planner cannot read a passport. An `editor` is the *common* case, not the exotic one — it is what the role is for — so the near-miss would have handed every co-organiser the whole group's passport numbers through a field no screen displays. `getSnapshot` now carries two named thresholds, `administra` and `veDadoPessoal`, and `db/teste-recorte.sql` block B2 asserts the editor case against a real Postgres.
+
+**The snapshot was publishing the trip's budget.** `select * from trips` carried `orcamento_centavos` — the trip total — to every participant. The screen hid it (`if (!fin.admin) return null` in `Financeiro.tsx`), which is precisely the pattern the finance rule warns about: sending the admin shape and hiding fields in React publishes the number to anyone who opens the network tab. The query now lists its columns and nulls the budget below `editor`.
+
+**An upload was trusted on its own word.** `arquivo.type` is whatever the client declares. An HTML file announced as `application/pdf` passed the MIME allowlist, was stored, and came back from `GET` as `application/pdf` served from the app's own origin to the other travellers. Now the first part's magic bytes must match the declared type, and the response carries `nosniff` — one closes the entrance, the other the exit, and a vault that serves other people's files needs both.
+
+**A stored value could become a script.** `doc.valor` on a `link` document went straight into `href`. Written by one participant, clicked by another, `javascript:` there runs inside a page holding the whole snapshot. It now goes through `hrefSeguro`, the same guard `lerLinks` already used for the itinerary's links — one rule, in one place, for the two fields that turn stored text into a link.
+
+**The app shipped no security headers at all.** `next.config.ts` was the empty scaffold. It now carries HSTS, `nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` and a CSP whose most valuable line is `connect-src 'self'`: injected script cannot ship the trip snapshot — passports included — to an outside server.
+
+**Two authenticated routes had no rate limit.** `/api/documento` and `/api/import` were reachable in a loop by any valid account: 25 MB per file, and a whole trip created per import call. Both now have buckets sized to their actual cost.
+
+**The rate limit only counted on one machine.** The counter lived in a `Map` in process memory. On Vercel every serverless instance holds its own, so ten warm instances meant ten times the limit — and password guessing does not need more than that. It moved to Postgres, where `registrar_tentativa` reads, decides and writes under `for update` in one round trip. Doing it in three separate queries would have reopened the same race between instances that the table exists to close. `db/teste-limite.sql` proves the sliding window, the block ceiling, and that the buckets stay independent.
+
+**Nothing stopped a distributed bot.** Turnstile now guards sign-in and sign-up, verified server-side before scrypt runs and before the attempt is counted — a refused captcha is not a created account, so it should not consume the quota of everyone on the hotel's wifi. It stays off until both keys are configured.
+
+**A security header that depended on the build.** The first version of the Turnstile CSP was conditional: allow `challenges.cloudflare.com` only when the captcha is on. Testing it against the running build showed why that was a trap — Next serialises `headers()` into `routes-manifest.json` at **build** time, so the policy depended on the variable existing during the build, not during the request. Enable Turnstile in the Vercel dashboard, redeploy with build cache, and the server demands a token while the browser is blocked from loading the widget that produces one: nobody logs in, and the only clue is a CSP violation in a console nobody has open. It is unconditional now, and the rule that came out of it is written next to the constant: **a security header must never depend on a build-time environment variable — either it always applies, or it is a configuration that fails silently.**
+
+**Not fixed, on purpose.** `script-src` keeps `'unsafe-inline'`, so the CSP is not a second line of defence against XSS — React's escaping and `hrefSeguro` are. Removing it means a per-request nonce generated in `proxy.ts`, which turns off static optimisation for every page; the trade is not worth it while there is no `dangerouslySetInnerHTML` anywhere in the tree. Bot protection (row 12) and column-level encryption (row 5) are the two items still genuinely open, and both are written down above rather than quietly dropped.
 
 ---
 

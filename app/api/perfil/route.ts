@@ -14,14 +14,14 @@ import {
   trocarSenha,
 } from '@/lib/db.ts'
 import { exigirUsuario } from '@/lib/auth.ts'
-import { hashSenha, verifySenha, ErroHttp } from '@/lib/session.ts'
+import { hashSenha, verifySenha, ErroHttp, LIMITES_LOGIN } from '@/lib/session.ts'
 import {
   PerfilSchema,
   PerfilViagemSchema,
   TrocaSenhaSchema,
   formatarErroZod,
 } from '@/lib/schema.ts'
-import { rota, lerJson } from '@/lib/api.ts'
+import { rota, lerJson, limitar } from '@/lib/api.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -76,6 +76,12 @@ export const PATCH = rota(async (req) => {
 
 export const PUT = rota(async (req) => {
   const u = await exigirUsuario()
+  // Esta rota confere a senha ATUAL, o que a torna um verificador de senha para
+  // quem já tem o cookie. Mesmo limite do login, e antes do scrypt: sem ele, um
+  // cookie roubado vira um oráculo para descobrir a senha e assumir a conta em
+  // definitivo. Chave própria para não comer a cota de quem está fazendo login.
+  await limitar(`senha:${u.id}`, LIMITES_LOGIN, 'Muitas tentativas. Tente de novo em 15 minutos.')
+
   const parsed = TrocaSenhaSchema.safeParse(await lerJson(req, 4096))
   if (!parsed.success) throw new ErroHttp(400, formatarErroZod(parsed.error))
 

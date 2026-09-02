@@ -4,16 +4,26 @@
 // única isso arquivava a anterior; com várias viagens por conta, substituir seria
 // destruição silenciosa — a pessoa passa a ter duas e escolhe qual manter.
 import { exigirUsuario } from '@/lib/auth.ts'
-import { gravarViagemAtual, ErroHttp } from '@/lib/session.ts'
+import { gravarViagemAtual, LIMITES_IMPORTACAO, ErroHttp } from '@/lib/session.ts'
 import { validarImportacao, resumirImportacao } from '@/lib/schema.ts'
 import { importarViagem } from '@/lib/importar.ts'
-import { rota, lerJson } from '@/lib/api.ts'
+import { rota, lerJson, limitar } from '@/lib/api.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export const POST = rota(async (req) => {
   const u = await exigirUsuario()
+  // Cada chamada CRIA uma viagem inteira — dezenas de tabelas, centenas de linhas
+  // — e nada obriga a pessoa a apagar depois. Balde próprio e apertado por isso:
+  // no da sincronização caberiam 240 viagens em cinco minutos. O `dry_run` conta
+  // junto de propósito, porque ele valida o arquivo inteiro, que é o mesmo
+  // trabalho, menos a escrita.
+  await limitar(
+    `importacao:${u.id}`,
+    LIMITES_IMPORTACAO,
+    'Muitas importações seguidas. Tente de novo mais tarde.',
+  )
 
   const bruto = (await lerJson(req)) as Record<string, unknown>
   const dryRun = bruto?.dry_run === true

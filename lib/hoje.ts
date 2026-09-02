@@ -53,6 +53,8 @@ export type ItemRoteiro = {
   duracao_min?: number | null
   transporte?: string | null
   reserva_id?: string | null
+  /** Tem hora marcada de verdade. Este modulo nao usa; o assistente usa. */
+  ancora?: boolean
   ordem?: number
 }
 

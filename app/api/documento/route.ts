@@ -9,11 +9,18 @@
 // rota — a tela continua chamando GET/POST /api/documento.
 import { sql, getSnapshot, registrarAlteracao, usuarioPorId } from '@/lib/db.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
-import { ErroHttp } from '@/lib/session.ts'
+import { ErroHttp, LIMITES_UPLOAD } from '@/lib/session.ts'
 import { validarCampos } from '@/lib/schema.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
-import { rota } from '@/lib/api.ts'
-import { FATIA, LIMITE_ARQUIVO, LIMITE_TEXTO, MIMES_ARQUIVO } from '@/lib/arquivo.ts'
+import { rota, limitar } from '@/lib/api.ts'
+import {
+  assinaturaConfere,
+  BYTES_ASSINATURA,
+  FATIA,
+  LIMITE_ARQUIVO,
+  LIMITE_TEXTO,
+  MIMES_ARQUIVO,
+} from '@/lib/arquivo.ts'
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 
@@ -149,6 +156,12 @@ export const GET = rota(async (req) => {
   return new NextResponse(corpo, {
     headers: {
       'Content-Type': arquivo.mime,
+      // O `nosniff` global do next.config.ts já alcança /api/*; esta linha é a
+      // outra metade: se alguma coisa AINDA for interpretada como documento aqui,
+      // ela não carrega sub-recurso nenhum. `default-src 'none'` e não `sandbox`
+      // porque a aba de Documentação abre o PDF por link direto para esta rota, e
+      // `sandbox` pode derrubar o visualizador embutido do navegador.
+      'Content-Security-Policy': "default-src 'none'",
       // `inline` para o preview abrir na própria tela. Baixar é o navegador que
       // decide, pelo atributo `download` do link, não por este cabeçalho.
       'Content-Disposition': `inline; filename*=UTF-8''${nome}`,
@@ -172,6 +185,13 @@ export const GET = rota(async (req) => {
 // duas vezes no meio do PDF.
 export const POST = rota(async (req) => {
   const u = await exigirUsuario()
+  // Por CONTA, e antes de ler o corpo: o multipart de uma parte tem 4 MiB, e
+  // gastá-los para depois recusar seria o próprio limite virando o custo.
+  limitar(
+    `upload:${u.id}`,
+    LIMITES_UPLOAD,
+    'Muitos envios de arquivo seguidos. Tente de novo mais tarde.',
+  )
   const form = await req.formData()
 
   const tripId = String(form.get('trip_id') ?? '')
@@ -207,8 +227,22 @@ export const POST = rota(async (req) => {
     throw new ErroHttp(400, 'Esta parte não cabe no arquivo declarado.')
   }
 
+  const cru = Buffer.from(await arquivo.arrayBuffer())
+
+  // O mime declarado no multipart é o que o CLIENTE disse. Aqui se confere o que
+  // o arquivo É, pelos primeiros bytes, e só na PRIMEIRA parte — da segunda em
+  // diante o pedaço é o meio do arquivo e não tem assinatura para conferir.
+  //
+  // Sem isto, `carga.html` renomeada para `passaporte.pdf` fica guardada no cofre
+  // e volta pelo GET com `Content-Type: application/pdf` e `inline`. O `nosniff`
+  // do next.config.ts impede o navegador de adivinhar HTML ali, e esta checagem
+  // impede o arquivo de entrar.
+  if (deslocamento === 0 && !assinaturaConfere(arquivo.type, cru.subarray(0, BYTES_ASSINATURA))) {
+    throw new ErroHttp(415, 'Este arquivo não é um PDF, JPG, PNG ou WEBP de verdade.')
+  }
+
   // Ver o comentário do GET: o arquivo viaja como base64 e o Postgres decodifica.
-  const bytes = Buffer.from(await arquivo.arrayBuffer()).toString('base64')
+  const bytes = cru.toString('base64')
   const id = String(form.get('id') ?? '') || randomUUID()
 
   // ------------------------------------------------------------ continuação

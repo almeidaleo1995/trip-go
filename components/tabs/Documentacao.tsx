@@ -1521,8 +1521,8 @@ function FichaCelula({
 
         {!meu && !sub && (
           <p className="t-aux">
-            {nome} ainda não cadastrou este documento. A entrega é preenchida pela própria pessoa —
-            você pode cobrar, não preencher por ela.
+            {String(nome)} ainda não cadastrou este documento. A entrega é preenchida pela própria
+            pessoa — você pode cobrar, não preencher por ela.
           </p>
         )}
       </div>

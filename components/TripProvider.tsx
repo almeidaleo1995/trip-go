@@ -26,23 +26,28 @@ import {
   type Operacao,
 } from '@/lib/offline.ts'
 import { papelAlcanca, type Papel } from '@/config/navigation.ts'
-import { resolverDivisao, gerarParcelas, type Obrigacao } from '@/lib/financeiro.ts'
+import {
+  resolverDivisao,
+  gerarParcelas,
+  type Frequencia,
+  type Obrigacao,
+} from '@/lib/financeiro.ts'
 
 /** Financeiro de quem administra: as listas cruas, para a tela fazer as contas. */
 export type FinanceiroAdmin = {
   admin: true
-  categorias: Record<string, any>[]
-  despesas: Record<string, any>[]
-  divisoes: Record<string, any>[]
-  parcelas: Record<string, any>[]
-  pagamentos: Record<string, any>[]
+  categorias: Record<string, unknown>[]
+  despesas: Record<string, unknown>[]
+  divisoes: Record<string, unknown>[]
+  parcelas: Record<string, unknown>[]
+  pagamentos: Record<string, unknown>[]
 }
 
 /** Financeiro de um viajante comum: só as obrigações dele, já resolvidas. */
 export type FinanceiroPessoal = {
   admin: false
   obrigacoes: Obrigacao[]
-  historico: Record<string, any>[]
+  historico: Record<string, unknown>[]
   devendo: number
   pago: number
   do_mes: number
@@ -50,26 +55,26 @@ export type FinanceiroPessoal = {
 }
 
 export type Snapshot = {
-  viagem: Record<string, any> | null
-  participantes: Record<string, any>[]
-  roteiro: Record<string, any>[]
-  dias: Record<string, any>[]
-  voos: Record<string, any>[]
-  cruzeiros: Record<string, any>[]
-  reservas: Record<string, any>[]
-  lugares: Record<string, any>[]
-  checklist: Record<string, any>[]
-  checklist_state: Record<string, any>[]
-  documentos: Record<string, any>[]
-  requisitos: Record<string, any>[]
-  entregas: Record<string, any>[]
-  perfis: Record<string, any>[]
-  emergencia: Record<string, any>[]
-  mensagens: Record<string, any>[]
-  alteracoes: Record<string, any>[]
+  viagem: Record<string, unknown> | null
+  participantes: Record<string, unknown>[]
+  roteiro: Record<string, unknown>[]
+  dias: Record<string, unknown>[]
+  voos: Record<string, unknown>[]
+  cruzeiros: Record<string, unknown>[]
+  reservas: Record<string, unknown>[]
+  lugares: Record<string, unknown>[]
+  checklist: Record<string, unknown>[]
+  checklist_state: Record<string, unknown>[]
+  documentos: Record<string, unknown>[]
+  requisitos: Record<string, unknown>[]
+  entregas: Record<string, unknown>[]
+  perfis: Record<string, unknown>[]
+  emergencia: Record<string, unknown>[]
+  mensagens: Record<string, unknown>[]
+  alteracoes: Record<string, unknown>[]
   financeiro: FinanceiroAdmin | FinanceiroPessoal
   server_time: string
-  eu: { userId: string; usuario: Record<string, any>; participanteId: string; papel: Papel }
+  eu: { userId: string; usuario: Record<string, unknown>; participanteId: string; papel: Papel }
 }
 
 type Contexto = {
@@ -249,7 +254,19 @@ export function TripProvider({
 }
 
 /** Espelha localmente o que o servidor fará, para a tela responder na hora. */
-const LISTA: Record<string, keyof Snapshot> = {
+/**
+ * As chaves do snapshot que sao LISTA de linhas — e so elas.
+ *
+ * Derivado do proprio `Snapshot` em vez de escrito a mao: `keyof Snapshot` deixava
+ * `viagem`, `financeiro` e `server_time` entrarem, e a atribuicao logo abaixo
+ * precisava de um `as any` para o TypeScript aceitar. Com o tipo estreitado, o
+ * cast some e um campo novo que nao seja lista falha aqui, e nao em producao.
+ */
+type CampoLista = {
+  [K in keyof Snapshot]: Snapshot[K] extends Record<string, unknown>[] ? K : never
+}[keyof Snapshot]
+
+const LISTA: Record<string, CampoLista> = {
   roteiro: 'roteiro',
   dia: 'dias',
   voo: 'voos',
@@ -310,8 +327,8 @@ function normalizar(s: Snapshot): Snapshot {
  * exatamente o que vai ser gravado — não uma aproximação que muda ao sincronizar.
  */
 function aplicarFinanceiro(fin: FinanceiroAdmin, op: Operacao): FinanceiroAdmin {
-  const lista = (chave: keyof FinanceiroAdmin, idDe = (x: any) => x.id) => {
-    const atual = fin[chave] as Record<string, any>[]
+  const lista = (chave: keyof FinanceiroAdmin, idDe = (x: Record<string, unknown>) => x.id) => {
+    const atual = fin[chave] as Record<string, unknown>[]
     if (op.op === 'remover') return atual.filter((x) => idDe(x) !== op.id)
     if (op.op === 'criar') return [...atual, { id: op.id, ...op.campos }]
     return atual.map((x) => (idDe(x) === op.id ? { ...x, ...op.campos } : x))
@@ -332,17 +349,27 @@ function aplicarFinanceiro(fin: FinanceiroAdmin, op: Operacao): FinanceiroAdmin 
     }
   }
 
-  const c = op.campos as Record<string, any>
+  const c = op.campos as Record<string, unknown>
   const total = Number(c.valor_centavos) || 0
-  const divisoes = resolverDivisao(total, c.divisao, c.divisoes ?? []).map((d) => ({
-    ...d,
-    expense_id: id,
-  }))
+
+  // A coercao acontece AQUI, e nao afrouxando a assinatura de `resolverDivisao` /
+  // `gerarParcelas` como foi feito com os formatadores de lib/derive.ts. A razao e
+  // a regra do README: as mesmas funcoes puras rodam no servidor para gravar e
+  // aqui para a pintura otimista, e e isso que faz o offline mostrar exatamente o
+  // que sera salvo. Um `unknown` na porta do motor de dinheiro deixaria as duas
+  // pontas aceitarem entradas diferentes em silencio.
+  const texto = (v: unknown) => (v == null || v === '' ? null : String(v))
+  const divisoes = resolverDivisao(total, texto(c.divisao), (c.divisoes ?? []) as never).map(
+    (d) => ({
+      ...d,
+      expense_id: id,
+    }),
+  )
   const parcelas = gerarParcelas(
     total,
     Number(c.parcelas_quantidade) || 1,
-    c.parcelas_primeira_em ?? c.ocorre_em ?? null,
-    c.parcelas_frequencia ?? 'mensal',
+    texto(c.parcelas_primeira_em) ?? texto(c.ocorre_em),
+    (texto(c.parcelas_frequencia) ?? 'mensal') as Frequencia,
   ).map((p) => {
     // Preserva o que já foi pago ao fornecedor: o formulário de despesa não
     // manda esse campo, e zerá-lo aqui faria uma parcela quitada voltar a
@@ -417,7 +444,7 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
   if (op.entidade === 'opcao') {
     const eventoId = String(op.campos.event_id ?? '')
     novo.roteiro = s.roteiro.map((e) => {
-      const opcoes = (e.opcoes ?? []) as Record<string, any>[]
+      const opcoes = (e.opcoes ?? []) as Record<string, unknown>[]
       if (op.op === 'remover') return { ...e, opcoes: opcoes.filter((o) => o.id !== op.id) }
       if (op.op === 'criar') {
         return e.id === eventoId ? { ...e, opcoes: [...opcoes, { id: op.id, ...op.campos }] } : e
@@ -444,9 +471,8 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
   // do mesmo passaporte na tela ate o proximo sync — e o painel contaria a pessoa
   // duas vezes. Mesmo motivo do `dia` acima.
   if (op.entidade === 'entrega') {
-    const chave = (x: Record<string, any>) =>
-      `${x.requirement_id}:${x.traveler_id}`
-    const nova = { id: op.id, ...op.campos } as Record<string, any>
+    const chave = (x: Record<string, unknown>) => `${x.requirement_id}:${x.traveler_id}`
+    const nova = { id: op.id, ...op.campos } as Record<string, unknown>
     if (op.op === 'remover') {
       novo.entregas = s.entregas.filter((x) => x.id !== op.id)
       return novo
@@ -462,13 +488,13 @@ function aplicarLocal(s: Snapshot, op: Operacao): Snapshot {
 
   const campo = LISTA[op.entidade]
   if (!campo) return novo
-  const lista = s[campo] as Record<string, any>[]
+  const lista = s[campo] as Record<string, unknown>[]
   novo[campo] = (
     op.op === 'remover'
       ? lista.filter((x) => x.id !== op.id)
       : op.op === 'criar'
         ? [...lista, { id: op.id, ...op.campos }]
         : lista.map((x) => (x.id === op.id ? { ...x, ...op.campos } : x))
-  ) as any
+  ) as Record<string, unknown>[]
   return novo
 }
