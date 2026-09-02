@@ -4,6 +4,38 @@ Uma entrada por versão aplicada. Uma proposta de versão que ainda não foi
 revisada/aplicada não entra aqui — ela vive só no relatório da skill até
 alguém aceitar.
 
+
+## 1.4.0
+
+**A skill passou a subir a viagem sozinha.** Antes, "escrita direta" era uma
+instrucao para escrever um script descartavel na hora e apaga-lo depois — na
+pratica, cada carga era um script novo, sem dedup, sem autorizacao e sem volta.
+Agora sao tres scripts de verdade:
+
+- `scripts/subir.mjs` — grava no app. `--nova` cria a viagem pelo mesmo
+  `importarViagem` de `/api/import`; `--viagem <tripId>` SOMA numa existente,
+  operacao a operacao, por `exigirViagem` + `autorizar` + `aplicar`. A skill nao
+  tem caminho proprio para o banco, entao ela nao consegue fazer nada que a conta
+  em `--conta` ja nao pudesse fazer pela tela: visualizador leva 403, quem nao
+  participa leva 404. Nao duplica (chave natural por secao, o que ja existe e
+  pulado com o motivo impresso) e nao grava sem deixar volta.
+- `scripts/desfazer.mjs` — reverte a carga inteira pelo `lote`, em ordem inversa,
+  com `autorizar` linha a linha e `colunaValida` no campo lido do `change_log`.
+- `scripts/campos.mjs` — imprime a lista de campos VIVA, lida de `SECOES_ARQUIVO`
+  em `lib/schema.ts`. Virou o passo 4: a documentacao desta skill e apoio, e em
+  qualquer divergencia a saida dele vence. O zod descarta chave desconhecida em
+  silencio, entao uma secao renomeada nao da erro — importa vazia.
+- `scripts/projeto.mjs` — resolve o alias `@/` para os tres acima poderem
+  importar `lib/` do app em vez de reimplementar as regras.
+
+**Regra nova, e verificavel:** a skill mexe em dado, nunca em codigo.
+`lib/skill.test.ts` (no projeto, roda em `npm test`) falha se `subir.mjs` ou
+`desfazer.mjs` ganharem qualquer escrita de arquivo ou execucao de comando, se
+pararem de passar por `autorizar`/`aplicar`, ou se `campos.mjs` deixar de ler o
+schema do app.
+
+Escritas da skill ficam marcadas com `origem = 'skill'` no `change_log`.
+
 ## 1.4.0 — 2026-08-29
 
 O app ganhou a aba **Hoje** — o roteiro reduzido ao que serve andando na rua — e

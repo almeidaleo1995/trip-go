@@ -9,8 +9,6 @@
     "lint": "eslint",
     "audit": "npm audit --omit=dev --audit-level=high",
     "db:push": "node --env-file=.env.local scripts/db-push.mjs",
-    "sql:build": "node --import ./scripts/alias.mjs scripts/gerar-montar-sql.mjs",
-    "montar": "node --env-file=.env.local --import ./scripts/alias.mjs scripts/montar.mjs",
     "test": "node --import ./scripts/alias.mjs --test lib/*.test.ts",
     "test:api": "node --env-file=.env.local scripts/test-api.mjs"
   },

@@ -24,20 +24,19 @@ export { colunaValida } from '@/lib/schema.ts'
 /**
  * De onde veio a escrita, para o `change_log`.
  *
- * HOJE todo chamador passa o padrao: a tela grava `('pessoa', null)` e nao ha
- * outro caminho de escrita. O par continua existindo porque e ele que torna um
- * LOTE desfazivel — reverter uma carga inteira exige saber quais linhas vieram
- * juntas, e essa informacao so existe se for gravada no momento da escrita. Foi
- * assim que o assistente de IA, que nao existe mais, desfazia o que propunha; e
- * e o mesmo gancho que um gravador em lote futuro usaria. Um `origem` que a tela
- * nunca escreve nao custa nada; recuperar o agrupamento depois e impossivel.
+ * `pessoa` e o padrao e cobre toda a tela. `skill` marca a linha que a skill
+ * `roteiro-trip-go` gravou — ela monta a viagem fora do app (de PDF, de voucher,
+ * de conversa) e sobe pelo MESMO `autorizar`/`aplicar` daqui, com o `Acesso` da
+ * conta de quem pediu. O `lote` agrupa a carga inteira, e e o que torna a carga
+ * desfazivel: saber quais linhas vieram juntas so e possivel se for gravado no
+ * momento da escrita, nunca reconstruido depois.
  *
- * `sql` esta reservado para esse gravador. `assistente` nao esta na lista aqui,
- * mas continua ACEITO PELO BANCO: ele esta gravado em historico de viagem em uso,
- * e um check que o recusasse quebraria duplicar viagem e reimportar backup — os
- * dois caminhos que RE-INSEREM linha antiga. Ver db/schema.sql.
+ * `assistente` nao esta na lista aqui, mas continua ACEITO PELO BANCO: ele esta
+ * gravado em historico de viagem em uso, e um check que o recusasse quebraria
+ * duplicar viagem e reimportar backup — os dois caminhos que RE-INSEREM linha
+ * antiga. Ver db/schema.sql.
  */
-export type Marca = { origem: 'pessoa' | 'sql'; lote: string | null }
+export type Marca = { origem: 'pessoa' | 'skill'; lote: string | null }
 
 const SEM_MARCA: Marca = { origem: 'pessoa', lote: null }
 
@@ -684,8 +683,17 @@ export async function aplicar(
     // O dia do roteiro e unique por (trip_id, dia); a entrega, por (requisito,
     // pessoa). Sem o on conflict, reenviar o passaporte pela fila offline viraria
     // 409 em vez de atualizar a entrega que ja estava la.
+    //
+    // A chave tem que bater EXATAMENTE com um unique do banco: o Postgres casa o
+    // `on conflict` com um indice, nao com uma coluna. `dia: ['dia']` nao casava
+    // com `unique (trip_id, dia)`, e criar um dia do roteiro morria com "there is
+    // no unique or exclusion constraint matching the ON CONFLICT specification" —
+    // um 500 em toda anotacao de dia novo, na tela e na fila offline. O
+    // `trip_id` entra por `vinculo`, entao ele existe na linha; o que faltava era
+    // nomea-lo aqui. `lib/arquitetura.test.ts` confere cada chave contra os
+    // `unique (...)` de db/schema.sql.
     const CHAVE_UPSERT: Partial<Record<Entidade, string[]>> = {
-      dia: ['dia'],
+      dia: ['trip_id', 'dia'],
       entrega: ['requirement_id', 'traveler_id'],
     }
     const chave = CHAVE_UPSERT[op.entidade]

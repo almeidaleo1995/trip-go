@@ -869,12 +869,12 @@ export const MensagemSchema = z.object({
  * As secoes de LISTA do arquivo, na ordem em que sao gravadas.
  *
  * Este mapa e a fonte da verdade de tres coisas ao mesmo tempo: o proprio
- * `TripArquivoSchema` (montado logo abaixo a partir dele), o gerador de
- * `db/montar.sql` -- que emite uma funcao SQL por entrada, com os argumentos
- * lidos do zod -- e o teste que compara o arquivo gerado com o commitado. Uma
- * secao nova aqui vira funcao SQL no proximo `npm run sql:build`, e ate la o
- * teste FALHA dizendo isso. Era esse o furo que uma segunda lista escrita a mao
- * abriria: a SQL continuaria montando viagem sem a secao nova, em silencio.
+ * `TripArquivoSchema` (montado logo abaixo a partir dele), a lista de campos que
+ * a skill `roteiro-trip-go` imprime antes de montar qualquer viagem
+ * (`scripts/campos.mjs`), e o percurso do `scripts/subir.mjs`, que grava secao
+ * por secao na ordem daqui. Uma secao nova aqui aparece nos tres no mesmo
+ * instante. Era esse o furo que uma segunda lista escrita a mao abriria: a skill
+ * continuaria montando viagem sem a secao nova, em silencio.
  *
  * A ordem importa e nao e alfabetica: os requisitos entram antes das entregas
  * porque elas apontam para eles, e as categorias antes dos custos pelo mesmo
@@ -1072,11 +1072,11 @@ const POR_ENTIDADE: Partial<Record<Entidade, z.ZodTypeAny>> = {
  * O schema de uma entidade, para quem precisa DESCREVER os campos em vez de
  * validar um valor.
  *
- * E o que permite ao gerador de db/montar.sql publicar os argumentos de cada
- * funcao a partir daqui em vez de manter uma segunda copia da lista de campos.
+ * E o que permite a skill `roteiro-trip-go` imprimir a lista de campos VIVA
+ * (scripts/campos.mjs) em vez de manter uma segunda copia na propria documentacao.
  * Essa copia seria o quinto lugar a lembrar quando um campo nasce — e o sintoma
- * de esquece-la nao seria um erro, seria a SQL parando de aceitar o campo novo
- * em silencio.
+ * de esquece-la nao seria um erro, seria a skill parando de preencher o campo
+ * novo em silencio.
  */
 export function esquemaDe(entidade: Entidade): z.ZodTypeAny | undefined {
   return POR_ENTIDADE[entidade]

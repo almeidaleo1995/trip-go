@@ -831,12 +831,12 @@ export async function registrarAlteracao(
   para: unknown,
   /**
    * Quem originou a escrita, e em que lote. `travelerId` continua sendo quem
-   * assina. Hoje toda chamada usa o padrao (`pessoa`, sem lote): o par existe
-   * porque agrupar as linhas de uma carga e o que a torna desfazivel, e esse
-   * agrupamento so existe se for gravado na hora. Ver `Marca` em lib/escrita.ts.
+   * assina — o que muda e se a pessoa digitou na tela (`pessoa`) ou se a linha
+   * entrou por uma carga da skill (`skill`), que agrupa tudo sob um `lote` para
+   * poder ser desfeita inteira. Ver `Marca` em lib/escrita.ts.
    * Opcionais e no fim de proposito: as 7 chamadas que ja existiam seguem valendo.
    */
-  origem: 'pessoa' | 'sql' = 'pessoa',
+  origem: 'pessoa' | 'skill' = 'pessoa',
   lote: string | null = null,
 ) {
   const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))

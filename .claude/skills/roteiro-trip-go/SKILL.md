@@ -1,7 +1,7 @@
 ---
 name: roteiro-trip-go
-description: Monta e atualiza a viagem do TripGo. Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app, e entrega junto um PDF do roteiro para usar sem sinal. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Para viagem que já existe no app, escreve direto nas tabelas em vez de gerar arquivo — importar sempre cria viagem nova. Também gera lotes de sugestão de checklist (ver reference/checklist-sugestoes.md e a árvore schema/rules/templates/mappings/validators). Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, montar ou detalhar um dia do roteiro, atualizar a viagem, sugerir itens de checklist, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí", "sugere checklist".
-skillVersion: 1.3.0
+description: Monta e atualiza a viagem do TripGo. Converte documentos de viagem (PDF, e-mail, print, texto solto) no arquivo JSON de importação deste app, e entrega junto um PDF do roteiro para usar sem sinal. Extrai roteiro, voos, cruzeiro, hospedagens, lugares, checklist com prazos, documentos, contatos de emergência e custos, valida contra o schema real do projeto e aponta contradições entre documentos em vez de escolher em silêncio. Sobe o resultado direto para o app (scripts/subir.mjs) — viagem nova ou somando numa que já existe —, sem duplicar o que já está lá e deixando a carga inteira desfazível por um lote. Só mexe em dados, nunca em código. Também gera lotes de sugestão de checklist (ver reference/checklist-sugestoes.md e a árvore schema/rules/templates/mappings/validators). Use quando o usuário mandar PDFs/vouchers/bilhetes de uma viagem e pedir para carregar no app, gerar o arquivo de importação, montar ou detalhar um dia do roteiro, atualizar a viagem, sugerir itens de checklist, ou disser "converte esses documentos", "gera o JSON da viagem", "importa isso aí", "sobe isso no app", "monta meu roteiro", "sugere checklist".
+skillVersion: 1.4.0
 schemaVersion: 3
 ---
 
@@ -13,11 +13,29 @@ O app nunca lê PDF. Esta conversão acontece aqui fora, com julgamento, e o res
 
 `schemaVersion` acima espelha `SCHEMA_VERSION` de `lib/schema.ts` no app — é assim que esta skill sabe se está desatualizada em relação ao contrato do app (ver `CHANGELOG.md` e a regra de nunca reescrever a si mesma, no fim deste arquivo).
 
-## Regra que governa tudo
+## As duas regras que governam tudo
 
-**Não invente dado.** Se o documento não diz o número da cabine, o campo fica ausente — não vai `"cabine": "a confirmar"` nem um valor plausível. Um app de viagem com dado inventado é pior que um app vazio, porque a pessoa confia nele no aeroporto.
+**1. Esta skill mexe em DADO. Nunca em código.**
 
-Quando faltar algo importante, liste no relatório final sob **"Faltando nos documentos"**.
+Ela lê `lib/schema.ts` e chama as funções de `lib/` — e é só isso que faz com o
+projeto. Não edita arquivo do app, não muda schema, não instala dependência, não
+altera configuração. Se cumprir um pedido parecer exigir mudar código, **isso não
+é um pedido de dado**: pare e diga qual mudança seria necessária, em texto. Quem
+revisa decide.
+
+A regra é verificável, não uma promessa: `lib/skill.test.ts`, no projeto, falha se
+`subir.mjs` ou `desfazer.mjs` ganharem qualquer escrita de arquivo ou execução de
+comando. Roda em `npm test`, junto com o resto.
+
+(Os arquivos que a skill **entrega** — o `.json` e o `.pdf` do roteiro — são
+produto, não código, e vão para a pasta que o usuário escolher no passo 0.)
+
+**2. Não invente dado.** Não vai `"cabine": "a confirmar"` nem um valor plausível.
+Um app de viagem com dado inventado é pior que um app vazio, porque a pessoa
+confia nele no aeroporto.
+
+Se o documento não diz o número da cabine, o campo fica ausente. Quando faltar
+algo importante, liste no relatório final sob **"Faltando nos documentos"**.
 
 ## Processo
 
@@ -41,7 +59,10 @@ perguntas em **uma única mensagem**, numeradas, e espere a resposta:
 4. **Quem vai** — os nomes exatos dos participantes, do jeito que já estão no
    app (a divisão de despesa e o `assigned_to_nomes` do checklist casam **por
    nome**; nome errado importa como despesa sem dono).
-5. **Onde salvar** — a pasta do `.json` e do `.pdf`. **Nunca escolha sozinha**:
+5. **Onde salvar, e se sobe agora** — a pasta do `.json` e do `.pdf`, e se a
+   viagem deve ir direto para o app (passo 8) ou ficar só como arquivo. Se for
+   subir, peça o **e-mail da conta** e, para viagem existente, o `tripId` (está
+   na URL `/viagens/<id>`). **Nunca escolha a pasta sozinha**:
    scratchpad de sessão some, a raiz do repositório entra no git sem ninguém
    pedir. Ofereça opções concretas e aceite um caminho digitado.
 
@@ -74,23 +95,30 @@ Quando houver mais de um documento:
 
 ### 4. Conferir o app antes de montar — sempre
 
-O app muda; esta skill não muda sozinha. Antes de escrever o JSON, **leia
-`lib/schema.ts` na raiz do projeto** e confira três coisas:
+O app muda; esta skill não muda sozinha. **A primeira coisa a rodar, sempre:**
 
 ```bash
-grep -n "SCHEMA_VERSION" lib/schema.ts        # bate com o schemaVersion do frontmatter?
-grep -n "^export const .*Schema = z.object" lib/schema.ts
+node .claude/skills/roteiro-trip-go/scripts/campos.mjs           # todas as seções
+node .claude/skills/roteiro-trip-go/scripts/campos.mjs roteiro   # uma só
 ```
 
-- `SCHEMA_VERSION` continua igual ao `schemaVersion` do frontmatter desta skill?
-  Se subiu, a skill está desatualizada: monte o JSON pelo schema real (nunca
-  pela documentação daqui) e **proponha a nova versão no relatório final**.
-- As seções que você vai escrever ainda existem com esse nome
-  (`participantes`, `reservas`, `custos`…)? Zod **descarta chave desconhecida
-  em silêncio** — uma seção renomeada não dá erro, importa vazia.
-- Os campos que você vai preencher ainda existem, e ainda significam a mesma
-  coisa. `custos[].valor_centavos` já trocou de sentido uma vez (era por
-  pessoa, hoje é o total).
+Ele imprime a lista de campos **viva**, lida de `SECOES_ARQUIVO` em
+`lib/schema.ts` — obrigatórios, tipos, enums, padrões, e os vínculos por nome
+entre seções. Não escreve nada; só lê o schema.
+
+Isto não é conferência de rotina, é a defesa contra a falha mais silenciosa que
+existe aqui: **o zod descarta chave desconhecida sem erro**. Uma seção renomeada
+não falha, importa vazia. Um campo renomeado não falha, some. A documentação
+desta skill (`reference/formato.md`) é apoio de leitura; **em qualquer
+divergência, a saída de `campos.mjs` vence.**
+
+Confira também `SCHEMA_VERSION` na primeira linha da saída contra o
+`schemaVersion` do frontmatter. Se subiu, a skill está desatualizada: monte pelo
+schema real e **proponha a nova versão no relatório final** — sem editar este
+arquivo (ver Versionamento, no fim).
+
+`custos[].valor_centavos` já trocou de sentido uma vez (era por pessoa, hoje é o
+total): campo que continua existindo com o mesmo nome também muda.
 
 **Para uma viagem que já existe no app**, olhe também o estado atual antes de
 propor qualquer coisa: exporte por **Dados → Exportar** (ou peça o JSON ao
@@ -98,7 +126,7 @@ usuário) e compare. Item que já está lá vira atualização ou nada — não 
 segunda cópia. As regras de deduplicação estão em
 [rules/dedup-e-prioridade.md](rules/dedup-e-prioridade.md).
 
-### 5. Arquivo ou escrita direta — decidir antes de montar
+### 5. Onde isto vai parar — decidir antes de montar
 
 **`/api/import` SEMPRE cria uma viagem nova. Ele nunca soma numa existente.**
 Isso é decisão de projeto, não bug — está escrito em `app/api/import/route.ts`:
@@ -107,28 +135,19 @@ escolhe qual manter. `importarViagem` começa com `randomUUID()`.
 
 A consequência governa esta skill inteira:
 
-| A viagem… | O que entregar |
+| A viagem… | O destino |
 | --- | --- |
-| ainda não existe no app | **arquivo de importação** — é exatamente para isso |
-| já existe, e o pedido é adicionar/detalhar (um dia, um voo, um lote de checklist) | **escrita direta** nas tabelas da viagem, pelo `trip_id` |
+| ainda não existe no app | `subir.mjs --nova` (ou o arquivo, e a pessoa importa pela tela) |
+| já existe, e o pedido é adicionar/detalhar (um dia, um voo, um lote de checklist) | `subir.mjs --viagem <tripId>` |
 | já existe, e o pedido é backup/portabilidade | **Dados → Exportar** no app; não replique o mapeamento de `/api/export` |
 
-Entregar um arquivo para o segundo caso é o erro mais caro desta skill: o
-usuário importa achando que soma, e ganha uma viagem duplicada pela metade.
-Se ele pedir o arquivo mesmo assim, gere — e diga numa frase o que vai
+Entregar um arquivo de importação para o segundo caso é o erro mais caro desta
+skill: o usuário importa achando que soma, e ganha uma viagem duplicada pela
+metade. Se ele pedir o arquivo mesmo assim, gere — e diga numa frase o que vai
 acontecer se ele subir.
 
-Para escrita direta, ache o `trip_id` antes de qualquer coisa e **enriqueça o
-que já existe em vez de inserir parecido** (regras em
-[rules/dedup-e-prioridade.md](rules/dedup-e-prioridade.md)):
-
-```bash
-node --env-file=.env.local --experimental-strip-types <script>.mjs
-```
-
-Uma transação só (`sql.transaction`), e apague o script depois — ele não é
-parte do projeto. Grave em `itinerary_events`/`itinerary_days`, nunca em
-`travelers` sem pedir: nome de participante é chave de dinheiro.
+Para descobrir o `tripId`, pergunte ao usuário (está na URL: `/viagens/<id>`) ou
+liste as viagens da conta dele.
 
 ### 6. Montar o JSON
 
@@ -168,7 +187,63 @@ Valida contra o `TripImportSchema` real e imprime a contagem por seção. **Saí
 
 Confira também a contagem impressa contra o documento: se o caderno fala em 6 portos e o resumo mostra 4, faltou coisa.
 
-### 8. Gerar o PDF — junto com o JSON, sempre
+### 8. Subir para o app — é isto que faz a viagem aparecer na tela
+
+```bash
+# viagem nova: cria e devolve o link
+node --env-file=.env.local \
+  .claude/skills/roteiro-trip-go/scripts/subir.mjs <arquivo.json> \
+  --nova --conta <email da conta>
+
+# somar numa viagem que já existe
+node --env-file=.env.local \
+  .claude/skills/roteiro-trip-go/scripts/subir.mjs <arquivo.json> \
+  --viagem <tripId> --conta <email da conta>
+
+# ver o que aconteceria, sem gravar nada
+… --conferir
+```
+
+**Rode `--conferir` primeiro, sempre.** Ele imprime o que gravaria, o que já
+existe na viagem (e por isso seria pulado) e os avisos — sem tocar no banco. Numa
+viagem em uso, ler isso antes custa dez segundos e evita a limpeza manual.
+
+Três coisas que este script faz e que valem saber:
+
+- **Ele não tem poder próprio.** Toda gravação passa por `exigirViagem` +
+  `autorizar` + `aplicar` de `lib/`, com o `Acesso` da conta em `--conta`. Um
+  `visualizador` leva 403 aqui igual levaria no navegador; uma conta que não
+  participa da viagem leva 404. A skill não consegue fazer nada que essa pessoa
+  já não pudesse fazer pela tela.
+- **Ele não duplica.** Cada seção tem uma chave natural (roteiro: hora+título;
+  voo: companhia+número+partida; despesa: descrição+valor…) e o que já está lá é
+  **pulado**, com o motivo impresso. Rodar duas vezes não dobra o roteiro.
+  `--forcar` insere assim mesmo, quando você quer o duplicado de propósito.
+- **Ele é reversível.** A carga inteira recebe um `lote` e grava
+  `origem = 'skill'` no `change_log`. O número do lote sai no fim:
+
+```bash
+node --env-file=.env.local \
+  .claude/skills/roteiro-trip-go/scripts/desfazer.mjs <lote> --conta <email>
+```
+
+**Entregue o número do lote ao usuário no relatório final.** Escrever numa viagem
+que outras pessoas já estão usando sem dizer como voltar atrás não é aceitável.
+
+**O que NÃO sobe por `--viagem`, e por quê** (o script avisa em cada caso):
+
+| Não sobe | Motivo |
+| --- | --- |
+| `participantes` | nome de participante é chave de dinheiro e de documento pessoal. Só com `--com-participantes`, depois de conferir a grafia com quem organiza |
+| valor irregular de parcela, e parcela já paga | quem calcula parcela é o servidor (`gerarParcelas`), a partir do total e da quantidade — é a mesma regra da tela. Marque o pagamento na aba Financeiro |
+| `pagamentos` (reembolsos) | apontam para uma parcela que só ganha id depois de gravada. Lance na aba Financeiro |
+| bytes de documento | o cofre recebe o arquivo pela tela ou por `POST /api/documento`; o JSON carrega só a ficha |
+
+Documento `pessoal` cujo `dono_nome` não bate com ninguém da viagem entra como
+**global** — a viagem inteira passa a ver. O script avisa, e esse aviso vai para
+o relatório: é mudança de quem enxerga o quê.
+
+### 9. Gerar o PDF — junto com o JSON, sempre
 
 O objetivo do produto é **funcionar sem sinal**. Um JSON não se lê no
 aeroporto, então a entrega padrão são **dois arquivos**, na pasta que o
@@ -199,7 +274,7 @@ não tem lib de PDF de propósito, e esta skill não deve adicionar uma:
 - Cores e nome do produto vêm de `config/theme.ts` e `config/site.ts`, não
   escritos à mão.
 
-### 9. Relatório final
+### 10. Relatório final
 
 Entregue junto com os arquivos:
 
@@ -208,8 +283,9 @@ Entregue junto com os arquivos:
 - **Conflitos encontrados** e como foram resolvidos.
 - **Faltando nos documentos** — o que o app vai mostrar vazio e por quê.
 - **Não verificado** — o que veio de estimativa e deve ser confirmado na fonte oficial.
-- **Se foi escrita direta**: o que foi inserido e o que foi *atualizado* em
-  linha existente, para a pessoa poder desfazer.
+- **Se subiu para o app**: o link (`/viagens/<id>`), a contagem por seção, o que
+  foi **pulado por já existir**, e o **número do lote** com o comando de desfazer.
+  Uma carga sem caminho de volta não se entrega.
 
 ## O roteiro alimenta a aba HOJE
 
@@ -347,8 +423,10 @@ Formato completo, regras de deduplicação/prioridade e o mapeamento nome→camp
 - [mappings/campo-para-app.md](mappings/campo-para-app.md) — `assigned_to_nomes`/`evento`/`voo`/`cruzeiro` por nome
 - `validators/validar-sugestoes.mjs` — validação obrigatória antes de entregar um lote, igual ao passo 7 acima
 
-Lote de sugestão é quase sempre o caso "a viagem já existe" do passo 5: o
-destino natural é escrita direta em `checklist_items`, não um arquivo.
+Lote de sugestão é quase sempre o caso "a viagem já existe" do passo 5: o destino
+natural é `subir.mjs --viagem <tripId>` com um arquivo que traz **só a seção
+`checklist`** (mais o bloco `viagem`, que o schema exige), não um arquivo de
+importação inteiro. As demais seções ficam vazias e nada mais é tocado.
 
 ## Versionamento — nunca reescreve a si mesma
 

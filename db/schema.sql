@@ -623,16 +623,17 @@ create table if not exists change_log (
   de           text,
   para         text,
   -- quem ORIGINOU a escrita. `traveler_id` continua sendo quem assina; esta coluna
-  -- diz se a pessoa digitou na tela (`pessoa`) ou se a linha veio de uma carga em
-  -- lote. Hoje so a tela escreve; `sql` esta reservado para um gravador em lote, e
-  -- `assistente` e o valor de um modulo que nao existe mais -- ele continua na
-  -- lista porque esta GRAVADO em historico de viagem em uso, e um check que o
-  -- recusasse quebraria duplicar viagem e reimportar backup, os dois caminhos que
-  -- RE-INSEREM linha antiga. Ver `Marca` em lib/escrita.ts.
+  -- diz se a pessoa digitou na tela (`pessoa`) ou se a linha entrou por um lote da
+  -- skill roteiro-trip-go (`skill`), que monta a viagem fora do app e grava pelo
+  -- MESMO `autorizar`/`aplicar`. `assistente` e o valor de um modulo que nao existe
+  -- mais -- ele fica na lista porque esta GRAVADO em historico de viagem em uso, e
+  -- um check que o recusasse quebraria duplicar viagem e reimportar backup, os dois
+  -- caminhos que RE-INSEREM linha antiga. Ver `Marca` em lib/escrita.ts.
   origem       text not null default 'pessoa'
-               check (origem in ('pessoa', 'sql', 'assistente')),
+               check (origem in ('pessoa', 'skill', 'assistente')),
   -- agrupa as linhas gravadas de uma vez. E o que torna um lote desfazivel: saber
-  -- quais vieram juntas so e possivel se for gravado na hora.
+  -- quais vieram juntas so e possivel se for gravado na hora. Sem ele, desfazer o
+  -- que a skill acabou de subir seria linha por linha, na mao.
   lote         text,
   criado_em    timestamptz not null default now()
 );
@@ -735,7 +736,7 @@ alter table change_log add column if not exists origem text not null default 'pe
 alter table change_log add column if not exists lote   text;
 alter table change_log drop constraint if exists change_log_origem_check;
 alter table change_log add  constraint change_log_origem_check
-  check (origem in ('pessoa', 'sql', 'assistente')) not valid;
+  check (origem in ('pessoa', 'skill', 'assistente')) not valid;
 
 alter table trips     add column if not exists owner_id   text references users(id) on delete cascade;
 alter table trips     add column if not exists descricao  text;

@@ -24,7 +24,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 - [Getting started](#getting-started)
 - [Deploying](#deploying)
 - [Loading a trip](#loading-a-trip)
-- [Building a trip in SQL](#building-a-trip-in-sql)
+- [Building a trip from documents](#building-a-trip-from-documents)
 - [Commands](#commands)
 - [Testing](#testing)
 - [Shipping a new update](#shipping-a-new-update)
@@ -45,7 +45,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | **Runtime deps**    | 5 — `next`, `react` (+ `react-dom`), `@neondatabase/serverless`, `zod`, `lucide-react`                                                                                                                           |
 | **Offline**         | IndexedDB snapshot cache + write queue, service worker for the shell                                                                                                                                             |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log`                                                                                                                                         |
-| **Tests**           | 474 unit tests, `node --test`, zero test frameworks; plus `db/teste-montar.sql`, `db/teste-recorte.sql` and `db/teste-limite.sql` against a real Postgres; CI runs tests, types, lint, `npm audit` and build     |
+| **Tests**           | 476 unit tests, `node --test`, zero test frameworks; plus `db/teste-recorte.sql` and `db/teste-limite.sql` against a real Postgres; CI runs tests, types, lint, `npm audit` and build     |
 | **Styling**         | Tailwind v4 + CSS custom properties, contrast measured not guessed                                                                                                                                               |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool, an AI SDK.
@@ -825,11 +825,8 @@ travel-guide/
 ├── config/                      # site.ts · theme.ts · navigation.ts
 ├── db/
 │   ├── schema.sql               # 28 tables, idempotent, migrations included
-│   ├── montar.sql               # a whole trip in SQL — GENERATED from lib/schema.ts
-│   ├── exemplo-montar.sql       # a complete worked trip, to copy
-│   ├── teste-montar.sql         # 5 assertions against a throwaway Postgres
 │   └── europa-2027.json         # a real trip in import format (see Limitations)
-├── scripts/                     # db-push · seed · gerar-montar-sql · montar · test-api
+├── scripts/                     # db-push · seed · alias · test-api runner
 ├── tests/api.test.mjs           # integration suite (see Testing)
 ├── proxy.ts                     # Next 16 middleware — renamed from middleware.ts
 └── .specs/                      # spec, design, tasks, decision log
@@ -912,29 +909,24 @@ Neon's free tier suspends an idle database, so the first request after a quiet p
 
 ```mermaid
 flowchart TB
-    subgraph PATHS["Four ways in"]
+    subgraph PATHS["Three ways in"]
         direction TB
         A["✍️ By hand<br/>Trips → New trip, then<br/>the + button on each tab"]
         B["📄 From JSON<br/>Data tab → Import<br/>dry_run preview first"]
-        C["🗄️ From SQL<br/>db/montar.sql<br/>npm run montar"]
-        F["📑 From PDFs / vouchers<br/>roteiro-trip-go skill"]
+        C["📑 From PDFs / vouchers<br/>roteiro-trip-go skill<br/>in Claude Code"]
     end
-    C --> B
-    F --> B
+    C -->|"subir.mjs --nova"| D
+    C -->|"subir.mjs --viagem"| D
+    C -.->|"or hand the file over"| B
     B --> D[("Trip in Postgres")]
     A --> D
     D --> E["📤 Export<br/>same format, round-trip verified"]
     E -.->|"restore"| B
-    E -.->|"montar.carregar"| C
 ```
 
-**From PDFs and vouchers.** Ask Claude Code in this repository — the `roteiro-trip-go` skill extracts the text, maps it to the app's format, validates against the real schema, and **reports contradictions between documents instead of silently picking one**. Its output is the same JSON file, so it meets the SQL path at the Import button.
+**From PDFs and vouchers.** Ask Claude Code in this repository — the `roteiro-trip-go` skill extracts the text, maps it to the app's format, validates against the real schema, and **reports contradictions between documents instead of silently picking one**. It can hand you the file, or put the trip in the app itself. See [Building a trip from documents](#building-a-trip-from-documents).
 
-```bash
-node .claude/skills/roteiro-trip-go/scripts/validar.mjs db/europa-2027.json
-```
-
-**Every path ends at the same JSON and the same writer.** There is one import format and one function that turns it into a trip (`lib/importar.ts`). The SQL path does not write trips — it writes the file. That is the whole reason it is safe to have: a second writer would be a second copy of the authorization rules, and the second copy is the one that ages.
+**Every path ends at the same two writers.** A new trip is always `importarViagem`; a row added to an existing trip is always `autorizar` + `aplicar`. Nothing writes trip data by any other route — a second writer would be a second copy of the authorization rules, and the second copy is the one that ages.
 
 **Import never replaces.** It always creates a _new_ trip. With multiple trips per account, overwriting would be silent destruction — you end up with two and choose which to keep.
 
@@ -942,63 +934,76 @@ node .claude/skills/roteiro-trip-go/scripts/validar.mjs db/europa-2027.json
 
 ---
 
-## Building a trip in SQL
+## Building a trip from documents
 
-`db/montar.sql` is how you write a whole trip — itinerary, flights, cruise, lodging, cities, checklist, vault, required documentation, emergency contacts, expenses and reimbursements — as SQL statements, and get back the exact JSON file the Import button already accepts.
-
-```sql
-select montar.viagem('europa-2027', p_nome => 'Europa 2027',
-                     p_data_partida => '2027-01-02', p_data_retorno => '2027-01-20');
-
-select montar.participante('europa-2027', p_nome => 'Ana', p_papel => 'proprietario');
-select montar.roteiro('europa-2027', p_ocorre_em => '2027-01-02T09:00',
-                      p_titulo => 'Chegada em Lisboa', p_cidade => 'Lisboa');
-
-select * from montar.conferir('europa-2027');   -- what is wrong, before you generate
-select montar.arquivo('europa-2027');           -- the file
-```
-
-`db/exemplo-montar.sql` is a complete worked trip to copy. One command does the whole run:
+The app never reads a PDF. Turning a pile of vouchers, tickets and notes into a
+trip happens **outside** the app, in Claude Code, through the `roteiro-trip-go`
+skill in `.claude/skills/` — and the result goes straight into the database, so
+the trip is on screen when you open it.
 
 ```bash
-npm run montar -- europa-2027 --sql db/exemplo-montar.sql --saida viagem.json
-npm run montar -- europa-2027 --sql db/exemplo-montar.sql --para voce@exemplo.com
+# what the app's contract accepts, read live from lib/schema.ts
+node .claude/skills/roteiro-trip-go/scripts/campos.mjs [secao]
+
+# validate a built file against TripImportSchema — the same one /api/import uses
+node .claude/skills/roteiro-trip-go/scripts/validar.mjs viagem.json
+
+# put it in the app: a new trip, or added to one that already exists
+node --env-file=.env.local .claude/skills/roteiro-trip-go/scripts/subir.mjs \
+  viagem.json --nova --conta voce@exemplo.com
+node --env-file=.env.local .claude/skills/roteiro-trip-go/scripts/subir.mjs \
+  viagem.json --viagem <tripId> --conta voce@exemplo.com --conferir
+
+# undo the whole batch
+node --env-file=.env.local .claude/skills/roteiro-trip-go/scripts/desfazer.mjs \
+  <lote> --conta voce@exemplo.com
 ```
 
-### The file is generated from the app's own contract
+### The skill has no power of its own
 
-**`db/montar.sql` is not written by hand.** `scripts/gerar-montar-sql.mjs` reads `SECOES_ARQUIVO` in `lib/schema.ts` — the same map `TripImportSchema` is built from — and emits one function per section, one argument per field, with the enum lists baked in from the zod enums. `lib/montar.test.ts` compares the committed file against what the generator produces right now.
+`subir.mjs` never inserts into an app table. Every row goes through
+`exigirViagem` → `autorizar` → `aplicar` from `lib/`, with the `Acesso` of the
+account named in `--conta`. **The skill cannot do anything that person could not
+already do from the screen**: a `visualizador` gets the same 403, an account that
+is not on the trip gets the same 404, and a personal document still needs an
+owner. `--nova` goes through `importarViagem` — the same function `/api/import`
+calls, not a copy of it.
 
-That test is the point. Add a field to `EventoSchema` and the SQL is stale until someone runs `npm run sql:build`; until then, the test fails and says so. Written by hand, that list would be the fifth copy of the same information (`db/schema.sql`, `lib/schema.ts`, `lib/importar.ts`, `/api/export`, and it) — and the only one with nobody watching. The symptom of forgetting it would not be an error: it would be the SQL quietly building trips without the new field.
+That is the whole security argument, and it is verifiable by reading imports
+rather than trusting a description. `lib/skill.test.ts` fails the build if
+`subir.mjs` stops calling `autorizar`/`aplicar`, or starts writing rows itself.
 
-### What SQL adds that zod cannot
+### It only ever touches data, never code
 
-`TripImportSchema` validates one record at a time. It cannot see that the expense's `pagador` is not in `participantes`, because those are different arrays. **`montar.conferir` is exactly that: one section checked against another.**
+The skill runs inside the repository with a `DATABASE_URL` and write permission —
+so "it only updates data" has to be enforced, not promised. `lib/skill.test.ts`
+fails if either database script gains a file write (`writeFileSync`, `mkdirSync`,
+`createWriteStream`, …) or spawns a process (`exec`, `spawn`) — the second closes
+the service door the first would otherwise leave open. It runs in `npm test` with
+everything else.
 
-| Checked                                                | Why it matters                                                                     |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `pagador`, `de`/`para`, `dono_nome`, `assigned_to_nomes` resolve to a participant | `lib/importar.ts` drops the link silently — the expense lands with no payer         |
-| `requisito_nome` resolves to a requirement             | an orphan submission is **discarded**, not imported partially                       |
-| `categoria`, `reserva`, `documento` resolve            | the itinerary item imports without its booking                                      |
-| duplicate participant names                            | every name-based link in the file becomes ambiguous                                  |
-| personal document with no `dono_nome`                  | import downgrades it to `global` — a passport visible to the whole trip             |
-| installments / custom split that do not sum the total  | a wrong number on somebody else's screen                                             |
-| dates outside the trip window                          | usually a typo in the year                                                           |
+### Two properties that make it safe on a live trip
 
-`erro` blocks `npm run montar`; `aviso` prints and continues, because sometimes an event really is the day before departure.
+**It does not duplicate.** Each section has a natural key — itinerary: time +
+title; flight: airline + number + departure; expense: description + amount — and
+anything already there is skipped, with the reason printed. Running the same file
+twice does not double the itinerary. `--forcar` inserts anyway.
 
-### What it deliberately cannot do
+**It is reversible.** Each load gets a `lote` and writes `origem = 'skill'` into
+`change_log`; `desfazer.mjs` replays it backwards, calling `autorizar` per row
+(the `lote` is visible to every participant in the snapshot, so reverting without
+that check would be privilege escalation) and filtering the column name through
+`colunaValida` before it reaches a `set <campo> = $1`. Removals are listed and not
+reverted: `change_log` records that a row existed, never its contents.
 
-- **It never writes to an app table.** Nothing in the `montar` schema reaches `trips`, `travelers` or `expenses` — `lib/montar.test.ts` asserts it by reading the file. Whoever runs SQL holds the `DATABASE_URL` and is therefore above every role in the app: the role cut protects the _network_, not the database console. A convenience `select` here joining `travelers` would publish somebody else's passport into a jsonb that becomes a file and travels by email. To pull data out of a trip that exists, use `GET /api/export`, which cuts by role.
-- **Import always creates a new trip.** To complete a trip that already exists, edit it on screen, or build the file, import it, and move what you need.
-- **Ids are not arguments.** The file links by name (`assigned_to_nomes`, `dono_nome`, `reserva`, `categoria`, `pagador`) because import builds the trip from scratch and the old ids do not exist there. Publishing the id twin would be offering a parameter that does nothing.
-- **Document bytes never pass through**, exactly as they never pass through export. The file carries the document's record; the PDF is uploaded from the vault screen.
+### What deliberately does not go up that way
 
-### The round trip
-
-`montar.carregar(nome, arquivo)` loads an exported file back into a draft, so the full circle is: export from the app → edit in SQL → `montar.arquivo` → import. `db/teste-montar.sql` asserts that circle byte for byte, along with four other properties no unit test can reach because they are database behaviour — running the same script twice yields one trip and not two, an invalid enum stops at the `select` that wrote it, `montar.conferir` catches each of the six cross-section mistakes, and a clean draft reports nothing.
-
----
+| Not written | Why |
+| ------------ | ----- |
+| `participantes` | a participant's name is the key to money and to personal documents. `--com-participantes` only, after confirming spelling |
+| irregular installment amounts, already-paid installments | the server computes installments from total + count (`gerarParcelas`), same as the screen. Mark payment in Financeiro |
+| `pagamentos` | they point at an installment that only gets an id once written |
+| document bytes | the vault takes the file through the screen or `POST /api/documento`; the JSON carries the record |
 
 ## Commands
 
@@ -1007,18 +1012,16 @@ That test is the point. Add a field to `EventoSchema` and the SQL is stale until
 | `npm run dev`                                 | Development server                             |
 | `npm run build`                               | Production build, includes typecheck           |
 | `npm run lint`                                | ESLint                                         |
-| `npm run test`                                | **474 unit tests**, `node --test`, no framework |
+| `npm run test`                                | **476 unit tests**, `node --test`, no framework |
 | `npm run test:api`                            | Integration suite — see [Testing](#testing)    |
 | `npm run db:push`                             | Applies `db/schema.sql` to `DATABASE_URL`      |
-| `npm run sql:build`                           | Regenerates `db/montar.sql` from `lib/schema.ts` |
-| `npm run montar -- <rascunho>`                | Runs a montage script, checks it, writes the import file |
 | `node --env-file=.env.local scripts/seed.mjs` | Demo account + sample trip                     |
 
 ---
 
 ## Testing
 
-### Unit — 474 passing
+### Unit — 476 passing
 
 ```
 lib/derive.test.ts     73 tests  pure calculations: dates, phases, countdowns,
@@ -1049,10 +1052,11 @@ lib/checklist.test.ts  10 tests  suggestion resolution, title normalisation, ded
 lib/kml.test.ts         9 tests  KML parsing for the route map
 lib/mapa.test.ts        9 tests  map projection and bounds
 lib/localizar.test.ts   5 tests  place lookup
-lib/montar.test.ts      4 tests  the SQL montage: db/montar.sql still matches
-                                 lib/schema.ts, every section has a function, the
-                                 name-links survive, and nothing there touches an
-                                 app table
+lib/skill.test.ts       6 tests  the roteiro-trip-go boundary, by reading its code:
+                                 the database scripts write no file and spawn no
+                                 process, every row goes through autorizar/aplicar,
+                                 the undo filters the column name, and every
+                                 `on conflict` matches a real unique in schema.sql
 lib/arquitetura.test.ts         properties that hold by READING the code: no `select *`
                                  in the two snapshot queries, every `limitar()` awaited,
                                  no raw error object in a log, the submission owner read

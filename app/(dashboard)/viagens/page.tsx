@@ -262,8 +262,8 @@ export default function Viagens() {
             setCriando(false)
             avisar('sucesso', 'Viagem criada.')
             // Abre a viagem no roteiro: numa viagem recém-criada é a primeira
-            // tela com trabalho a fazer, seja escrevendo à mão ou importando o
-            // arquivo montado pela SQL (ver db/montar.sql).
+            // tela com trabalho a fazer, seja escrevendo à mão ou recebendo o
+            // que a skill `roteiro-trip-go` montou a partir dos documentos.
             router.push(`/viagens/${v.id}?aba=roteiro`)
           }}
         />
