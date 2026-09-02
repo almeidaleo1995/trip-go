@@ -28,7 +28,7 @@ lib/                 db (SQL, credential stops here) · auth (exigirUsuario/exig
                      cofre (vault engine, pure) · cofreOffline (DocumentStorage seam)
                      documentacao (required-docs engine, pure) · api (error → HTTP pt-BR)
 config/              site.ts (brand strings) · theme.ts (tokens) · navigation.ts (menu + papéis)
-db/                  schema.sql (28 tables, idempotent) · europa-2027.json (v1, stale)
+db/                  schema.sql (28 tables, idempotent) · europa-2027.json (a viagem real, v3)
 .claude/skills/      roteiro-trip-go — documentos → viagem no app. SÓ DADO, nunca código
 proxy.ts             Next 16 middleware — optimistic cookie check, never hits the DB
 .specs/              spec, design, tasks, decision log
