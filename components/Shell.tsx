@@ -263,7 +263,7 @@ export function Shell({
           </Link>
           <p className="t-legenda">Viagem</p>
           <p className="mt-0.5 truncate leading-tight font-semibold">
-            {snapshot?.viagem?.nome ?? '—'}
+            {String(snapshot?.viagem?.nome ?? '—')}
           </p>
         </div>
 
@@ -322,7 +322,7 @@ export function Shell({
           </Link>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] leading-tight font-semibold">
-              {snapshot?.viagem?.nome ?? '—'}
+              {String(snapshot?.viagem?.nome ?? '—')}
             </p>
             <p className="truncate text-[11px] text-(--color-tinta-3)">{atual?.nome ?? ''}</p>
           </div>

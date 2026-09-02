@@ -25,7 +25,15 @@ import { TIPOS_EVENTO, MODOS_TRANSPORTE, PRIORIDADES_CHECKLIST } from '@/lib/sch
 import { type Papel } from '@/config/navigation.ts'
 
 type TipoCampo =
-  'texto' | 'area' | 'data' | 'datahora' | 'numero' | 'dinheiro' | 'bool' | 'opcao' | 'multiopcao'
+  | 'texto'
+  | 'area'
+  | 'data'
+  | 'datahora'
+  | 'numero'
+  | 'dinheiro'
+  | 'bool'
+  | 'opcao'
+  | 'multiopcao'
 
 type Campo = {
   chave: string
@@ -708,7 +716,7 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
   if (fonte === 'reservas') {
     return [
       vazio,
-      ...((snapshot?.reservas ?? []) as Record<string, any>[]).map((r) => ({
+      ...((snapshot?.reservas ?? []) as Record<string, unknown>[]).map((r) => ({
         valor: String(r.id),
         nome: [r.nome, r.localizador].filter(Boolean).join(' · '),
       })),
@@ -753,7 +761,7 @@ function useOpcoesDaFonte(fonte: Campo['fonte']) {
   }
   return [
     vazio,
-    ...((snapshot?.documentos ?? []) as Record<string, any>[]).map((d) => ({
+    ...((snapshot?.documentos ?? []) as Record<string, unknown>[]).map((d) => ({
       valor: String(d.id),
       nome: String(d.titulo),
     })),

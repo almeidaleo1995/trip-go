@@ -108,14 +108,14 @@ function PainelDaViagem() {
   const { snapshot, mutate } = useTrip()
   const avisar = useAviso()
   const [aba, setAba] = useState<AbaFin>('despesas')
-  const [editando, setEditando] = useState<Record<string, any> | null | undefined>(undefined)
+  const [editando, setEditando] = useState<Record<string, unknown> | null | undefined>(undefined)
   const [orcamentoAberto, setOrcamentoAberto] = useState(false)
 
   const fin = snapshot!.financeiro
   if (!fin.admin) return null
 
   const moeda = String(snapshot!.viagem?.moeda ?? 'BRL')
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
   const hoje = new Date()
 
   const t = totaisViagem(fin.despesas as never, fin.parcelas as never)
@@ -418,7 +418,7 @@ function LinhaSaldo({
 }: {
   saldo: Saldo
   moeda: string
-  pessoas: Record<string, any>[]
+  pessoas: Record<string, unknown>[]
   aoAbrir?: () => void
 }) {
   const p = pessoas.find((x) => String(x.id) === saldo.traveler_id)
@@ -461,7 +461,7 @@ function Despesas({
   aoCriarCategorias,
 }: {
   moeda: string
-  aoEditar: (d: Record<string, any> | null) => void
+  aoEditar: (d: Record<string, unknown> | null) => void
   semCategorias: boolean
   aoCriarCategorias: () => void
 }) {
@@ -470,7 +470,7 @@ function Despesas({
   const [busca, setBusca] = useState('')
   const [catFiltro, setCatFiltro] = useState('')
   const [pagadorFiltro, setPagadorFiltro] = useState('')
-  const [excluindo, setExcluindo] = useState<Record<string, any> | null>(null)
+  const [excluindo, setExcluindo] = useState<Record<string, unknown> | null>(null)
 
   const fin = snapshot!.financeiro
 
@@ -493,7 +493,7 @@ function Despesas({
   }, [fin, busca, catFiltro, pagadorFiltro])
 
   if (!fin.admin) return null
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
   const nomeDe = (id: unknown) =>
     pessoas.find((p) => String(p.id) === String(id))?.nome as string | undefined
 
@@ -582,7 +582,7 @@ function Despesas({
                       {d.estimado ? <Badge tipo="atencao" texto="Estimado" /> : null}
                     </div>
                     <p className="tab-num mt-1 text-[13px] text-(--color-tinta-3)">
-                      {d.ocorre_em &&
+                      {Boolean(d.ocorre_em) &&
                         `${formatarData(paraDia(d.ocorre_em), { day: '2-digit', month: '2-digit', year: 'numeric' })} · `}
                       {/* "Pago" no selo é sobre o fornecedor; esta linha é sobre
                           quem do grupo adiantou o dinheiro. São coisas
@@ -607,7 +607,7 @@ function Despesas({
                         </>
                       )}
                     </p>
-                    {d.nota && (
+                    {Boolean(d.nota) && (
                       <p className="mt-1 text-[13px] text-(--color-tinta-2)">{String(d.nota)}</p>
                     )}
                   </div>
@@ -702,7 +702,7 @@ function Parcelas({ moeda, lista }: { moeda: string; lista: ReturnType<typeof pa
   const [quitando, setQuitando] = useState<(typeof lista)[number] | null>(null)
 
   const fin = snapshot!.financeiro
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
 
   // Filtrar por pessoa não é recortar a mesma lista: a parcela da viagem é
   // R$ 600, e a parte de quem está selecionado é R$ 120. São números
@@ -904,7 +904,7 @@ function PagamentosDaPessoa({
   obrigacoes: Obrigacao[]
   /** Quantas obrigações existem antes do filtro de situação. */
   total: number
-  pessoa?: Record<string, any>
+  pessoa?: Record<string, unknown>
 }) {
   const { snapshot } = useTrip()
   const [acertando, setAcertando] = useState<{
@@ -913,7 +913,7 @@ function PagamentosDaPessoa({
     valor_centavos: number
   } | null>(null)
 
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
   const nome = String(pessoa?.nome ?? 'Esta pessoa')
   const primeiro = nome.split(' ')[0]
 
@@ -1188,12 +1188,15 @@ function Pagamentos({ moeda }: { moeda: string }) {
   const { snapshot, mutate } = useTrip()
   const avisar = useAviso()
   const [novo, setNovo] = useState(false)
-  const [excluindo, setExcluindo] = useState<Record<string, any> | null>(null)
+  const [excluindo, setExcluindo] = useState<Record<string, unknown> | null>(null)
 
   const fin = snapshot!.financeiro
   if (!fin.admin) return null
-  const pessoas = snapshot!.participantes as Record<string, any>[]
-  const nomeDe = (id: unknown) => pessoas.find((p) => String(p.id) === String(id))?.nome ?? '—'
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
+  // Devolve string, nao `unknown`: e o proprio helper que fecha a coercao, em vez
+  // de cada uma das quatro chamadas repetir um String() ao redor dele.
+  const nomeDe = (id: unknown) =>
+    String(pessoas.find((p) => String(p.id) === String(id))?.nome ?? '—')
 
   return (
     <>
@@ -1236,7 +1239,7 @@ function Pagamentos({ moeda }: { moeda: string }) {
                       : 'Sem data'}
                     {g.referencia ? ` · ${String(g.referencia)}` : ''}
                   </p>
-                  {g.nota && (
+                  {Boolean(g.nota) && (
                     <p className="mt-1 text-[13px] text-(--color-tinta-2)">{String(g.nota)}</p>
                   )}
                 </div>
@@ -1303,7 +1306,7 @@ function FormPagamento({
 }) {
   const { snapshot, mutate } = useTrip()
   const avisar = useAviso()
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
 
   const [de, setDe] = useState(sugestao?.de ?? String(pessoas[0]?.id ?? ''))
   const [para, setPara] = useState(sugestao?.para ?? String(pessoas[1]?.id ?? ''))
@@ -1406,7 +1409,7 @@ function Saldos({
 
   const fin = snapshot!.financeiro
   if (!fin.admin) return null
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
   const nomeDe = (id: string) => String(pessoas.find((p) => String(p.id) === id)?.nome ?? '—')
 
   const equilibrada = balanco.every((s) => s.saldo === 0)
@@ -1510,7 +1513,7 @@ function DetalheSaldo({
   const { snapshot } = useTrip()
   const fin = snapshot!.financeiro
   if (!fin.admin) return null
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
 
   const dados = {
     categorias: fin.categorias as never,
@@ -1615,7 +1618,7 @@ function Relatorios({ moeda }: { moeda: string }) {
   const { snapshot } = useTrip()
   const fin = snapshot!.financeiro
   if (!fin.admin) return null
-  const pessoas = snapshot!.participantes as Record<string, any>[]
+  const pessoas = snapshot!.participantes as Record<string, unknown>[]
 
   const categorias = porCategoria(fin.despesas as never, fin.categorias as never)
   const participantes = porParticipante(pessoas as never, fin.divisoes as never)

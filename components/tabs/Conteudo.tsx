@@ -28,7 +28,7 @@ import {
 
 export function Voos() {
   const { snapshot } = useTrip()
-  const voos = (snapshot?.voos ?? []) as any[]
+  const voos = (snapshot?.voos ?? []) as Record<string, unknown>[]
 
   if (voos.length === 0) {
     return (
@@ -74,14 +74,14 @@ export function Voos() {
                 <td className="px-4 py-3">
                   <span className="flex items-center gap-2 font-medium">
                     <Plane size={14} className="shrink-0" style={{ color: 'var(--destaque)' }} />
-                    {v.origem_cidade ?? v.origem_iata ?? '—'}
+                    {String(v.origem_cidade ?? v.origem_iata ?? '—')}
                     <span className="text-(--color-tinta-3)">→</span>
-                    {v.destino_cidade ?? v.destino_iata ?? '—'}
+                    {String(v.destino_cidade ?? v.destino_iata ?? '—')}
                   </span>
                 </td>
                 <td className="tab-num px-4 py-3 whitespace-nowrap">
                   <span className="block">{String(v.companhia ?? '')}</span>
-                  {v.numero && (
+                  {Boolean(v.numero) && (
                     <span className="text-[12px] text-(--color-tinta-3)">{String(v.numero)}</span>
                   )}
                 </td>
@@ -107,13 +107,13 @@ export function Voos() {
       {/* cartões — celular e tablet */}
       <div className="space-y-3 lg:hidden">
         {ordenados.map((v) => {
-          const escalas = (v.escalas ?? []) as any[]
+          const escalas = (v.escalas ?? []) as Record<string, unknown>[]
           return (
             <Cartao key={String(v.id)}>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold">{String(v.companhia)}</p>
-                  {v.numero && (
+                  {Boolean(v.numero) && (
                     <p className="tab-num text-[13px] text-(--color-tinta-3)">{String(v.numero)}</p>
                   )}
                 </div>
@@ -127,9 +127,9 @@ export function Voos() {
 
               <div className="flex items-center gap-3">
                 <Ponta
-                  iata={v.origem_iata}
-                  cidade={v.origem_cidade}
-                  quando={v.parte_em}
+                  iata={texto(v.origem_iata)}
+                  cidade={texto(v.origem_cidade)}
+                  quando={texto(v.parte_em)}
                   alinhamento="esquerda"
                 />
                 <div className="flex-1 text-center">
@@ -145,9 +145,9 @@ export function Voos() {
                   </div>
                 </div>
                 <Ponta
-                  iata={v.destino_iata}
-                  cidade={v.destino_cidade}
-                  quando={v.chega_em}
+                  iata={texto(v.destino_iata)}
+                  cidade={texto(v.destino_cidade)}
+                  quando={texto(v.chega_em)}
                   alinhamento="direita"
                 />
               </div>
@@ -157,7 +157,7 @@ export function Voos() {
                   {escalas.map((e, i) => (
                     <li key={i} className="flex justify-between text-[13px] text-(--color-tinta-2)">
                       <span>
-                        Escala em {e.cidade ?? e.iata}
+                        Escala em {String(e.cidade ?? e.iata ?? '')}
                         {e.iata && e.cidade ? ` (${e.iata})` : ''}
                       </span>
                       {e.espera_min ? (
@@ -170,14 +170,14 @@ export function Voos() {
                 </ul>
               )}
 
-              {v.localizador && (
+              {Boolean(v.localizador) && (
                 <div className="mt-3 flex items-center justify-between border-t border-(--color-borda) pt-3">
                   <Rotulo>Localizador</Rotulo>
                   <Copiar valor={String(v.localizador)} rotulo="localizador" />
                 </div>
               )}
 
-              {v.nota && (
+              {Boolean(v.nota) && (
                 <p className="mt-3 rounded-xl bg-(--color-fundo) px-3 py-2 text-[13px] text-(--color-tinta-2)">
                   {String(v.nota)}
                 </p>
@@ -190,6 +190,17 @@ export function Voos() {
       </div>
     </>
   )
+}
+
+/**
+ * Campo cru -> `string | undefined`, preservando a AUSENCIA.
+ *
+ * `String(x ?? '')` nao serve aqui: string vazia nao dispara o `?? '—'` que a
+ * `Ponta` usa para desenhar o traco de "sem codigo", e um voo sem IATA passaria a
+ * mostrar um espaco em branco no lugar dele.
+ */
+function texto(v: unknown): string | undefined {
+  return v == null || v === '' ? undefined : String(v)
 }
 
 function Ponta({
@@ -223,7 +234,7 @@ function Ponta({
 
 export function Cruzeiro() {
   const { snapshot } = useTrip()
-  const cruzeiros = (snapshot?.cruzeiros ?? []) as any[]
+  const cruzeiros = (snapshot?.cruzeiros ?? []) as Record<string, unknown>[]
 
   if (cruzeiros.length === 0) {
     return (
@@ -242,7 +253,7 @@ export function Cruzeiro() {
       <Titulo acao={<AdminAcoes entidade="cruzeiro">Cruzeiro</AdminAcoes>}>Cruzeiro</Titulo>
       <div className="space-y-4">
         {cruzeiros.map((c) => {
-          const portos = [...((c.portos ?? []) as any[])].sort(
+          const portos = [...((c.portos ?? []) as Record<string, unknown>[])].sort(
             (a, b) => Number(a.ordem ?? 0) - Number(b.ordem ?? 0),
           )
           const nApenas = noitesABordo(c.embarque_em, c.desembarque_em)
@@ -257,7 +268,7 @@ export function Cruzeiro() {
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-lg leading-tight font-semibold">{String(c.navio)}</p>
-                    {c.companhia && (
+                    {Boolean(c.companhia) && (
                       <p className="text-sm text-(--color-tinta-3)">{String(c.companhia)}</p>
                     )}
                   </div>
@@ -278,7 +289,9 @@ export function Cruzeiro() {
                     valor={
                       c.embarque_em
                         ? `${c.porto_embarque ?? ''} · ${formatarData(c.embarque_em)} ${formatarHora(c.embarque_em)}`
-                        : (c.porto_embarque ?? null)
+                        : c.porto_embarque == null
+                          ? null
+                          : String(c.porto_embarque)
                     }
                   />
                   <Linha
@@ -286,18 +299,20 @@ export function Cruzeiro() {
                     valor={
                       c.desembarque_em
                         ? `${c.porto_desembarque ?? ''} · ${formatarData(c.desembarque_em)} ${formatarHora(c.desembarque_em)}`
-                        : (c.porto_desembarque ?? null)
+                        : c.porto_desembarque == null
+                          ? null
+                          : String(c.porto_desembarque)
                     }
                   />
-                  <Linha rotulo="Terminal" valor={c.terminal ?? null} />
-                  <Linha rotulo="Cabine" valor={c.cabine ?? null} />
+                  <Linha rotulo="Terminal" valor={c.terminal == null ? null : String(c.terminal)} />
+                  <Linha rotulo="Cabine" valor={c.cabine == null ? null : String(c.cabine)} />
                   <Linha
                     rotulo="Reserva"
                     valor={c.localizador ? <Copiar valor={String(c.localizador)} /> : null}
                   />
                 </div>
 
-                {c.nota && (
+                {Boolean(c.nota) && (
                   <p className="mt-3 rounded-xl bg-(--color-fundo) px-3 py-2 text-[13px] text-(--color-tinta-2)">
                     {String(c.nota)}
                   </p>
@@ -322,22 +337,24 @@ export function Cruzeiro() {
                           )}
                           <div className="min-w-0 flex-1">
                             <p className="font-medium">
-                              {p.dia_no_mar ? 'Dia no mar' : (p.porto ?? p.cidade ?? 'Porto')}
+                              {String(
+                                p.dia_no_mar ? 'Dia no mar' : (p.porto ?? p.cidade ?? 'Porto'),
+                              )}
                             </p>
                             <p className="text-[13px] text-(--color-tinta-3)">
                               {[p.dia_no_mar ? null : p.cidade, p.pais].filter(Boolean).join(' · ')}
                             </p>
-                            {p.nota && (
+                            {Boolean(p.nota) && (
                               <p className="mt-1.5 text-sm text-(--color-tinta-2)">
                                 {String(p.nota)}
                               </p>
                             )}
                           </div>
                           <div className="tab-num shrink-0 text-right text-sm">
-                            {p.chega_em && (
+                            {Boolean(p.chega_em) && (
                               <p className="font-semibold">{formatarData(p.chega_em)}</p>
                             )}
-                            {!p.dia_no_mar && (p.chega_em || p.sai_em) && (
+                            {Boolean(!p.dia_no_mar) && Boolean(p.chega_em || p.sai_em) && (
                               <p className="text-(--color-tinta-3)">
                                 {formatarHora(p.chega_em)}
                                 {p.sai_em ? ` – ${formatarHora(p.sai_em)}` : ''}
@@ -362,7 +379,9 @@ export function Cruzeiro() {
 
 export function Hospedagem() {
   const { snapshot } = useTrip()
-  const estadias = ((snapshot?.reservas ?? []) as any[]).filter((r) => r.tipo === 'hospedagem')
+  const estadias = ((snapshot?.reservas ?? []) as Record<string, unknown>[]).filter(
+    (r) => r.tipo === 'hospedagem',
+  )
 
   if (estadias.length === 0) {
     return (
@@ -387,7 +406,9 @@ export function Hospedagem() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold">{String(h.nome)}</p>
-                  {h.cidade && <p className="text-sm text-(--color-tinta-3)">{String(h.cidade)}</p>}
+                  {Boolean(h.cidade) && (
+                    <p className="text-sm text-(--color-tinta-3)">{String(h.cidade)}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {n > 0 && (
@@ -410,16 +431,16 @@ export function Hospedagem() {
                 </div>
               </div>
 
-              {h.endereco && (
+              {Boolean(h.endereco) && (
                 <p className="mt-3 text-sm text-(--color-tinta-2)">{String(h.endereco)}</p>
               )}
-              {h.nota && (
+              {Boolean(h.nota) && (
                 <p className="mt-2 rounded-xl bg-(--color-fundo) px-3 py-2 text-[13px] text-(--color-tinta-2)">
                   {String(h.nota)}
                 </p>
               )}
               <div className="mt-3 flex flex-wrap gap-2">
-                {h.link && (
+                {Boolean(h.link) && (
                   <a
                     href={String(h.link)}
                     target="_blank"
@@ -429,7 +450,7 @@ export function Hospedagem() {
                     <ExternalLink size={14} /> Abrir reserva
                   </a>
                 )}
-                {h.telefone && (
+                {Boolean(h.telefone) && (
                   <a
                     href={`tel:${String(h.telefone).replace(/\s/g, '')}`}
                     className="toque inline-flex items-center gap-1.5 rounded-xl border border-(--color-borda) px-3 text-sm"
@@ -452,7 +473,7 @@ export function Hospedagem() {
 
 export function Lugares() {
   const { snapshot } = useTrip()
-  const lugares = (snapshot?.lugares ?? []) as any[]
+  const lugares = (snapshot?.lugares ?? []) as Record<string, unknown>[]
 
   if (lugares.length === 0) {
     return (
@@ -475,7 +496,9 @@ export function Lugares() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-semibold">{String(l.cidade)}</p>
-                {l.pais && <p className="text-sm text-(--color-tinta-3)">{String(l.pais)}</p>}
+                {Boolean(l.pais) && (
+                  <p className="text-sm text-(--color-tinta-3)">{String(l.pais)}</p>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {l.dias ? (
@@ -486,7 +509,9 @@ export function Lugares() {
                 <AdminAcoes entidade="lugar" registro={l} />
               </div>
             </div>
-            {l.notas && <p className="mt-2.5 text-sm text-(--color-tinta-2)">{String(l.notas)}</p>}
+            {Boolean(l.notas) && (
+              <p className="mt-2.5 text-sm text-(--color-tinta-2)">{String(l.notas)}</p>
+            )}
             {l.lat == null && (
               <p className="mt-2 text-[12px] text-(--color-tinta-3)">
                 Sem coordenada — não aparece no mapa do Início.

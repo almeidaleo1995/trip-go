@@ -74,13 +74,15 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
 
   const agora = new Date()
   const fase = faseDaViagem(agora, v.data_partida, v.data_retorno)
-  const proximo = proximoCompromisso(snapshot.roteiro as any[], agora)
-  const { cidades, paises } = contarLugares(snapshot.lugares as any[])
+  const proximo = proximoCompromisso(snapshot.roteiro as Record<string, unknown>[], agora)
+  const { cidades, paises } = contarLugares(snapshot.lugares as Record<string, unknown>[])
   const primeiroNome = String(snapshot.eu.usuario?.nome ?? '').split(' ')[0] || 'viajante'
 
-  const voos = (snapshot.voos ?? []) as any[]
-  const hospedagens = ((snapshot.reservas ?? []) as any[]).filter((r) => r.tipo === 'hospedagem')
-  const documentos = (snapshot.documentos ?? []) as any[]
+  const voos = (snapshot.voos ?? []) as Record<string, unknown>[]
+  const hospedagens = ((snapshot.reservas ?? []) as Record<string, unknown>[]).filter(
+    (r) => r.tipo === 'hospedagem',
+  )
+  const documentos = (snapshot.documentos ?? []) as Record<string, unknown>[]
   const documentosPendentes = documentos.filter((d) => !d.valor).length
   const documentosPct = documentos.length
     ? Math.round(((documentos.length - documentosPendentes) / documentos.length) * 100)
@@ -119,10 +121,12 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
   // Alterações das últimas 48h — é como o grupo descobre que algo mudou.
   const recentes = snapshot.alteracoes.filter((a) => {
     const t = new Date(String(a.criado_em)).getTime()
-    return Number.isFinite(t) && Date.now() - t < 48 * 3600 * 1000
+    // `agora` e nao `Date.now()`: a mesma referencia de tempo do resto da tela,
+    // e uma leitura de relogio a menos no meio da renderizacao.
+    return Number.isFinite(t) && agora.getTime() - t < 48 * 3600 * 1000
   })
 
-  const proximosDias = ordenarEventos(snapshot.roteiro as any[])
+  const proximosDias = ordenarEventos(snapshot.roteiro as Record<string, unknown>[])
     .filter((e) => {
       const d = parseData(e.ocorre_em)
       return d ? d.getTime() >= agora.getTime() : false
@@ -228,7 +232,7 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
               </p>
             </div>
             <div className="min-h-[220px] p-3">
-              <MapaRota lugares={snapshot.lugares as any[]} />
+              <MapaRota lugares={snapshot.lugares as Record<string, unknown>[]} />
             </div>
           </div>
         </Cartao>

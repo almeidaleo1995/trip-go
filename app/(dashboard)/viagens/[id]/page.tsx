@@ -5,6 +5,7 @@
 // a um :id da URL em vez de "a viagem atual" implícita.
 import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { MapPinOff } from 'lucide-react'
 import { Carregando } from '@/components/ui.tsx'
 import { TripProvider, useTrip } from '@/components/TripProvider.tsx'
@@ -60,13 +61,13 @@ function App() {
             Ou ela não existe, ou sua conta não participa dela. Se já abriu uma vez com internet, os
             últimos dados sincronizados aparecem em modo avião.
           </p>
-          <a
+          <Link
             href="/viagens"
             className="toque mt-5 inline-flex items-center justify-center rounded-2xl px-4 text-sm font-semibold text-white"
             style={{ background: 'var(--destaque)' }}
           >
             Ver minhas viagens
-          </a>
+          </Link>
         </div>
       </div>
     )

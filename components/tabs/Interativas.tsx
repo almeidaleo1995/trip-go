@@ -14,7 +14,7 @@ import { AdminAcoes } from '../EditorSheet.tsx'
 
 export function Emergencia() {
   const { snapshot } = useTrip()
-  const contatos = (snapshot?.emergencia ?? []) as any[]
+  const contatos = (snapshot?.emergencia ?? []) as Record<string, unknown>[]
 
   // Fonte maior que as demais abas de propósito (EMG-04): esta tela é lida sob
   // estresse, às vezes por outra pessoa segurando o celular.
@@ -38,7 +38,7 @@ export function Emergencia() {
                 <p className="font-semibold">{String(c.titulo)}</p>
                 <AdminAcoes entidade="emergencia" registro={c} />
               </div>
-              {c.detalhe && (
+              {Boolean(c.detalhe) && (
                 <p className="mt-1 text-[15px] text-(--color-tinta-2)">{String(c.detalhe)}</p>
               )}
               {c.telefone ? (

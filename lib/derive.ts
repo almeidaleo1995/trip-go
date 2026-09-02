@@ -4,6 +4,16 @@
 //
 // Convencao de tempo do projeto: horarios sao hora LOCAL DO DESTINO, escritos como
 // "2026-12-30T10:30" (sem Z, sem offset). Nunca convertemos fuso.
+//
+// POR QUE TANTA FUNCAO AQUI RECEBE `unknown`. Elas sao alimentadas com campo CRU
+// de linha do banco, e o snapshot tipa linha como `Record<string, unknown>` — que
+// e a verdade: o driver devolve numeric como string, timestamp como Date ou como
+// texto conforme a consulta, e coluna nula como null. Cada uma destas funcoes ja
+// comecava com a sua propria guarda (`String(x ?? '')`, `Number(x) || 0`,
+// `typeof x !== 'string'`), entao `unknown` nao afrouxa nada: e a assinatura que
+// essas guardas sempre descreveram. Declarar `string` obrigaria cada chamada a
+// mentir com um cast — e o cast e justamente o que cala o aviso no dia em que o
+// campo mudar de forma.
 
 import { hrefSeguro } from './seguranca.ts'
 
@@ -18,12 +28,21 @@ export type FaseDaViagem = {
   totalDias: number
 }
 
+/**
+ * O minimo que um item de roteiro precisa ter para as funcoes abaixo o ordenarem.
+ *
+ * Campos `unknown` pela mesma razao de `parseData` receber `unknown`: quem passa
+ * e uma linha crua do snapshot (`Record<string, unknown>`), e o unico campo que
+ * estas funcoes leem, `ocorre_em`, passa por `parseData`, que tem a guarda. Como
+ * e um `T extends Evento` generico, afrouxar aqui nao afrouxa o que sai: o
+ * chamador recebe de volta exatamente o tipo que passou.
+ */
 export type Evento = {
-  id?: string
-  ocorre_em: string | null | undefined
-  titulo?: string
-  cidade?: string | null
-  local?: string | null
+  id?: unknown
+  ocorre_em?: unknown
+  titulo?: unknown
+  cidade?: unknown
+  local?: unknown
 }
 
 export type ItemChecklist = { id: string }
@@ -40,7 +59,11 @@ export type Ponto = { cidade?: string; lat: number | string | null; lon: number 
  * o que joga a data para o dia anterior em qualquer fuso a oeste de Greenwich -
  * incluindo o Brasil. Construir componente a componente evita isso.
  */
-export function parseData(valor: string | null | undefined): Date | null {
+export function parseData(valor: unknown): Date | null {
+  // `unknown` e nao `string | null` de proposito: quem chama passa um campo cru
+  // de linha do banco, e a guarda de tipo logo abaixo ja era a real assinatura
+  // desta funcao. Declarar `string` obrigava cada chamada a mentir com um cast —
+  // e um cast e exatamente o que apaga o aviso quando o campo muda de forma.
   if (!valor || typeof valor !== 'string') return null
   const m = valor.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/)
   if (!m) return null
@@ -68,7 +91,7 @@ function numeroDoDia(d: Date): number {
  * Dias inteiros de `de` ate `para`. Nunca negativo: intervalo invertido devolve 0.
  * Compara dias de calendario, nao milissegundos, entao horario de verao nao distorce.
  */
-export function diasAte(de: string | Date | null, para: string | Date | null): number {
+export function diasAte(de: unknown, para: unknown): number {
   const a = de instanceof Date ? de : parseData(de)
   const b = para instanceof Date ? para : parseData(para)
   if (!a || !b) return 0
@@ -76,12 +99,12 @@ export function diasAte(de: string | Date | null, para: string | Date | null): n
 }
 
 /** Noites entre check-in e check-out. Intervalo invertido ou incompleto devolve 0. */
-export function noites(checkin: string | null, checkout: string | null): number {
+export function noites(checkin: unknown, checkout: unknown): number {
   return diasAte(checkin, checkout)
 }
 
 /** Noites a bordo, das datas de embarque e desembarque do cruzeiro. */
-export function noitesABordo(embarque: string | null, desembarque: string | null): number {
+export function noitesABordo(embarque: unknown, desembarque: unknown): number {
   return diasAte(embarque, desembarque)
 }
 
@@ -89,8 +112,8 @@ export function noitesABordo(embarque: string | null, desembarque: string | null
 
 export function faseDaViagem(
   agora: Date | string,
-  partida: string | null,
-  retorno: string | null,
+  partida: unknown,
+  retorno: unknown,
 ): FaseDaViagem {
   const hoje = agora instanceof Date ? agora : (parseData(agora) ?? new Date())
   const p = parseData(partida)
@@ -221,8 +244,8 @@ export type DiaRoteiro = {
   /** 1..n dentro da viagem. 0 quando o dia esta fora do intervalo das datas. */
   numero: number
   /** A linha de `itinerary_days`, quando existe. */
-  meta: Record<string, any> | null
-  itens: Record<string, any>[]
+  meta: Record<string, unknown> | null
+  itens: Record<string, unknown>[]
 }
 
 /** Itens que representam ESTAR em algum lugar. Alimentam "N locais". */
@@ -253,7 +276,7 @@ function chaveLocal(d: Date): string {
  * Passa por `parseData` de proposito: cortar os dez primeiros caracteres seria
  * mais curto, mas aceitaria "2027-13-05" e criaria um dia fantasma no seletor.
  */
-export function chaveDia(valor: string | null | undefined): string | null {
+export function chaveDia(valor: unknown): string | null {
   const d = parseData(valor)
   return d ? chaveLocal(d) : null
 }
@@ -281,10 +304,10 @@ export function ordenarItens<T extends Evento & { ordem?: number }>(itens: T[]):
 
 export function montarDias(
   viagem: { data_partida?: string | null; data_retorno?: string | null } | null,
-  itens: Record<string, any>[],
-  dias: Record<string, any>[],
+  itens: Record<string, unknown>[],
+  dias: Record<string, unknown>[],
 ): DiaRoteiro[] {
-  const porChave = new Map<string, Record<string, any>[]>()
+  const porChave = new Map<string, Record<string, unknown>[]>()
   for (const e of itens ?? []) {
     const c = chaveDia(e?.ocorre_em)
     if (!c) continue
@@ -292,7 +315,7 @@ export function montarDias(
     porChave.get(c)!.push(e)
   }
 
-  const meta = new Map<string, Record<string, any>>()
+  const meta = new Map<string, Record<string, unknown>>()
   for (const d of dias ?? []) {
     const c = chaveDia(d?.dia)
     if (c) meta.set(c, d)
@@ -357,15 +380,15 @@ export type ResumoDia = {
  * deslocamento de verdade; devolver null o apagava do resumo do dia enquanto a
  * linha do tempo continuava mostrando "2,4 km · 18min" logo acima.
  */
-function modoDoItem(e: Record<string, any>): string {
-  const opcoes = (e.opcoes ?? []) as Record<string, any>[]
+function modoDoItem(e: Record<string, unknown>): string {
+  const opcoes = (e.opcoes ?? []) as Record<string, unknown>[]
   const recomendada = opcoes.find((o) => o.recomendado) ?? opcoes[0]
   if (recomendada?.modo) return String(recomendada.modo)
   return MODO_POR_TIPO[String(e.tipo)] ?? 'outro'
 }
 
 /** Os numeros do cabecalho e do rodape do dia. Tudo somado dos itens, nada fixo. */
-export function resumoDoDia(itens: Record<string, any>[]): ResumoDia {
+export function resumoDoDia(itens: Record<string, unknown>[]): ResumoDia {
   const lista = itens ?? []
   const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0)
 
@@ -428,7 +451,7 @@ export function diaFoco(dias: DiaRoteiro[], agora: Date | string): number {
 }
 
 /** Metros -> "850 m" / "2,4 km". Vazio quando nao ha distancia cadastrada. */
-export function formatarDistancia(metros: number | null | undefined): string {
+export function formatarDistancia(metros: unknown): string {
   const m = Math.round(Number(metros) || 0)
   if (m <= 0) return ''
   if (m < 1000) return `${m} m`
@@ -442,7 +465,7 @@ export function formatarDistancia(metros: number | null | undefined): string {
  * Campo de texto com um item por linha -> lista. Alertas, dicas e os rituais de
  * sair e dormir usam isto em vez de uma tabela filha por lista.
  */
-export function linhas(texto: string | null | undefined): string[] {
+export function linhas(texto: unknown): string[] {
   return String(texto ?? '')
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -457,7 +480,7 @@ export function linhas(texto: string | null | undefined): string[] {
  * outros. Sem esquema, assume https — e o que a pessoa quis dizer ao colar
  * "maps.google.com".
  */
-export function lerLinks(texto: string | null | undefined): { rotulo: string; url: string }[] {
+export function lerLinks(texto: unknown): { rotulo: string; url: string }[] {
   const saida: { rotulo: string; url: string }[] = []
   for (const linha of linhas(texto)) {
     const corte = linha.indexOf('|')
@@ -598,14 +621,14 @@ const TZ = { timeZone: undefined } as const
  * 'short' }` tem que devolver "dez.", nao "30 de dez.". Mesclar com o padrao
  * fazia com que ninguem conseguisse pedir so o mes ou so o dia da semana.
  */
-export function formatarData(valor: string | null, opcoes?: Intl.DateTimeFormatOptions): string {
+export function formatarData(valor: unknown, opcoes?: Intl.DateTimeFormatOptions): string {
   const d = parseData(valor)
   if (!d) return ''
   const formato = opcoes ?? { day: '2-digit', month: '2-digit' }
   return new Intl.DateTimeFormat('pt-BR', { ...formato, ...TZ }).format(d)
 }
 
-export function formatarHora(valor: string | null): string {
+export function formatarHora(valor: unknown): string {
   const d = parseData(valor)
   if (!d) return ''
   return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', ...TZ }).format(d)
@@ -659,7 +682,7 @@ export function paraCentavos(texto: string | null | undefined): number | null {
 }
 
 /** Duracao em minutos -> "12h40" / "45min". Usado em voos e conexoes. */
-export function formatarDuracao(minutos: number | null | undefined): string {
+export function formatarDuracao(minutos: unknown): string {
   const m = Math.max(0, Math.round(Number(minutos) || 0))
   if (m === 0) return ''
   const h = Math.floor(m / 60)

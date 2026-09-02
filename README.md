@@ -44,7 +44,7 @@ Built on Next.js 16 (App Router) + Neon Postgres, deployed on Vercel.
 | **Runtime deps** | 5 — `next`, `react`, `@neondatabase/serverless`, `zod`, `lucide-react`, `@anthropic-ai/sdk` (server only) |
 | **Offline** | IndexedDB snapshot cache + write queue, service worker for the shell |
 | **Conflict policy** | Last-write-wins on `updated_at`, every field change kept in `change_log` |
-| **Tests** | 454 unit tests, `node --test`, zero test frameworks; plus `db/teste-assistente.sql`, `db/teste-recorte.sql` and `db/teste-limite.sql` against a real Postgres |
+| **Tests** | 483 unit tests, `node --test`, zero test frameworks; plus `db/teste-assistente.sql`, `db/teste-recorte.sql` and `db/teste-limite.sql` against a real Postgres; CI runs tests, types, lint, `npm audit` and build |
 | **Styling** | Tailwind v4 + CSS custom properties, contrast measured not guessed |
 
 Deliberately **not** installed: a PDF library (`window.print()` + `@media print`), a hashing library (`node:crypto` scrypt), an auth library (signed cookie), an IndexedDB wrapper, a date library (`Intl`), a PWA plugin, an ORM, a migration tool.
