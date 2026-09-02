@@ -22,25 +22,32 @@ export type ResultadoImportacao = { tripId: string; participantes: Record<string
 export async function importarViagem(d: TripImport, ownerId: string): Promise<ResultadoImportacao> {
   const tripId = randomUUID()
 
-  // As contas sao resolvidas ANTES da transacao: a transacao HTTP do Neon e
-  // nao-interativa, entao nada pode ser consultado no meio dela.
-  const emails = d.participantes.map((p) => p.email?.trim().toLowerCase()).filter(Boolean)
-  const contas =
-    emails.length > 0
-      ? ((await sql`select id, email from users where email = any(${emails})`) as {
-          id: string
-          email: string
-        }[])
-      : []
-  const idPorEmail = new Map(contas.map((c) => [c.email, c.id]))
+  // Resolvido ANTES da transacao: a transacao HTTP do Neon e nao-interativa,
+  // entao nada pode ser consultado no meio dela.
+  const eu = (await sql`select nome, email from users where id = ${ownerId}`)[0] as
+    { nome: string; email: string } | undefined
 
+  // SO a propria conta de quem importa e vinculada. Aqui havia uma busca por
+  // `email = any(<todos os e-mails do arquivo>)` que resolvia QUALQUER conta e
+  // gravava o `user_id` dela: subir um JSON com o endereco de outra pessoa
+  // prendia a conta dessa pessoa a uma viagem que ela nunca aceitou, sem sessao
+  // dela e sem nada que provasse o endereco. Era o mesmo pressuposto que o
+  // `codigo_convite` derrubou em `vincularParticipantesPorEmail` -- e-mail nao e
+  // credencial -- so que pela porta oposta: em vez de puxar acesso, empurrava
+  // viagem.
+  //
+  // O e-mail dos demais continua gravado como TEXTO, entao nada se perde: eles
+  // se cadastram com o codigo da viagem, ou quem e dono abre o participante e
+  // salva, que e o caminho autenticado de lib/escrita.ts. Reimportar o proprio
+  // backup custa esse religamento, e e o preco de o vinculo exigir consentimento.
+  const meuEmail = eu?.email?.trim().toLowerCase() ?? null
   const participantes = d.participantes.map((p) => {
     const email = p.email?.trim().toLowerCase() ?? null
     return {
       ...p,
       id: randomUUID(),
       email,
-      user_id: email ? (idPorEmail.get(email) ?? null) : null,
+      user_id: email && meuEmail && email === meuEmail ? ownerId : null,
     }
   })
 
@@ -59,13 +66,11 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
   `)
 
   if (!jaEstou) {
-    const eu = await sql`select nome, email from users where id = ${ownerId}`
-    const dono = eu[0] as { nome: string; email: string } | undefined
     const id = randomUUID()
     participantes.unshift({
       id,
-      nome: dono?.nome ?? 'Eu',
-      email: dono?.email ?? null,
+      nome: eu?.nome ?? 'Eu',
+      email: eu?.email ?? null,
       user_id: ownerId,
       papel: 'proprietario',
       telefone: null,

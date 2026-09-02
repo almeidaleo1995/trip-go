@@ -58,9 +58,27 @@ export function Dados() {
             <AdminAcoes entidade="participante">Participante</AdminAcoes>
           </div>
           <p className="mb-3 text-[12px] text-(--color-tinta-3)">
-            Informar o e-mail de uma conta existente liga o participante a ela; sem conta, fica
-            só um nome na lista — uma criança, por exemplo, ou quem não quer usar o app.
+            Informar o e-mail de uma conta existente liga o participante a ela; sem conta, fica só
+            um nome na lista — uma criança, por exemplo, ou quem não quer usar o app.
           </p>
+
+          {/* O codigo do convite so chega aqui para o proprietario: o snapshot o
+              recorta na consulta (`codigo_convite` em getSnapshot), nao na tela.
+              Esta aba ja e `posso('proprietario')`, entao os dois cortes batem. */}
+          {Boolean(snapshot.viagem?.codigo_convite) && (
+            <div className="mb-3 rounded-xl bg-(--color-superficie-2) px-3 py-2.5">
+              <Rotulo>Código do convite</Rotulo>
+              <p className="mt-1 font-mono text-base font-semibold tracking-wider select-all">
+                {String(snapshot.viagem?.codigo_convite ?? '')}
+              </p>
+              <p className="mt-1.5 text-[12px] text-(--color-tinta-3)">
+                Quem você adicionou acima precisa deste código para criar a conta e entrar na viagem
+                — passe por mensagem, não por e-mail. Sem ele, saber o endereço de e-mail não basta
+                para reivindicar uma vaga. Quem já tem conta não precisa: adicione o participante
+                com o e-mail dela e o vínculo é feito aqui mesmo.
+              </p>
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             {snapshot.participantes.map((t) => (
               <CartaoParticipante
@@ -157,7 +175,9 @@ function CartaoParticipante({
           <div className="mb-1.5 flex items-baseline justify-between text-[12px]">
             <span className="text-(--color-tinta-3)">Checklist</span>
             <span className="tab-num font-semibold">
-              {faltam === 0 ? 'tudo pronto' : `${faltam} ${faltam === 1 ? 'pendente' : 'pendentes'}`}
+              {faltam === 0
+                ? 'tudo pronto'
+                : `${faltam} ${faltam === 1 ? 'pendente' : 'pendentes'}`}
             </span>
           </div>
           <Progresso
@@ -238,8 +258,8 @@ function Importar({ aoConcluir }: { aoConcluir: () => Promise<void> }) {
     <Cartao>
       <Rotulo>Importar como nova viagem</Rotulo>
       <p className="mt-1 text-sm text-(--color-tinta-2)">
-        Sobe um JSON no formato do app. Cria uma viagem nova na sua conta — esta aqui não é
-        alterada nem arquivada.
+        Sobe um JSON no formato do app. Cria uma viagem nova na sua conta — esta aqui não é alterada
+        nem arquivada.
       </p>
 
       <div className="mt-3">

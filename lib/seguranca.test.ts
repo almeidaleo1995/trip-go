@@ -17,6 +17,8 @@ import {
   hrefSeguro,
   turnstileConfigurado,
   verificarTurnstile,
+  paraLog,
+  motivoSeguro,
 } from './seguranca.ts'
 
 // ---------------------------------------------------------------- CSP
@@ -311,4 +313,66 @@ test('csp: o Nominatim continua em connect-src', () => {
   // Faltando aqui, ela falha muda: a busca por nome simplesmente nao devolve
   // nada, o que e indistinguivel de "nao achei esse lugar".
   assert.match(politicaCsp('abc'), /connect-src [^;]*https:\/\/nominatim\.openstreetmap\.org/)
+})
+
+// ---------------------------------------------------------------- erro no log
+//
+// O erro imitado abaixo tem a forma MEDIDA contra um Postgres 16 real: a mensagem
+// primaria traz a constraint, e o DETAIL traz o valor. Ver `paraLog`.
+function erroDoDriver() {
+  const e = new Error('duplicate key value violates unique constraint "users_email_key"')
+  e.name = 'NeonDbError'
+  return Object.assign(e, {
+    code: '23505',
+    detail: 'Key (email)=(ana@exemplo.com) already exists.',
+    table: 'users',
+    constraint: 'users_email_key',
+    where: 'PL/pgSQL function registrar_tentativa(text,integer,interval,interval)',
+    internalQuery: "select * from rate_limit where chave = 'login:203.0.113.7'",
+  })
+}
+
+test('o log nao leva o valor que quebrou a constraint', () => {
+  const saida = JSON.stringify(paraLog(erroDoDriver()))
+  assert.ok(!saida.includes('ana@exemplo.com'), 'o e-mail foi para o log via `detail`')
+  assert.ok(!saida.includes('203.0.113.7'), 'o IP foi para o log via `internalQuery`')
+  for (const campo of ['detail', 'where', 'internalQuery', 'hint']) {
+    assert.ok(
+      !saida.includes(campo),
+      `\`${campo}\` entrou no log: ele carrega valor, nao estrutura`,
+    )
+  }
+})
+
+test('o log guarda o que diagnostica', () => {
+  const r = paraLog(erroDoDriver())
+  assert.equal(r.code, '23505')
+  assert.equal(r.constraint, 'users_email_key')
+  assert.equal(r.table, 'users')
+  assert.ok(r.stack, 'sem stack o log nao serve para depurar')
+})
+
+test('erro de banco nao vira mensagem de tela', () => {
+  const generico = motivoSeguro(erroDoDriver())
+  assert.ok(
+    !generico.includes('users_email_key') && !generico.includes('duplicate key'),
+    'a mensagem crua do Postgres chegou ao usuario. `rota()` generaliza isso no 500; ' +
+      'o relatorio por operacao de /api/mutate furava por baixo, entregando nome de ' +
+      'constraint e tipo de coluna a quem esta mapeando o schema.',
+  )
+  const tipo = new Error('invalid input syntax for type integer: "abc"')
+  tipo.name = 'NeonDbError'
+  assert.equal(motivoSeguro(Object.assign(tipo, { code: '22P02' })), generico)
+})
+
+test('mensagem escrita por nos continua chegando a tela', () => {
+  // Sem isto o conserto trocaria um vazamento por uma tela que nao diz nada.
+  assert.equal(
+    motivoSeguro(new Error('a divisão soma 90 e a despesa é 100')),
+    'a divisão soma 90 e a despesa é 100',
+  )
+  assert.equal(
+    motivoSeguro(new TypeError('x is not a function')).includes('não foi possível'),
+    true,
+  )
 })

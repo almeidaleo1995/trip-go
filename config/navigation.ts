@@ -30,8 +30,14 @@ export const navegacao: ItemMenu[] = [
 /** Rotas que exigem sessão. Lidas pelo proxy.ts e pelo guarda do servidor. */
 export const rotasPrivadas = ['/dashboard', '/viagens', '/perfil']
 
-/** Rotas de autenticação: quem já entrou é mandado para o dashboard. */
-export const rotasPublicas = ['/login', '/register', '/esqueci-senha']
+/**
+ * Rotas de autenticação: quem já entrou é mandado para o dashboard.
+ *
+ * Só entra aqui caminho que EXISTE. Um nome sem página não abre um buraco, mas
+ * ensina a ler esta lista como intenção em vez de como fato — e a próxima
+ * entrada morta pode ser uma que devia estar em `rotasPrivadas`.
+ */
+export const rotasPublicas = ['/login', '/register']
 
 const ORDEM: Record<Papel, number> = { visualizador: 0, editor: 1, proprietario: 2 }
 

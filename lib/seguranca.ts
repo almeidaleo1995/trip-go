@@ -366,3 +366,66 @@ export async function verificarTurnstile(token: string | null | undefined, ip?: 
     return false
   }
 }
+
+// ---------------------------------------------------------------- erro no log
+
+/**
+ * O que de um erro pode ir para o log.
+ *
+ * O driver do Neon (`NeonDbError`) carrega campos do protocolo do Postgres como
+ * PROPRIEDADES do erro, e `console.error(e)` imprime todas: o `util.inspect` do
+ * Node anexa as proprias enumeraveis depois do stack. Dois deles carregam VALOR,
+ * nao so estrutura:
+ *
+ *   detail        "Key (email)=(ana@exemplo.com) already exists."
+ *   internalQuery o SQL interno de uma funcao PL/pgSQL, com os literais dela
+ *
+ * Medido contra um Postgres real. As unicidades deste schema que passam por ali
+ * sao `users.email` e `trips.codigo_convite` -- um endereco de e-mail e um codigo
+ * de convite gravados em texto no log de producao, a cada cadastro repetido.
+ * `where` traz o contexto PL/pgSQL, que no caso de `registrar_tentativa` inclui a
+ * chave do rate limit (um IP ou um id de conta).
+ *
+ * Fica o que diagnostica e nao identifica ninguem: codigo do erro, tabela, coluna
+ * e constraint dizem O QUE quebrou; o valor que quebrou nao acrescenta nada que o
+ * `code` ja nao diga, e nao pode ser apagado depois de escrito.
+ */
+export function paraLog(e: unknown): Record<string, unknown> {
+  if (!(e instanceof Error)) return { erro: typeof e }
+
+  const bruto = e as Error & Record<string, unknown>
+  const saida: Record<string, unknown> = { nome: e.name, mensagem: e.message, stack: e.stack }
+
+  // Lista fechada, e nunca `...e`: campo novo do driver nasce fora do log, que e
+  // o lado certo para errar. `detail`, `hint`, `where` e `internalQuery` ficam de
+  // fora por carregarem valor.
+  for (const c of ['code', 'table', 'column', 'constraint', 'routine', 'severity']) {
+    if (bruto[c] !== undefined) saida[c] = bruto[c]
+  }
+  return saida
+}
+
+/**
+ * A mensagem de um erro que pode ser MOSTRADA a quem fez o pedido.
+ *
+ * A regra e uma so: chega ao usuario o texto que uma pessoa escreveu PARA um
+ * usuario. `ErroHttp` e `Error` puro sao nossos e ja vem em pt-BR; qualquer coisa
+ * com nome proprio (`NeonDbError`, `TypeError`, `SyntaxError`) veio do driver ou
+ * do runtime e vira texto generico.
+ *
+ * Existe porque `rota()` generaliza o erro de banco com todo cuidado e as duas
+ * rotas de lote furavam isso por baixo: elas relatam cada operacao recusada em
+ * `rejeitadas[].motivo`, e mandavam `e.message` cru. Medido: uma mensagem do
+ * Postgres traz o nome da constraint e o valor ofensivo -- "invalid input syntax
+ * for type integer" entrega o tipo da coluna a quem esta mapeando o schema.
+ */
+export function motivoSeguro(
+  e: unknown,
+  generico = 'não foi possível gravar; confira os dados',
+): string {
+  if (!(e instanceof Error)) return generico
+  // `name` intacto e o que separa `new Error(...)` escrito aqui de tudo o mais.
+  if (e.name !== 'Error') return generico
+  if ('code' in e || 'severity' in e) return generico
+  return e.message || generico
+}

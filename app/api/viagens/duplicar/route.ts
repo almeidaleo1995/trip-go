@@ -32,7 +32,22 @@ export const POST = rota(async (req) => {
     copiar?: Record<string, boolean>
   }
   if (!corpo.id) throw new ErroHttp(400, 'Informe a viagem.')
-  await exigirViagem(u.id, corpo.id)
+
+  // 'editor', e nao o minimo padrao: duplicar entrega uma viagem da qual quem
+  // duplicou vira PROPRIETARIO, e a copia carrega `orcamento_centavos`, todas as
+  // `expenses` e todas as `installments`. Um `visualizador` nao le nada disso --
+  // o orcamento e cortado em `editor` no getSnapshot e `financeiroDaViagem` so
+  // lhe manda as proprias obrigacoes -- entao ele duplicava, abria a copia como
+  // dono e o `financeiroDaViagem` respondia `{admin: true}` com o razao inteiro.
+  // Todo o recorte de papel do modulo financeiro caia por este endpoint.
+  //
+  // A regra que fecha isso e uma so, e vale para o que for adicionado a copia no
+  // futuro: SO SE COPIA O QUE JA SE PODE LER. 'editor' e o limiar certo porque e
+  // exatamente o que /api/export ja concede -- quem pode baixar o arquivo com
+  // esses numeros nao ganha nada duplicando. A unica coisa fora do alcance de um
+  // editor e o item de checklist `pessoal` alheio, e por isso a copia dele filtra
+  // por escopo mais abaixo.
+  await exigirViagem(u.id, corpo.id, 'editor')
 
   const copiar = (bloco: string) => corpo.copiar?.[bloco] ?? true
 
@@ -148,12 +163,17 @@ export const POST = rota(async (req) => {
   }
 
   if (copiar('checklist')) {
+    // SO os itens do grupo, pelo mesmo motivo que os documentos logo abaixo
+    // filtram `escopo = 'global'`: `checklistDaViagem` esconde o item `pessoal`
+    // de quem nao e o dono nem proprietario, e a copia nasce sem participante --
+    // `assigned_to` nem e copiado. Sem o filtro, duplicar era como um editor lia
+    // o titulo, o detalhe e o valor estimado do item pessoal de outra pessoa.
     await sql`
     insert into checklist_items (trip_id, titulo, categoria, escopo, prazo_ideal, prazo_maximo,
                                  valor_estimado_centavos, detalhe, ordem)
     select ${novo}, titulo, categoria, escopo, prazo_ideal + ${d}::interval,
            prazo_maximo + ${d}::interval, valor_estimado_centavos, detalhe, ordem
-    from checklist_items where trip_id = ${corpo.id}
+    from checklist_items where trip_id = ${corpo.id} and escopo = 'global'
   `
   }
 

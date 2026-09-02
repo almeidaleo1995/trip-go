@@ -12,6 +12,9 @@ export default function Register() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [confirmacao, setConfirmacao] = useState('')
+  // Codigo da viagem, combinado por fora do app. Opcional: quem chega por conta
+  // propria cria a conta e ainda nao participa de viagem nenhuma.
+  const [convite, setConvite] = useState('')
   // O campo-armadilha: ninguém enxerga, então gente nunca preenche. Ver
   // CAMPO_ARMADILHA em lib/seguranca.ts.
   const [armadilha, setArmadilha] = useState('')
@@ -28,7 +31,7 @@ export default function Register() {
     setCarregando(true)
     setErro(null)
     try {
-      const parsed = CadastroSchema.safeParse({ nome, email, senha, confirmacao })
+      const parsed = CadastroSchema.safeParse({ nome, email, senha, confirmacao, convite })
       if (!parsed.success) {
         setErro(parsed.error.issues.map((i) => i.message).join(', '))
         return
@@ -42,6 +45,7 @@ export default function Register() {
           email,
           senha,
           confirmacao,
+          convite,
           captcha,
           [CAMPO_ARMADILHA]: armadilha,
         }),
@@ -161,6 +165,15 @@ export default function Register() {
               autoComplete="new-password"
               obrigatorio
               erro={confirmacao && senha !== confirmacao ? 'As senhas não são iguais.' : null}
+            />
+
+            <Campo
+              rotulo="Código do convite"
+              tipo="text"
+              valor={convite}
+              aoMudar={setConvite}
+              autoComplete="off"
+              dica="opcional — quem organiza a viagem passa o código para você"
             />
 
             {/* A armadilha. `hidden` sozinho não bastaria: parte dos robôs pula campo

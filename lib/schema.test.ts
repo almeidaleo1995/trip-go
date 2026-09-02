@@ -8,6 +8,7 @@ import {
   SCHEMA_VERSION,
   ChecklistSugestaoSchema,
   ChecklistSugestoesBatchSchema,
+  colunaValida,
 } from './schema.ts'
 
 /** Importacao minima valida: so viagem, nenhuma lista. */
@@ -332,7 +333,12 @@ test('checklist_item aceita assigned_to_nomes vindo de um arquivo exportado', ()
   const r = validarImportacao({
     ...MINIMA,
     checklist: [
-      { titulo: 'Remédio', escopo: 'pessoal', assigned_to_nomes: ['Leonardo'], prioridade: 'obrigatorio' },
+      {
+        titulo: 'Remédio',
+        escopo: 'pessoal',
+        assigned_to_nomes: ['Leonardo'],
+        prioridade: 'obrigatorio',
+      },
     ],
   })
   assert.equal(r.sucesso, true)
@@ -340,7 +346,80 @@ test('checklist_item aceita assigned_to_nomes vindo de um arquivo exportado', ()
 })
 
 test('ChecklistSugestoesBatchSchema aceita lote vazio', () => {
-  const r = ChecklistSugestoesBatchSchema.safeParse({ viagem: 'Europa 2027', gerado_em: '2026-08-20' })
+  const r = ChecklistSugestoesBatchSchema.safeParse({
+    viagem: 'Europa 2027',
+    gerado_em: '2026-08-20',
+  })
   assert.equal(r.success, true)
   assert.deepEqual(r.success && r.data.sugestoes, [])
+})
+
+// ---------------------------------------------------------------- valores do cliente
+//
+// Tres valores que o cliente manda e o servidor usava sem teto. Os testes sao
+// comportamentais porque estes schemas sao zod puro: nada aqui precisa de banco.
+
+const base = { op: 'editar' as const, entidade: 'voo' as const, id: 'x', campos: {} }
+
+test('client_ts no futuro e puxado para agora', () => {
+  const r = MutationSchema.parse({ ...base, client_ts: '9999-12-31T23:59:59.000Z' })
+  const distancia = Date.parse(r.client_ts) - Date.now()
+  assert.ok(
+    distancia < 10 * 60 * 1000,
+    'client_ts do ano 9999 sobreviveu. Ele e o comparador das tres checagens de ' +
+      'LWW (`updated_at < client_ts`), entao sem teto essa escrita vence todo ' +
+      'conflito para sempre e sobrescreve a edicao de qualquer outra pessoa.',
+  )
+})
+
+test('client_ts no passado sobrevive intacto', () => {
+  // O carimbo e a hora em que a EDICAO aconteceu: passado e o caso NORMAL de uma
+  // escrita que ficou na fila offline. Tetar isso mataria o modo aviao.
+  const ontem = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+  assert.equal(MutationSchema.parse({ ...base, client_ts: ontem }).client_ts, ontem)
+})
+
+test('deriva normal de relogio nao e mexida', () => {
+  const poucoAdiantado = new Date(Date.now() + 60 * 1000).toISOString()
+  assert.equal(
+    MutationSchema.parse({ ...base, client_ts: poucoAdiantado }).client_ts,
+    poucoAdiantado,
+    'um minuto adiantado e deriva de aparelho, nao ataque -- puxar isso seria ruido',
+  )
+})
+
+test('dinheiro nao passa do que a coluna integer aguenta', () => {
+  const ok = validarCampos('custo', {
+    descricao: 'jantar',
+    valor_centavos: 2_147_483_647,
+    divisao: 'igual',
+  })
+  assert.equal(ok.sucesso, true, 'o teto exato tem que passar')
+
+  const estoura = validarCampos('custo', {
+    descricao: 'jantar',
+    valor_centavos: 2_147_483_648,
+    divisao: 'igual',
+  })
+  assert.equal(
+    estoura.sucesso,
+    false,
+    'valor acima do `integer` do Postgres passou pelo zod. Quem recusa vira o ' +
+      'banco, com `integer out of range`, e a casca de rota() transforma num 500 ' +
+      'generico -- a pessoa perde a mensagem que diria o que houve.',
+  )
+})
+
+test('o valor de uma parcela nao entra pela mutacao', () => {
+  for (const campo of ['valor_centavos', 'vence_em', 'numero']) {
+    assert.equal(
+      colunaValida('parcela', campo),
+      false,
+      `\`${campo}\` voltou a ser gravavel numa parcela. Os tres sao PRODUZIDOS por ` +
+        '`gerarParcelas` a partir do total, da quantidade e da frequencia; aceita-los ' +
+        'aqui abre um segundo caminho para o valor do parcelamento que nao confere ' +
+        'nada contra o total da despesa.',
+    )
+  }
+  assert.equal(colunaValida('parcela', 'pago_centavos'), true, 'marcar como pago tem que continuar')
 })

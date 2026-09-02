@@ -25,7 +25,12 @@ const BANCO = 'viagem'
 //   5 -> 6  o cofre virou centro de documentacao: o snapshot ganhou `requisitos`,
 //           `entregas` e `perfis`. Sem a subida, a aba Documentos pinta pelo cache
 //           antigo, nao acha nenhum dos tres e quebra antes de a rede responder.
-const VERSAO = 7
+//   7 -> 8  `viagem` ganhou `codigo_convite` (so para o proprietario). Esta e
+//           ADITIVA: cache antigo devolve `undefined` e a tela nao quebra. Sobe
+//           assim mesmo porque a regra e a regra, e o preco de errar o julgamento
+//           de "aditiva o suficiente" e tela branca na primeira pintura -- o preco
+//           de subir a toa e uma ida a rede.
+const VERSAO = 8
 const SNAPSHOT = 'snapshot'
 const FILA = 'fila'
 const ARQUIVOS = 'arquivos'

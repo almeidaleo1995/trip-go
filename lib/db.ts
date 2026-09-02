@@ -8,6 +8,7 @@
 // cache offline trivial e dispensa gerenciar estado por endpoint. Trocar de viagem
 // troca o snapshot; a conta pode ter quantas viagens quiser.
 import { neon } from '@neondatabase/serverless'
+import { paraLog } from './seguranca.ts'
 import { papelAlcanca, type Papel } from '../config/navigation.ts'
 import { resumoPessoal, type ResumoPessoal } from './financeiro.ts'
 import { registrarFalha, estaBloqueado, limparFalhas, type Limites } from './session.ts'
@@ -194,13 +195,41 @@ export async function atualizarPerfil(
 }
 
 /**
- * Liga a conta recém-criada a participantes que já existiam só como nome (o
- * dono cadastrou "Leonardo" antes de Leonardo ter conta). Sem isto, quem se
- * cadastra com o mesmo e-mail de um convite fica de fora até alguém reabrir e
- * salvar aquele participante de novo pela tela.
+ * Liga a conta recem-criada a participantes que ja existiam so como nome (o
+ * dono cadastrou "Leonardo" antes de Leonardo ter conta), e SO se quem se
+ * cadastrou souber o codigo daquela viagem.
+ *
+ * O codigo e a barreira, e ela existe porque o e-mail nao e uma: o dono digita o
+ * endereco de quem viaja junto dentro do app, muito antes da pessoa se cadastrar,
+ * e ate aqui quem chegasse primeiro em /register com aquele endereco herdava a
+ * vaga -- no papel que a linha carregasse, sem sessao nenhuma. Endereco de e-mail
+ * nao e segredo; codigo combinado por fora e.
+ *
+ * Este e o unico caminho SEM sessao que escreve em dado de viagem. O outro
+ * vinculo, em lib/escrita.ts, roda quando o PROPRIETARIO salva um participante
+ * com e-mail de conta existente -- ali quem liga ja esta autenticado e autorizado,
+ * entao nao pede codigo. E tambem a saida de quem se cadastrou sem o codigo, ou
+ * de quem foi convidado para uma segunda viagem depois de ja ter conta: o dono
+ * reabre o participante e salva.
  */
-export async function vincularParticipantesPorEmail(userId: string, email: string) {
-  await sql`update travelers set user_id = ${userId} where email = ${email} and user_id is null`
+export async function vincularParticipantesPorEmail(
+  userId: string,
+  email: string,
+  convite: string | null | undefined,
+) {
+  // Sem codigo nao ha vinculo. A comparacao abaixo ja recusaria (nenhum codigo e
+  // vazio), mas voltar aqui deixa a regra legivel em vez de deduzida do SQL.
+  if (!convite) return
+
+  await sql`
+    update travelers t
+       set user_id = ${userId}
+      from trips v
+     where t.trip_id = v.id
+       and t.email = ${email}
+       and t.user_id is null
+       and v.codigo_convite = ${convite}
+  `
 }
 
 // ---------------------------------------------------------------- viagens da conta
@@ -335,9 +364,16 @@ export async function getSnapshot(
     // `trips` publicaria pela porta dos fundos o numero que a outra consulta
     // protege pela porta da frente. A tela ja escondia (`if (!fin.admin) return
     // null` em Financeiro.tsx); esconder na tela nao e proteger.
+    // `codigo_convite` corta em PROPRIETARIO, e nao em editor: ele e a credencial
+    // que deixa alguem reivindicar uma vaga desta viagem no cadastro. Quem escreve
+    // participante ja e o proprietario (`participante` tem minimo 'proprietario' na
+    // TABELA de lib/escrita.ts), entao e o mesmo limiar dos dois lados -- e um
+    // visualizador que recebesse o codigo poderia convidar quem quisesse para uma
+    // viagem que ele nem edita.
     sql`select id, owner_id, nome, subtitulo, descricao, data_partida, data_retorno,
                moeda, fuso, cor_destaque, capa_url, arquivada, updated_at,
-               case when ${administra}::boolean then orcamento_centavos end as orcamento_centavos
+               case when ${administra}::boolean then orcamento_centavos end as orcamento_centavos,
+               case when ${veDadoPessoal}::boolean then codigo_convite end as codigo_convite
         from trips where id = ${tripId}`,
     // Passaporte e telefone de participante saem so para o PROPRIETARIO e para o
     // dono da propria linha.
@@ -910,7 +946,7 @@ export async function registrarTentativa(
     if (!linha) return registrarFalha(chave, Date.now(), limites)
     return { bloqueado: Boolean(linha.bloqueado), restamMs: Number(linha.restam_ms) }
   } catch (e) {
-    console.error('[rate-limit] caiu para o contador em memoria', e)
+    console.error('[rate-limit] caiu para o contador em memoria', paraLog(e))
     return registrarFalha(chave, Date.now(), limites)
   }
 }

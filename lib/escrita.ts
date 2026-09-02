@@ -154,12 +154,6 @@ export async function autorizar(
     )
   }
 
-  if (entidade === 'checklist_state' && campos.traveler_id) {
-    if (campos.traveler_id !== acesso.participanteId) {
-      throw new ErroHttp(403, 'Você só pode marcar o seu próprio checklist.')
-    }
-  }
-
   // Um item pessoal so pode ser editado/apagado por quem esta em assigned_to ou
   // pelo proprietario — do contrario um editor poderia mexer no item pessoal de
   // outro participante mesmo sem poder VE-LO (checklistDaViagem ja o esconde na
@@ -318,8 +312,7 @@ async function gravarDespesa(
   const anterior = criando
     ? undefined
     : ((await sql`select * from expenses where id = ${id} and trip_id = ${tripId}`)[0] as
-        | Record<string, unknown>
-        | undefined)
+        Record<string, unknown> | undefined)
   if (!criando && !anterior) throw new Error('registro não encontrado')
 
   // Last-write-wins, igual ao caminho genérico: a versão do servidor mais nova
@@ -488,6 +481,22 @@ async function conferirPai(
       )
     }
   }
+  // Todo participante CITADO e desta viagem -- inclusive nos campos que nomeiam
+  // gente sem serem chave estrangeira de pai.
+  //
+  // `documento.traveler_id` decide a posse de um documento pessoal, e `assigned_to`
+  // e um `text[]` de ids que nenhuma FK cobre. A referencia garantia apenas que a
+  // linha `travelers` existia -- em QUALQUER viagem. Um id estrangeiro nao vazava
+  // nada (toda leitura ja filtra por `trip_id`, entao ele nunca casa com ninguem),
+  // mas deixava o documento pessoal sem dono alcancavel e o item atribuido a um
+  // fantasma. E a mesma checagem que `custo`, `entrega` e `pagamento` ja faziam,
+  // com tres entidades de fora.
+  if (entidade === 'documento') {
+    await conferirParticipantes(tripId, [campos.traveler_id, ...paraLista(campos.assigned_to)])
+  }
+  if (entidade === 'checklist_item' || entidade === 'requisito') {
+    await conferirParticipantes(tripId, paraLista(campos.assigned_to))
+  }
   if (entidade === 'pagamento') {
     await conferirParticipantes(tripId, [campos.de_id, campos.para_id])
     if (campos.parcela_id) {
@@ -501,6 +510,11 @@ async function conferirPai(
       )
     }
   }
+}
+
+/** `assigned_to` chega como array; qualquer outra coisa vira lista vazia. */
+function paraLista(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : []
 }
 
 /** Todo participante citado precisa ser desta viagem. Nulos são ignorados. */
@@ -533,6 +547,21 @@ export async function aplicar(
     const r = await sql`select 1 from checklist_items where id = ${itemId} and trip_id = ${tripId}`
     if (r.length === 0) throw new Error('item não encontrado nesta viagem')
 
+    // O DONO da linha vem da sessao, e e por isso que nao existe aqui um 403 de
+    // "so o seu proprio checklist": nao ha o que recusar quando o pedido nunca
+    // chega a nomear a pessoa. `traveler_id` nem esta em POR_ENTIDADE.checklist_state
+    // (`item_id` e `feito`, so), o zod descarta chave desconhecida, e o INSERT usa
+    // `acesso.participanteId` — entao marcar o checklist alheio nao e proibido,
+    // e impossivel de expressar.
+    //
+    // Havia em `autorizar` uma condicao comparando o campo homonimo do CORPO com o
+    // participante da sessao. Ela era CODIGO MORTO pela cadeia acima — o campo
+    // nunca sobrevivia ao zod, entao a condicao nunca era verdadeira — e o pior
+    // de uma guarda morta e parecer viva: quem lesse `autorizar` concluiria que a
+    // barreira mora la e ficaria livre para mexer neste INSERT, que e onde ela
+    // realmente esta. E a mesma licao da `entrega`, ao contrario: la a autorizacao
+    // pendurada numa propriedade do schema sumiu quando o desfazer montou `campos`
+    // com uma chave so. Dono que vem da sessao nao tem esse problema.
     await sql`
       insert into checklist_state (traveler_id, item_id, feito, updated_at)
       values (${acesso.participanteId}, ${itemId}, ${Boolean(op.campos.feito)}, now())

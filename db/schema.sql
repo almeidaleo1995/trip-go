@@ -53,6 +53,18 @@ create table if not exists trips (
   cor_destaque  text not null default '#0F766E',
   capa_url      text,
   arquivada     boolean not null default false,
+  -- Codigo do convite: o que separa "sei o e-mail de um participante" de "posso
+  -- entrar nesta viagem". Quem se cadastra em /register informa este codigo para
+  -- que `vincularParticipantesPorEmail` ligue a conta a linha de `travelers` que
+  -- tem aquele e-mail. Sem ele, o endereco de e-mail SOZINHO era a credencial da
+  -- vaga -- e o dono digita esse endereco no app muito antes da pessoa se cadastrar.
+  --
+  -- `gen_random_uuid()` e nao `random()`: isto e uma credencial, e `random()` nao
+  -- e gerador criptografico. Dez hexadecimais dao 40 bits, que e o suficiente para
+  -- um segredo combinado por WhatsApp entre cinco pessoas e curto o bastante para
+  -- ser ditado por telefone.
+  codigo_convite text not null unique
+                 default substr(replace(gen_random_uuid()::text, '-', ''), 1, 10),
   updated_at    timestamptz not null default now()
 );
 
@@ -733,6 +745,20 @@ alter table trips     add column if not exists owner_id   text references users(
 alter table trips     add column if not exists descricao  text;
 alter table trips     add column if not exists capa_url   text;
 alter table trips     add column if not exists arquivada  boolean not null default false;
+
+-- Codigo do convite num banco que ja existe. Em TRES passos, e nao num
+-- `add column ... not null default`, porque o preenchimento das linhas antigas e
+-- o ponto: uma viagem sem codigo trancaria para fora todo participante que ainda
+-- nao se cadastrou -- e as viagens reais ja estao no ar com gente por cadastrar.
+-- Depender do rewrite de tabela avaliar um default volatil por linha e uma aposta
+-- em detalhe de versao do Postgres; o `update` explicito nao deixa duvida.
+alter table trips add column if not exists codigo_convite text;
+update trips set codigo_convite = substr(replace(gen_random_uuid()::text, '-', ''), 1, 10)
+ where codigo_convite is null;
+alter table trips alter column codigo_convite
+      set default substr(replace(gen_random_uuid()::text, '-', ''), 1, 10);
+alter table trips alter column codigo_convite set not null;
+create unique index if not exists trips_codigo_convite_key on trips (codigo_convite);
 
 -- Preferências da conta. Ficam em `users`, não em `travelers`: são da pessoa,
 -- não do vínculo com uma viagem — a moeda preferida vale em todas elas.

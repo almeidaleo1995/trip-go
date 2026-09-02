@@ -50,8 +50,20 @@ const DataHora = z
 const Texto = z.string().trim().min(1, 'nao pode ficar vazio')
 const TextoOpc = z.string().trim().nullish()
 const Cor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'use uma cor hexadecimal, ex: #0F766E')
-/** Dinheiro sempre em centavos inteiros. Nunca float. */
-const Centavos = z.number().int('use centavos inteiros, nao reais').min(0, 'nao pode ser negativo')
+/**
+ * Dinheiro sempre em centavos inteiros. Nunca float.
+ *
+ * O teto e o do `integer` do Postgres, que e o tipo de TODA coluna `*_centavos`
+ * do schema. Sem ele o zod aceitava qualquer inteiro e quem recusava era o banco,
+ * com `integer out of range` -- que a casca de `rota()` transforma num 500
+ * generico. Validacao que chega ate o banco e mensagem de erro perdida.
+ */
+const MAX_CENTAVOS = 2_147_483_647
+const Centavos = z
+  .number()
+  .int('use centavos inteiros, nao reais')
+  .min(0, 'nao pode ser negativo')
+  .max(MAX_CENTAVOS, 'valor alto demais')
 const Id = z.string().trim().min(1).max(64)
 const Url = z.string().trim().url('link invalido').nullish()
 
@@ -87,6 +99,17 @@ export const CadastroSchema = z
     email: Email,
     senha: Senha,
     confirmacao: z.string(),
+    // Codigo da viagem, combinado por fora do app. Opcional porque criar conta
+    // nao exige convite nenhum: sem ele a pessoa entra e ainda nao participa de
+    // viagem alguma, que e o estado certo para quem chegou por conta propria.
+    // Com ele, `vincularParticipantesPorEmail` liga a conta a vaga que o dono
+    // ja tinha aberto com aquele e-mail.
+    convite: z
+      .string()
+      .trim()
+      .max(64)
+      .optional()
+      .transform((v) => v || undefined),
   })
   .refine((d) => d.senha === d.confirmacao, {
     message: 'as senhas nao sao iguais',
@@ -655,11 +678,22 @@ export const DivisaoSchema = z.object({
  * acao mais frequente da tela, e reenviar a despesa inteira para mudar um campo
  * de uma linha e o caminho mais curto para duas pessoas se atropelarem.
  */
+/**
+ * O que se edita numa parcela JA GRAVADA: quanto foi pago ao fornecedor, e quando.
+ *
+ * `numero`, `vence_em` e `valor_centavos` NAO entram, e a ausencia e a regra:
+ * esses tres sao PRODUZIDOS por `gerarParcelas` no servidor a partir do total, da
+ * quantidade e da frequencia, e mudar a despesa reescreve o calendario inteiro.
+ * Aceita-los aqui abria um segundo caminho para o valor do parcelamento -- um que
+ * nao confere nada contra o total da despesa -- e a soma das parcelas passava a
+ * poder divergir do que se deve. `colunaValida` deriva as colunas permitidas
+ * deste schema, entao tira-los daqui e o que fecha a porta, nao um `if`.
+ *
+ * A tela ja mandava so estes tres campos (Financeiro.tsx): isto alinha o contrato
+ * ao uso real em vez de deixar o excedente disponivel para quem chamar a API.
+ */
 export const ParcelaMutacaoSchema = z.object({
   expense_id: Id,
-  numero: z.number().int().min(1),
-  vence_em: Data.nullish(),
-  valor_centavos: Centavos,
   pago_centavos: Centavos,
   pago_em: Data.nullish(),
 })
@@ -909,9 +943,38 @@ export const MutationSchema = z.object({
   id: Id.nullish(),
   /** Campos a gravar. Validados por entidade no servidor. */
   campos: z.record(z.string(), z.unknown()).default({}),
-  /** Carimbo do cliente, base do last-write-wins. */
-  client_ts: z.string().datetime({ offset: true }),
+  /**
+   * Carimbo do cliente, base do last-write-wins -- e por isso TETADO no futuro.
+   *
+   * Este valor decide quem vence todo conflito: as tres comparacoes de LWW
+   * (`updated_at < client_ts`) sao contra ele. Sem teto, mandar o ano 9999 fazia
+   * a escrita vencer sempre, para sempre, sobrescrevendo em silencio a edicao de
+   * qualquer outra pessoa -- sem precisar de permissao nenhuma alem da de
+   * escrever na linha.
+   *
+   * Teto e nao recusa: o carimbo e a hora em que a EDICAO aconteceu, entao um
+   * valor no passado e legitimo (a escrita ficou na fila offline e sincronizou
+   * horas depois) e recusar mataria o modo offline. Adiantado so acontece por
+   * relogio errado -- comum em celular que cruzou fuso, que e o caso normal
+   * deste app -- e recusar deixaria essa pessoa sem conseguir gravar nada.
+   * Limitado a agora, a escrita entra e perde os conflitos com dado mais novo,
+   * que e exatamente o que o LWW deveria fazer.
+   */
+  client_ts: z
+    .string()
+    .datetime({ offset: true })
+    .transform((v) => {
+      const teto = Date.now() + TOLERANCIA_RELOGIO_MS
+      return Date.parse(v) > teto ? new Date(teto).toISOString() : v
+    }),
 })
+
+/**
+ * Quanto adiantado o relogio de um cliente pode estar antes de o carimbo dele ser
+ * puxado para agora. Cinco minutos cobre a deriva normal de um aparelho sem
+ * deixar folga util para forcar a vitoria num conflito.
+ */
+const TOLERANCIA_RELOGIO_MS = 5 * 60 * 1000
 
 export const MutationBatchSchema = z.object({
   trip_id: Id,

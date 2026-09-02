@@ -4,6 +4,7 @@
 // QUEM pode escrever o quê, e como a escrita cai na viagem certa, é
 // `lib/escrita.ts` - o mesmo módulo que a rota do assistente usa, de propósito.
 import { envelope } from '@/lib/db.ts'
+import { paraLog, motivoSeguro } from '@/lib/seguranca.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'
 import { ErroHttp, LIMITES_ESCRITA } from '@/lib/session.ts'
 import { MutationBatchSchema, formatarErroZod } from '@/lib/schema.ts'
@@ -18,7 +19,11 @@ export const POST = rota(async (req) => {
   // Por CONTA, não por IP: a viagem inteira sincroniza pelo wi-fi do mesmo hotel.
   // Teto folgado de propósito — quem volta de um dia offline sobe a fila acumulada
   // de uma vez. Ver LIMITES_ESCRITA em lib/session.ts.
-  await limitar(`escrita:${u.id}`, LIMITES_ESCRITA, 'Muitas alterações seguidas. Tente em instantes.')
+  await limitar(
+    `escrita:${u.id}`,
+    LIMITES_ESCRITA,
+    'Muitas alterações seguidas. Tente em instantes.',
+  )
 
   const corpo = await lerJson(req)
   const parsed = MutationBatchSchema.safeParse(corpo)
@@ -40,7 +45,13 @@ export const POST = rota(async (req) => {
       // engolir isso numa lista faria o cliente ver 200 e achar que passou.
       // Só erro de dado de UMA operação vira item de `rejeitadas`.
       if (e instanceof ErroHttp) throw e
-      rejeitadas.push({ id: op.id ?? undefined, motivo: e instanceof Error ? e.message : 'erro' })
+      // `motivoSeguro` e nao `e.message`: aqui cai TAMBEM o erro inesperado, e a
+      // mensagem crua do Postgres carrega nome de constraint e tipo de coluna
+      // ("invalid input syntax for type integer"). `rota()` generaliza isso com
+      // cuidado no 500; este relatorio por operacao furava por baixo. O erro real
+      // vai para o log, sanitizado -- perder o diagnostico nao era a intencao.
+      console.error('[mutate] operacao recusada', { entidade: op.entidade, ...paraLog(e) })
+      rejeitadas.push({ id: op.id ?? undefined, motivo: motivoSeguro(e) })
     }
   }
 
