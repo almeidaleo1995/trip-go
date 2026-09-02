@@ -24,12 +24,18 @@ export { colunaValida } from '@/lib/schema.ts'
 /**
  * De onde veio a escrita, para o `change_log`.
  *
- * `pessoa` e o padrao e cobre toda a tela. `sql` marca a linha que entrou por um
- * lote montado em SQL (`montar.aplicar`, em db/montar.sql), e o `lote` agrupa a
- * carga inteira — e o que permite desfazer uma viagem montada de uma vez, em vez
- * de linha por linha. O valor antigo `assistente` continua ACEITO pelo banco: ele
- * esta gravado em historico de viagem que ja existe, e um check que o recusasse
- * quebraria duplicar viagem e reimportar backup. Ver db/schema.sql.
+ * HOJE todo chamador passa o padrao: a tela grava `('pessoa', null)` e nao ha
+ * outro caminho de escrita. O par continua existindo porque e ele que torna um
+ * LOTE desfazivel — reverter uma carga inteira exige saber quais linhas vieram
+ * juntas, e essa informacao so existe se for gravada no momento da escrita. Foi
+ * assim que o assistente de IA, que nao existe mais, desfazia o que propunha; e
+ * e o mesmo gancho que um gravador em lote futuro usaria. Um `origem` que a tela
+ * nunca escreve nao custa nada; recuperar o agrupamento depois e impossivel.
+ *
+ * `sql` esta reservado para esse gravador. `assistente` nao esta na lista aqui,
+ * mas continua ACEITO PELO BANCO: ele esta gravado em historico de viagem em uso,
+ * e um check que o recusasse quebraria duplicar viagem e reimportar backup — os
+ * dois caminhos que RE-INSEREM linha antiga. Ver db/schema.sql.
  */
 export type Marca = { origem: 'pessoa' | 'sql'; lote: string | null }
 

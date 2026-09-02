@@ -143,11 +143,9 @@ if (erros.length > 0) {
 
 // ---------------------------------------------------------------- arquivo
 
+// `montar.arquivo` erra alto num nome desconhecido — a mensagem do banco ja diz
+// o que fazer, entao ela sobe como esta em vez de virar um "arquivo vazio".
 const [linha] = await sql`select montar.arquivo(${rascunho}) as arquivo`
-if (!linha?.arquivo) {
-  console.error(`rascunho "${rascunho}" nao existe. Comece por montar.viagem(...).`)
-  process.exit(1)
-}
 
 // A MESMA validacao de POST /api/import. Se o zod recusa aqui, recusaria la.
 const r = validarImportacao(linha.arquivo)

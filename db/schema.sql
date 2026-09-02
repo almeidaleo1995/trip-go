@@ -622,16 +622,17 @@ create table if not exists change_log (
   campo        text,
   de           text,
   para         text,
-  -- quem ORIGINOU a escrita. `traveler_id` continua sendo quem assina; esta
-  -- coluna diz se a pessoa digitou na tela (`pessoa`) ou se a linha entrou por um
-  -- lote montado em SQL (`sql`, ver db/montar.sql). `assistente` e o valor de um
-  -- modulo que nao existe mais: ele continua na lista porque esta GRAVADO em
-  -- historico de viagem em uso, e um check que o recusasse quebraria duplicar
-  -- viagem e reimportar backup -- os dois caminhos que RE-INSEREM linha antiga.
+  -- quem ORIGINOU a escrita. `traveler_id` continua sendo quem assina; esta coluna
+  -- diz se a pessoa digitou na tela (`pessoa`) ou se a linha veio de uma carga em
+  -- lote. Hoje so a tela escreve; `sql` esta reservado para um gravador em lote, e
+  -- `assistente` e o valor de um modulo que nao existe mais -- ele continua na
+  -- lista porque esta GRAVADO em historico de viagem em uso, e um check que o
+  -- recusasse quebraria duplicar viagem e reimportar backup, os dois caminhos que
+  -- RE-INSEREM linha antiga. Ver `Marca` em lib/escrita.ts.
   origem       text not null default 'pessoa'
                check (origem in ('pessoa', 'sql', 'assistente')),
-  -- agrupa as operacoes aplicadas de uma vez. E o que permite desfazer uma viagem
-  -- inteira montada num comando, em vez de linha por linha.
+  -- agrupa as linhas gravadas de uma vez. E o que torna um lote desfazivel: saber
+  -- quais vieram juntas so e possivel se for gravado na hora.
   lote         text,
   criado_em    timestamptz not null default now()
 );
@@ -722,9 +723,9 @@ end $$;
 -- apaga-la: a proxima pessoa a ler o schema nao teria como saber se ela esta viva.
 drop table if exists ai_usage;
 
--- Origem e lote do change_log: `montar.aplicar` (db/montar.sql) grava por aqui, e
--- um banco em uso nao ve o bloco `create` acima. Sem estas duas linhas, aplicar um
--- lote estoura com "column origem does not exist" em producao e passa em banco novo.
+-- Origem e lote do change_log num banco que ja existe: ele nao ve o bloco `create`
+-- acima. Sem estas duas linhas, uma escrita estoura com "column origem does not
+-- exist" em producao e passa limpo em banco novo -- o pior par de resultados.
 --
 -- `assistente` fica na lista mesmo sem o modulo que o escrevia: o valor esta
 -- GRAVADO em historico de viagem em uso, e um check que o recusasse faria falhar

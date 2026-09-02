@@ -481,8 +481,10 @@ language sql stable as $fn$
     'viagem', r.viagem,
 ${secoes.map(([n]) => `    ${aspas(n)}, montar.__secao(r.id, ${aspas(n)})`).join(',\n')}
   )
+  -- Passa por __rascunho para que um nome errado ERRE, em vez de devolver null:
+  -- null aqui viraria "arquivo vazio" tres passos adiante, longe de quem digitou.
   from montar.rascunhos r
-  where r.nome = p_rascunho
+  where r.id = montar.__rascunho(p_rascunho)
 $fn$;
 
 -- Le um arquivo exportado de volta para um rascunho, para editar em SQL e reemitir.
