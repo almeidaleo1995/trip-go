@@ -31,8 +31,6 @@ import {
   RefreshCw,
   MapPinned,
   MoreHorizontal,
-  Sparkles,
-  Gauge,
   ArrowLeft,
   UserRound,
   type LucideIcon,
@@ -40,7 +38,6 @@ import {
 import Link from 'next/link'
 import { useTrip } from './TripProvider.tsx'
 import { AppModal, Avatar } from './ui.tsx'
-import { Assistente } from './Assistente.tsx'
 import { faseDaViagem, formatarHora } from '@/lib/derive.ts'
 import { registrarRecente } from '@/lib/recentes.ts'
 
@@ -59,8 +56,6 @@ export type AbaId =
   | 'emergencia'
   | 'financeiro'
   | 'dados'
-  | 'assistente'
-  | 'consumo'
 
 type Aba = { id: AbaId; nome: string; icone: LucideIcon; grupo: string }
 
@@ -80,8 +75,6 @@ const ABAS: Aba[] = [
   { id: 'emergencia', nome: 'Emergência', icone: LifeBuoy, grupo: 'Preparação' },
   { id: 'financeiro', nome: 'Financeiro', icone: Wallet, grupo: 'Gestão' },
   { id: 'dados', nome: 'Participantes e dados', icone: Database, grupo: 'Gestão' },
-  { id: 'assistente', nome: 'Guia', icone: Sparkles, grupo: 'Gestão' },
-  { id: 'consumo', nome: 'Consumo do guia', icone: Gauge, grupo: 'Gestão' },
 ]
 
 /**
@@ -125,10 +118,6 @@ export function Shell({
   const { snapshot, papel, online, offlineOk, pendentes, ultimaSync, erro, sair } = useTrip()
   const [montado, setMontado] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
-  const [guiaAberto, setGuiaAberto] = useState(false)
-  // `?guia=montar` chega de quem acabou de criar a viagem: a tela abre já com o
-  // guia montando o roteiro, que é o primeiro trabalho de uma viagem vazia.
-  const [modoGuia, setModoGuia] = useState<'duvida' | 'criar_viagem'>('duvida')
 
   // A aba que ACENDE. Nem sempre é a que está no estado: `documentacao` acende
   // `documentos`, que é onde ela passou a morar.
@@ -142,10 +131,6 @@ export function Shell({
   const visiveis = ABAS.filter((a) => {
     // "Dados" gerencia participantes e configurações — só o dono da viagem.
     if (a.id === 'dados') return papel === 'proprietario'
-    // O consumo mostra o que cada participante gastou — administração da
-    // viagem, não uso pessoal. Mesmo recorte de `dados`, e o servidor confere
-    // de novo em /api/assistente/consumo.
-    if (a.id === 'consumo') return papel === 'proprietario'
     if (a.id === 'cruzeiro') return temCruzeiro
     return true
   }).map((a) => {
@@ -178,10 +163,6 @@ export function Shell({
     setMontado(true)
     try {
       const params = new URLSearchParams(window.location.search)
-      if (params.get('guia') === 'montar') {
-        setModoGuia('criar_viagem')
-        setGuiaAberto(true)
-      }
       const pedida = params.get('aba') as AbaId | null
       const salva = sessionStorage.getItem(CHAVE_ABA) as AbaId | null
       const alvo = [pedida, salva].find(conhecida)
@@ -346,47 +327,6 @@ export function Shell({
           {children}
         </main>
       </div>
-
-      {/* O guia acompanha a aba aberta em vez de ter tela própria: a pergunta é
-          quase sempre sobre o que está à vista. Fica acima da tab bar no
-          celular (bottom-20) para não cobrir a navegação. */}
-      {aba !== 'assistente' && (
-        <button
-          onClick={() => setGuiaAberto(true)}
-          aria-label="Abrir o guia"
-          className="sem-impressao fixed right-4 bottom-20 z-30 flex h-13 w-13 cursor-pointer items-center justify-center rounded-2xl text-white shadow-[var(--sombra-2)] transition-transform active:scale-95 md:bottom-6"
-          style={{ background: 'var(--destaque)', height: 52, width: 52 }}
-        >
-          <Sparkles size={22} />
-        </button>
-      )}
-
-      {guiaAberto && (
-        <>
-          <div
-            onClick={() => setGuiaAberto(false)}
-            className="sem-impressao fixed inset-0 z-40 bg-black/25 backdrop-blur-[2px]"
-          />
-          <aside
-            aria-label="Guia da viagem"
-            className="sem-impressao fixed inset-x-0 bottom-0 z-50 h-[85dvh] rounded-t-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-2)] md:inset-y-0 md:right-0 md:left-auto md:h-full md:w-[27rem] md:rounded-t-none md:rounded-l-2xl"
-          >
-            <Assistente
-              modo={modoGuia}
-              aba={ABAS.find((x) => x.id === ativa)?.nome}
-              aberturaAutomatica={
-                modoGuia === 'criar_viagem'
-                  ? 'Monte o roteiro desta viagem e proponha os itens: cidades, dias com título e resumo, e passeios com horário plausível.'
-                  : undefined
-              }
-              aoFechar={() => {
-                setGuiaAberto(false)
-                setModoGuia('duvida')
-              }}
-            />
-          </aside>
-        </>
-      )}
 
       {/* tab bar — celular. Quatro fixas + "Mais". */}
       <nav

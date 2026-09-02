@@ -1,10 +1,11 @@
 // A lista branca de colunas do caminho de escrita.
 //
-// Ela existe por causa de UM lugar: `/api/assistente/desfazer` monta
-// `set <campo> = $1` com um `campo` lido do `change_log`. Hoje esse valor só
-// pode ser chave de schema, porque o zod descarta o resto antes de
-// `registrarAlteracao` receber — mas a distância entre "não há injeção" e "não
-// pode haver injeção" é exatamente esta função.
+// Ela existe por causa de UMA forma de escrita: desfazer um lote monta
+// `set <campo> = $1` com um `campo` lido do `change_log` — hoje isso acontece em
+// `montar.desfazer` (db/montar.sql), e qualquer rota de desfazer futura repetiria
+// o padrão. Esse valor só pode ser chave de schema, porque o zod descarta o resto
+// antes de `registrarAlteracao` receber — mas a distância entre "não há injeção" e
+// "não pode haver injeção" é exatamente esta função.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { colunaValida } from './schema.ts'

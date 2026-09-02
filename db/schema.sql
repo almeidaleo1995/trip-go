@@ -623,33 +623,17 @@ create table if not exists change_log (
   de           text,
   para         text,
   -- quem ORIGINOU a escrita. `traveler_id` continua sendo quem assina; esta
-  -- coluna diz se a pessoa digitou ou se aceitou uma proposta do assistente.
-  origem       text not null default 'pessoa' check (origem in ('pessoa', 'assistente')),
-  -- agrupa as operacoes aceitas de uma vez. E o que permite desfazer uma viagem
-  -- inteira gerada pela IA num toque, em vez de linha por linha.
+  -- coluna diz se a pessoa digitou na tela (`pessoa`) ou se a linha entrou por um
+  -- lote montado em SQL (`sql`, ver db/montar.sql). `assistente` e o valor de um
+  -- modulo que nao existe mais: ele continua na lista porque esta GRAVADO em
+  -- historico de viagem em uso, e um check que o recusasse quebraria duplicar
+  -- viagem e reimportar backup -- os dois caminhos que RE-INSEREM linha antiga.
+  origem       text not null default 'pessoa'
+               check (origem in ('pessoa', 'sql', 'assistente')),
+  -- agrupa as operacoes aplicadas de uma vez. E o que permite desfazer uma viagem
+  -- inteira montada num comando, em vez de linha por linha.
   lote         text,
   criado_em    timestamptz not null default now()
-);
-
--- Consumo da API de IA. Uma linha por chamada ao modelo.
---
--- `trip_id` e `on delete set null`, NAO cascade: apagar uma viagem nao pode
--- apagar o registro do que ela custou — o gasto ja aconteceu e a conta ja veio.
---
--- Nao guarda dinheiro, so token. Preco muda; token e fato. O custo e calculado
--- na leitura com a tabela vigente de `config/precos.ts`.
-create table if not exists ai_usage (
-  id             text primary key default gen_random_uuid()::text,
-  trip_id        text references trips(id) on delete set null,
-  user_id        text not null references users(id) on delete cascade,
-  modo           text not null,
-  modelo         text not null,
-  entrada        integer not null default 0,
-  saida          integer not null default 0,
-  cache_leitura  integer not null default 0,
-  cache_escrita  integer not null default 0,
-  busca_web      integer not null default 0,
-  criado_em      timestamptz not null default now()
 );
 
 -- ---------------------------------------------------------------- limite de tentativas
@@ -661,7 +645,7 @@ create table if not exists ai_usage (
 -- ataca senha nao precisa de mais do que isso. O que estava escrito como
 -- `ponytail:` em lib/session.ts era exatamente esta tabela.
 --
--- Uma linha por chave (`login:1.2.3.4`, `cadastro:1.2.3.4`, `assistente:<userId>`).
+-- Uma linha por chave (`login:1.2.3.4`, `cadastro:1.2.3.4`, `escrita:<userId>`).
 -- `tentativas` guarda os instantes dentro da janela; `bloqueado_ate` o fim do
 -- castigo. Duas colunas em vez de um contador porque a janela e DESLIZANTE: um
 -- inteiro nao sabe quais das dez tentativas ja envelheceram.
@@ -732,14 +716,25 @@ end $$;
 -- Levam um banco da versao anterior (viagem unica, login por PIN) ate aqui.
 -- Em banco novo todas sao no-op, porque as colunas ja nasceram acima.
 
--- Origem e lote do change_log: o assistente de IA grava por aqui, e um banco em
--- uso nao ve o bloco `create` acima. Sem estas duas linhas, aceitar uma proposta
--- estoura com "column origem does not exist" em producao e passa em banco novo.
+-- O consumo da API de IA sai junto com o modulo que o escrevia. A tabela guardava
+-- CONTAGEM DE TOKEN de um assistente que nao existe mais -- nao ha dado de viagem
+-- nem de pessoa nela, e nenhum codigo a consulta. Deixa-la de pe seria pior do que
+-- apaga-la: a proxima pessoa a ler o schema nao teria como saber se ela esta viva.
+drop table if exists ai_usage;
+
+-- Origem e lote do change_log: `montar.aplicar` (db/montar.sql) grava por aqui, e
+-- um banco em uso nao ve o bloco `create` acima. Sem estas duas linhas, aplicar um
+-- lote estoura com "column origem does not exist" em producao e passa em banco novo.
+--
+-- `assistente` fica na lista mesmo sem o modulo que o escrevia: o valor esta
+-- GRAVADO em historico de viagem em uso, e um check que o recusasse faria falhar
+-- justamente os caminhos que RE-INSEREM linha antiga (duplicar viagem, importar
+-- backup) -- 500 em banco em uso e verde em banco novo, que e o pior par.
 alter table change_log add column if not exists origem text not null default 'pessoa';
 alter table change_log add column if not exists lote   text;
 alter table change_log drop constraint if exists change_log_origem_check;
 alter table change_log add  constraint change_log_origem_check
-  check (origem in ('pessoa', 'assistente')) not valid;
+  check (origem in ('pessoa', 'sql', 'assistente')) not valid;
 
 alter table trips     add column if not exists owner_id   text references users(id) on delete cascade;
 alter table trips     add column if not exists descricao  text;
@@ -1087,6 +1082,4 @@ create index if not exists idx_doc_sub_req            on document_submissions (r
 create index if not exists idx_doc_sub_traveler       on document_submissions (traveler_id);
 create index if not exists idx_doc_sub_documento      on document_submissions (documento_id);
 create index if not exists idx_change_log_lote       on change_log (trip_id, lote);
-create index if not exists idx_ai_usage_user         on ai_usage (user_id, criado_em desc);
-create index if not exists idx_ai_usage_trip         on ai_usage (trip_id, criado_em desc);
 create index if not exists idx_rate_limit_faxina    on rate_limit (atualizado_em);

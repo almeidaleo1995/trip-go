@@ -30,8 +30,8 @@ const IMAGENS = "'self' data: blob: https:"
  * de lugar por nome simplesmente não devolve nada, o que é indistinguível de
  * "não achei". Serviço novo consultado do navegador entra aqui, ou some sem aviso.
  *
- * A Anthropic NÃO entra nesta lista, e é bom que não entre: se um dia uma chamada
- * ao modelo aparecer aqui, é porque a chave foi para o navegador.
+ * Nenhum serviço de modelo entra nesta lista. O app não fala com nenhum: o que
+ * monta viagem é SQL, que roda no banco e nunca no navegador.
  */
 const CONEXOES = "'self' https://api.open-meteo.com https://nominatim.openstreetmap.org"
 
@@ -123,10 +123,9 @@ export function cabecalhosEstaticos(producao: boolean): { key: string; value: st
     // A URL de uma viagem tem o id dela. Ela não acompanha o clique num link
     // externo — e o app está cheio de links para mapa e site de hotel.
     { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-    // Nada disto é usado. Câmera e microfone ficam explícitos porque o ditado do
-    // guia usa a Web Speech API, que NÃO passa por esta permissão (é
-    // reconhecimento do sistema, não `getUserMedia`) — declarar `microphone=()`
-    // não quebra a voz e fecha a porta para qualquer script que tente gravar.
+    // Nada disto é usado. Câmera e microfone ficam explícitos mesmo assim: o
+    // custo de declarar é zero e a porta fica fechada para qualquer script que
+    // tente gravar dentro de uma página que carrega a viagem inteira.
     {
       key: 'Permissions-Policy',
       value: 'camera=(), microphone=(), geolocation=(self), payment=(), usb=(), interest-cohort=()',

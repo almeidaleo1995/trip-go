@@ -642,6 +642,28 @@ export const SubmissaoSchema = z.object({
   dono_nome: TextoOpc,
 })
 
+/**
+ * A entrega COMO ELA VIAJA NO ARQUIVO — os dois ids sao opcionais aqui, e so aqui.
+ *
+ * Em `SubmissaoSchema` eles sao obrigatorios porque a MUTACAO depende disso: o
+ * `autorizar` de lib/escrita.ts decide se a entrega e sua comparando o dono com
+ * quem escreve, e uma entrega criada sem `traveler_id` cairia em "e minha" por
+ * ausencia — um visualizador enviando documentacao no nome de outra pessoa. Esse
+ * campo obrigatorio e uma barreira, nao burocracia.
+ *
+ * O arquivo, porem, NAO tem ids: ele liga por nome (`requisito_nome`, `dono_nome`),
+ * porque a importacao cria a viagem do zero e os ids antigos nao existem la —
+ * `lib/importar.ts` le so os nomes e descarta os ids. Enquanto as duas formas eram
+ * a mesma, `/api/export` preenchia os dois campos com `''` para satisfazer o zod e
+ * a propria trava de round-trip do export recusava o resultado: exportar QUALQUER
+ * viagem com uma entrega respondia 500, e ninguem conseguia guardar backup dela.
+ * Dois nomes resolvem o que um `''` disfarcava.
+ */
+export const SubmissaoArquivoSchema = SubmissaoSchema.extend({
+  requirement_id: Id.nullish(),
+  traveler_id: Id.nullish(),
+})
+
 export const EmergenciaSchema = z.object({
   id: Id.optional(),
   titulo: Texto,
@@ -843,28 +865,53 @@ export const MensagemSchema = z.object({
 
 // ---------------------------------------------------------------- importacao
 
+/**
+ * As secoes de LISTA do arquivo, na ordem em que sao gravadas.
+ *
+ * Este mapa e a fonte da verdade de tres coisas ao mesmo tempo: o proprio
+ * `TripArquivoSchema` (montado logo abaixo a partir dele), o gerador de
+ * `db/montar.sql` -- que emite uma funcao SQL por entrada, com os argumentos
+ * lidos do zod -- e o teste que compara o arquivo gerado com o commitado. Uma
+ * secao nova aqui vira funcao SQL no proximo `npm run sql:build`, e ate la o
+ * teste FALHA dizendo isso. Era esse o furo que uma segunda lista escrita a mao
+ * abriria: a SQL continuaria montando viagem sem a secao nova, em silencio.
+ *
+ * A ordem importa e nao e alfabetica: os requisitos entram antes das entregas
+ * porque elas apontam para eles, e as categorias antes dos custos pelo mesmo
+ * motivo. `lib/importar.ts` grava nesta ordem.
+ */
+export const SECOES_ARQUIVO = {
+  participantes: ParticipanteSchema,
+  roteiro: EventoSchema,
+  dias: DiaSchema,
+  voos: VooSchema,
+  cruzeiros: CruzeiroSchema,
+  reservas: ReservaSchema,
+  lugares: LugarSchema,
+  checklist: ChecklistItemSchema,
+  documentos: DocumentoSchema,
+  // A documentacao exigida viaja no backup: sem ela, restaurar uma viagem traria
+  // os arquivos de volta e perderia a pergunta que os organiza -- quem ainda deve
+  // o que.
+  requisitos: RequisitoSchema,
+  entregas: SubmissaoArquivoSchema,
+  emergencia: EmergenciaSchema,
+  categorias: CategoriaSchema,
+  custos: CustoSchema,
+  pagamentos: PagamentoArquivoSchema,
+} as const
+
+export type SecaoArquivo = keyof typeof SECOES_ARQUIVO
+
+// Toda secao de lista e opcional: uma viagem so com roteiro e valida.
+const LISTAS = Object.fromEntries(
+  Object.entries(SECOES_ARQUIVO).map(([nome, esquema]) => [nome, z.array(esquema).default([])]),
+) as { [K in SecaoArquivo]: z.ZodDefault<z.ZodArray<(typeof SECOES_ARQUIVO)[K]>> }
+
 const TripArquivoSchema = z.object({
   schemaVersion: z.number().int().max(SCHEMA_VERSION, 'arquivo de uma versao mais nova do app'),
   viagem: ViagemSchema,
-  // Toda secao de lista e opcional: uma viagem so com roteiro e valida.
-  participantes: z.array(ParticipanteSchema).default([]),
-  roteiro: z.array(EventoSchema).default([]),
-  dias: z.array(DiaSchema).default([]),
-  voos: z.array(VooSchema).default([]),
-  cruzeiros: z.array(CruzeiroSchema).default([]),
-  reservas: z.array(ReservaSchema).default([]),
-  lugares: z.array(LugarSchema).default([]),
-  checklist: z.array(ChecklistItemSchema).default([]),
-  documentos: z.array(DocumentoSchema).default([]),
-  // A documentacao exigida viaja no backup: sem ela, restaurar uma viagem traria
-  // os arquivos de volta e perderia a pergunta que os organiza -- quem ainda deve
-  // o que. Os requisitos entram antes das entregas porque elas apontam para eles.
-  requisitos: z.array(RequisitoSchema).default([]),
-  entregas: z.array(SubmissaoSchema).default([]),
-  emergencia: z.array(EmergenciaSchema).default([]),
-  categorias: z.array(CategoriaSchema).default([]),
-  custos: z.array(CustoSchema).default([]),
-  pagamentos: z.array(PagamentoArquivoSchema).default([]),
+  ...LISTAS,
 })
 
 /**
@@ -1025,10 +1072,11 @@ const POR_ENTIDADE: Partial<Record<Entidade, z.ZodTypeAny>> = {
  * O schema de uma entidade, para quem precisa DESCREVER os campos em vez de
  * validar um valor.
  *
- * E o que permite ao assistente publicar as ferramentas da IA a partir daqui em
- * vez de manter uma segunda copia da lista de campos. Essa copia seria o quinto
- * lugar a lembrar quando um campo nasce — e o sintoma de esquece-la nao seria um
- * erro, seria a IA parando de preencher o campo novo em silencio.
+ * E o que permite ao gerador de db/montar.sql publicar os argumentos de cada
+ * funcao a partir daqui em vez de manter uma segunda copia da lista de campos.
+ * Essa copia seria o quinto lugar a lembrar quando um campo nasce — e o sintoma
+ * de esquece-la nao seria um erro, seria a SQL parando de aceitar o campo novo
+ * em silencio.
  */
 export function esquemaDe(entidade: Entidade): z.ZodTypeAny | undefined {
   return POR_ENTIDADE[entidade]

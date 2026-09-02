@@ -88,7 +88,7 @@ export function exigirMesmaOrigem(req: Request): void {
  *
  * A chave é por CONTA quando há sessão, e não por IP: cinco pessoas no wi-fi do
  * hotel dividiriam um balde só, e a primeira a sincronizar bloquearia as outras
- * quatro. Mesma decisão do limite do assistente, e pelo mesmo motivo.
+ * quatro.
  *
  * Como no cadastro, TODA chamada conta — não existe "tentativa certa" a perdoar
  * numa rota de escrita, porque o que se está barrando é o volume, não o erro.

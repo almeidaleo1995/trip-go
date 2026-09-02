@@ -831,10 +831,11 @@ export async function registrarAlteracao(
   para: unknown,
   /**
    * Quem originou a escrita. `travelerId` continua sendo quem assina — o que muda
-   * e se a pessoa digitou (`pessoa`) ou aceitou uma proposta do assistente.
+   * e se a pessoa digitou na tela (`pessoa`) ou se a linha veio de um lote montado
+   * em SQL (`sql`, ver db/montar.sql), que e o que permite desfazer o lote inteiro.
    * Opcionais e no fim de proposito: as 7 chamadas que ja existiam seguem valendo.
    */
-  origem: 'pessoa' | 'assistente' = 'pessoa',
+  origem: 'pessoa' | 'sql' = 'pessoa',
   lote: string | null = null,
 ) {
   const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))
@@ -842,43 +843,6 @@ export async function registrarAlteracao(
     insert into change_log (trip_id, traveler_id, entidade, entidade_id, campo, de, para, origem, lote)
     values (${tripId}, ${travelerId}, ${entidade}, ${entidadeId}, ${campo},
             ${texto(de)}, ${texto(para)}, ${origem}, ${lote})
-  `
-}
-
-// ---------------------------------------------------------------- consumo de IA
-
-/**
- * Uma chamada ao modelo virou uma linha. Só token — preço é tabela e sai na
- * leitura (`lib/consumo.ts`), porque gravar o preço junto congelaria um valor
- * que muda e o relatório do mês passado passaria a mentir no reajuste.
- */
-export async function registrarUso(u: {
-  tripId: string | null
-  userId: string
-  modo: string
-  modelo: string
-  entrada: number
-  saida: number
-  cacheLeitura: number
-  cacheEscrita: number
-  buscaWeb: number
-}) {
-  await sql`
-    insert into ai_usage (trip_id, user_id, modo, modelo, entrada, saida,
-                          cache_leitura, cache_escrita, busca_web)
-    values (${u.tripId}, ${u.userId}, ${u.modo}, ${u.modelo}, ${u.entrada}, ${u.saida},
-            ${u.cacheLeitura}, ${u.cacheEscrita}, ${u.buscaWeb})
-  `
-}
-
-/** As linhas de consumo de uma conta ou de uma viagem, para o relatório. */
-export async function usoDaViagem(tripId: string, desde: string) {
-  return sql`
-    select a.user_id, a.modo, a.modelo, a.entrada, a.saida, a.cache_leitura,
-           a.cache_escrita, a.busca_web, a.criado_em, u.nome
-    from ai_usage a join users u on u.id = a.user_id
-    where a.trip_id = ${tripId} and a.criado_em >= ${desde}
-    order by a.criado_em desc
   `
 }
 
@@ -966,9 +930,9 @@ export async function consultarBloqueio(chave: string): Promise<boolean> {
 /**
  * Zera a janela. So o login chama: acertar a senha prova que nao era chute.
  *
- * O cadastro e o assistente nunca chamam, e por motivos diferentes — no cadastro
- * o abuso E a conta criada com sucesso, e no assistente o que custa e a chamada
- * que deu certo. Ver os comentarios de LIMITES_* em lib/session.ts.
+ * O cadastro nunca chama, e por um motivo diferente: la o abuso E a conta criada
+ * com sucesso, entao acertar nao perdoa nada. Ver os comentarios de LIMITES_* em
+ * lib/session.ts.
  */
 export async function limparTentativas(chave: string): Promise<void> {
   limparFalhas(chave)

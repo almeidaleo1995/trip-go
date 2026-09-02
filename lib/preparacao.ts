@@ -845,8 +845,7 @@ export function embarqueDe(voos: Voo[], partida: string | null): Embarque | null
 /**
  * O que `contextoDoSnapshot` precisa ler. Forma estrutural, nao o tipo
  * `Snapshot` do TripProvider: `lib/` nao importa de `components/`, e amarrar o
- * motor ao tipo de um componente cliente impediria o servidor de chama-lo — que
- * e exatamente o que o assistente precisa fazer.
+ * motor ao tipo de um componente cliente impediria o servidor de chama-lo.
  */
 export type FonteSnapshot = {
   viagem?: { data_partida?: string | null; data_retorno?: string | null } | null
@@ -871,9 +870,10 @@ export type MontagemPreparacao = {
  * Snapshot -> `Contexto` do motor. Uma montagem so, para os dois lados.
  *
  * Isto morava dentro de um `useMemo` em `components/tabs/Preparacao.tsx`, o que
- * deixava o servidor sem acesso: o assistente precisaria remontar o `Contexto` a
- * mao e passariam a existir DUAS listas de pendencias divergindo em silencio —
- * o mesmo erro que ja aconteceu uma vez entre `/api/mutate` e `/api/snapshot`.
+ * deixava o servidor sem acesso: qualquer codigo de servidor que precisasse da
+ * mesma lista teria de remontar o `Contexto` a mao, e passariam a existir DUAS
+ * listas de pendencias divergindo em silencio — o mesmo erro que ja aconteceu
+ * uma vez entre `/api/mutate` e `/api/snapshot`.
  *
  * O financeiro entra por dois caminhos porque sao duas respostas diferentes do
  * servidor, nao uma com filtro: quem administra recebe as parcelas da viagem,
