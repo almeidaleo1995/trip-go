@@ -232,12 +232,12 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     q.push(sql`
       insert into document_requirements (id, trip_id, nome, descricao, categoria, obrigatorio,
                                          aplica_todos, assigned_to, exige_numero, exige_validade,
-                                         exige_arquivo, campo_perfil, prazo, obs, ordem)
+                                         exige_arquivo, campo_perfil, prazo, pais, obs, ordem)
       values (${requisitoId}, ${tripId}, ${r.nome}, ${r.descricao ?? null},
               ${r.categoria ?? null}, ${r.obrigatorio}, ${paraTodos},
               ${paraTodos ? [] : alvos}, ${r.exige_numero}, ${r.exige_validade},
               ${r.exige_arquivo}, ${r.campo_perfil ?? null}, ${r.prazo ?? null},
-              ${r.obs ?? null}, ${r.ordem})
+              ${r.pais ?? null}, ${r.obs ?? null}, ${r.ordem})
     `)
   }
 

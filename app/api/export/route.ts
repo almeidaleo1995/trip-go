@@ -303,6 +303,7 @@ export const GET = rota(async (req) => {
       exige_arquivo: Boolean(r.exige_arquivo),
       campo_perfil: r.campo_perfil as string | undefined,
       prazo: dia(r.prazo),
+      pais: texto(r.pais),
       obs: texto(r.obs),
       ordem: Number(r.ordem ?? 0),
     })),

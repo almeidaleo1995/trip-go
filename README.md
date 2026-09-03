@@ -603,7 +603,7 @@ Three tables and one pure engine:
 
 | Piece                                         | Holds                                                                                                                                                |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `document_requirements`                       | what the trip demands: name, category, whether it's mandatory, who it applies to, whether it wants a number / an expiry / a file, an upload deadline |
+| `document_requirements`                       | what the trip demands: name, category, whether it's mandatory, who it applies to, whether it wants a number / an expiry / a file, an upload deadline, and the `pais` that demands it (null = the whole trip does) |
 | `document_submissions`                        | one row per _(requirement, person)_ — the number, the expiry, the attached vault document, and the review verdict, in the same row                   |
 | `users.cpf` / `passaporte_*` / `emergencia_*` | the person's documental data, on the **account**, so a CPF is not retyped for every trip                                                             |
 | `lib/documentacao.ts`                         | the whole traffic light, pure and tested — no DOM, no network                                                                                        |
@@ -636,11 +636,11 @@ documentation that matters is complete.
 `documentacaoDaViagem()` in `lib/db.ts` returns three lists with three different
 rules, cut **in the query**:
 
-|                | requirements | submissions                                            | profiles                |
-| -------------- | ------------ | ------------------------------------------------------ | ----------------------- |
-| `proprietario` | all          | all, with numbers                                      | which fields are filled |
-| `editor`       | all          | everyone's **state**, no passport numbers, no file ids | which fields are filled |
-| `visualizador` | all          | own only                                               | own only                |
+|                | requirements | submissions                                                                   | profiles                                        |
+| -------------- | ------------ | ----------------------------------------------------------------------------- | ----------------------------------------------- |
+| `proprietario` | all          | all, with numbers                                                             | which fields are filled + passport expiry       |
+| `editor`       | all          | everyone's **state** + expiry + review comment, no numbers, no file ids       | which fields are filled + passport expiry       |
+| `visualizador` | all          | everyone's **state**, no numbers, no expiry, no review comment, no file ids   | which fields are filled, own expiry only        |
 
 Everyone sees the requirements: knowing what the trip demands exposes nobody, and
 a traveller who cannot see the demand has no way to meet it. An editor chases the
@@ -648,9 +648,23 @@ delivery, so they get the state — but the redaction is a `case` in SQL, not a
 deleted field in React, because deleting it in JavaScript still ships the number
 over the wire where the network tab prints it whole.
 
-That redaction created one trap worth naming: with the id hidden, "no id, so no
-file" would have shown the entire trip as pending. `tem_arquivo` exists so the
-privacy protection does not become a status bug.
+**The `visualizador` row was deliberately widened** when the country-requirements
+note landed in the itinerary: it used to be "own submissions only". The note in a
+day's header answers "who has already met what this country demands", and that
+question cannot be answered from one's own row alone. What widened is the
+**state**; every VALUE stayed shut, and one that an `editor` does see — the expiry
+date and the reviewer's comment — is closed here, because a viewer does not
+review. `db/teste-recorte.sql` block D pins both halves against a real Postgres:
+the state comes through, the number, the expiry and the comment do not.
+
+That redaction created one trap worth naming, twice. With the id hidden, "no id,
+so no file" would have shown the entire trip as pending; `tem_arquivo` exists so
+the privacy protection does not become a status bug. Hiding the expiry from a
+viewer reopened exactly the same hole from the other side — "no date, so the
+expiry is missing" — and `tem_validade` (plus `passaporte_validade_preenchida` on
+the profile summary) closes it the same way. **Any column that leaves this query
+needs its boolean to arrive**, or the semaphore lies about whoever already
+complied.
 
 ### The two owners of one row
 
@@ -1198,6 +1212,28 @@ foreign city**. It answers, in this order: where do I need to be now, what comes
 next, how do I get there, how long does it take, do I need a document, do I have a
 booking, what does it cost, and is there anything I should know first.
 
+### What this country demands
+
+The day's header carries a quiet note — flag, `Requisitos <country>`, `3 de 4` —
+between the city line and the timeline. It is **not a module**: it is
+`document_requirements` filtered by the day's country through `requisitosDoPais()`,
+scored by the same `montarMatriz()` the Documentos tab uses. Nothing is stored for
+it and nothing is marked from it; tapping it lists who has complied, and resolving
+happens where it always did.
+
+Three rules keep it from becoming noise. A requirement with **no `pais` applies
+everywhere** — a passport belongs to the trip, not to Spain — which is why the
+column could be born null without changing the meaning of a single existing row. A
+day with **no country shows nothing**, because the country is never guessed from
+the city name (same rule `locaisDoDia()` already follows), and answering "here is
+everything" there would fill the header with demands from places nobody will set
+foot in. And a country with **no applicable requirement shows nothing at all** —
+a block that says "nothing to declare here" spends the one header line a phone has
+on teaching people to ignore it.
+
+The note is the whole surface, on purpose: no tab, no route, no `AbaId`. Content
+has no top-level routes here, and this is content.
+
 ### Three levels
 
 ```
@@ -1222,6 +1258,7 @@ four facts per item, and everything else is one tap away.
 | Title, city, summary, alerts, the two rituals, day links, map link | `itinerary_days`                                                      | one row **per annotated day**                              |
 | Timeline items, "how to get here", tips, links, estimated cost     | `itinerary_events`                                                    | yes                                                        |
 | The transport options under "Como chegar"                          | `itinerary_options`                                                   | yes, child of an item                                      |
+| "Saia às", the leg between two events, conflicts, the day's audit  | `trechosDoDia()` over the day's items + the night's lodging           | derived — see [Three views](#three-views-of-one-day-and-the-departure-time) |
 | Day chips (locais · km · deslocamentos · refeições · tempo)        | `resumoDoDia()` over the day's items                                  | derived, never hardcoded                                   |
 | Flights, hotel check-in/out, embarkation, port calls               | `flights` · `reservations` · `cruises`                                | **not copied** — rendered from the other tabs              |
 | Checklist of the day                                               | `checklist_items` whose deadline falls on the day                     | the existing checklist, same `checklist_state`             |
@@ -1238,6 +1275,45 @@ apart — which is exactly how a travel app starts lying about a departure time.
 `prazo_maximo` lands on the open day, ticked through the same `checklist_state` the
 Checklist tab writes. A second per-day task system would mean the same task ticked
 in one place and open in the other.
+
+### Three views of one day, and the departure time
+
+`[ Agenda ] [ Mapa ] [ Deslocamentos ]` are not three modules — they are one day
+read three ways, from the same `trechosDoDia()` call. There is no `Navegação` tab
+and there will not be one: navigation is what the itinerary is _for_, and content
+has no top-level routes here.
+
+**Nothing new is stored for any of it.** The leg between two events was already in
+the schema: `distancia_m`, `duracao_min`, `transporte` and `como_chegar` live on the
+**destination** item — "to get to the Prado, 850 m on foot" — and the alternatives
+live in `itinerary_options`. `lib/trechos.ts` reads those rows and adds the two
+things the database cannot hold, because both go stale the moment they are written:
+**when to leave** and **whether the plan fits**.
+
+`sairAs` is not recomputed here. It calls the same `horaDeSair()` / `margemDe()`
+that the Hoje screen calls, for the reason `checklist_state` is shared: two
+implementations would give two departure times for one appointment, and the person
+standing on the street has no way to tell which is right.
+
+| What it answers          | Rule                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **"When do I leave?"**   | `ocorre_em − duracao_min − margin`, margin per type (`cruzeiro` 45, `voo` 30, `trem` 20, `onibus` 15, default 5). **Without `duracao_min` there is no time shown** — a guessed departure is worse than none, because people trust it.                                                                                                                                                                        |
+| **"Do I have time?"**    | `folgaMin` is a **ceiling** on the free time: measured from the previous item's `fim_em`, or from its _start_ when that column is empty. Assuming an item ends when it begins can only over-state the gap, so a conflict is never invented — and the case where not even the whole interval covers the leg is still caught.                                                                                    |
+| **"How bad is it?"**     | Two levels, and the colour is the information: **conflict** (red) is impossible — the leg is longer than the gap; **tight** (amber) fits but eats the safety margin. Never hidden, on any view; the count rides on the `Deslocamentos` tab so it is visible from Agenda.                                                                                                                                       |
+| **"Where do I start?"**  | The first leg of the day departs from the **hotel** (`reservations` where `tipo = 'hospedagem'`), and the last one returns to it. The return leg has no destination row to carry its numbers, so it is born **unverified** and the audit asks for it rather than estimating it.                                                                                                                              |
+| **"Is this checked?"**   | `auditarNavegacao()` reports only what the stored rows prove: conflicts, legs with no duration, stops with neither address nor coordinate. Not "the airport looks far" — without coordinates on both ends that is a guess, and a guessed alarm teaches people to ignore the real ones.                                                                                                                        |
+
+**The app never computes a route.** It has no routing engine, no distance API and no
+straight-line estimate standing in for a walk — a fabricated "32 min on foot" crosses
+rivers and railways, and it would be trusted exactly where it is wrong. Legs are
+_prepared_ (by the skill, or by hand in the editor) and _displayed_, which is also
+what keeps them working in airplane mode. `Abrir no mapa` hands off to the device's
+map app for turn-by-turn; everything the traveller needs to decide — origin,
+destination, duration, departure time, margin — is on screen without it.
+
+`Hoje` consumes the same function and opens the same panel; **"Como chegar" there is
+not a second implementation**, it is `components/ComoChegar.tsx` in a modal instead
+of the desktop's right-hand column.
 
 ### Reordering
 
@@ -1273,6 +1349,7 @@ Nothing here is a hidden surprise. Each is a deliberate choice with a known ceil
 | **Offline vault is available, not encrypted**                          | Files marked "disponível offline" sit unencrypted in IndexedDB. Anyone holding the unlocked device can open them. The screen says exactly this, and the feature is deliberately never described as a bank-grade vault — it keeps documents _available_, not _secret_.                                                                                                                                                                                                                                                                                                                           | Encrypt blobs at rest with a key derived from the session; the store already goes through `lib/offline.ts`, so it is one layer, not a rewrite.                                                                                                                                                                                     |
 | **Avatars are still URLs**                                             | `users.avatar_url` takes a link; nothing uploads an image. Document files no longer share this limitation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Point avatars at `/api/documento`'s upload path, or a bucket.                                                                                                                                                                                                                                                                      |
 | **Vault links do not survive export/import**                           | `documents.itinerary_event_id` and `flight_id` are dropped on import — the itinerary is inserted _after_ documents (it points back at them), so the ids do not exist yet. `reserva`, `dono_nome` and `assigned_to_nomes` **do** round-trip, by name. The same compromise the checklist already makes.                                                                                                                                                                                                                                                                                           | A second pass that resolves event and flight links by name after the itinerary is inserted.                                                                                                                                                                                                                                        |
+| **Routes are prepared, never live**                                    | The app computes no route. A leg only shows a duration, a distance or a "Saia às" if somebody stored `duracao_min`/`distancia_m` on the destination item — the skill, or the editor. Legs with nothing stored say "rota não conferida" and the day's audit lists them; the return to the hotel is always one of them, since no row carries it. Nothing is estimated from straight-line distance, and no leg is ever presented as live traffic. | A routing API called **server-side** (the key may not reach the browser, and the CSP `connect-src` in `lib/seguranca.ts` would need that host by name), writing the result plus a `checked_at` into the same columns. The screens would not change — they already read from those rows. |
 | **Map has no coastline**                                               | The home map projects the route and pins onto an abstract gradient.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | A simplified GeoJSON, ~20–50 KB, from a reliable source.                                                                                                                                                                                                                                                                           |
 | **Export omits credentials**                                           | A restored backup has no passwords. Intentional — the file circulates by email.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | None wanted.                                                                                                                                                                                                                                                                                                                       |
 | **Old expenses import without a split**                                | A v2 backup records how _many_ people shared a cost, never _who_. The importer converts the amount to a total and leaves the split empty rather than inventing participants; the screen marks those expenses "a dividir".                                                                                                                                                                                                                                                                                                                                                                       | Open each one and choose who divides it.                                                                                                                                                                                                                                                                                           |

@@ -82,9 +82,11 @@ import {
   Maximize2,
   Upload,
   Search,
+  ArrowLeftRight,
   type LucideIcon,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
+import { RequisitosDoPais } from '../RequisitosDoPais.tsx'
 import { DocumentosVinculados } from '../CofreDocumento.tsx'
 import { RequisitosDoDia } from './Documentacao.tsx'
 import { type Papel } from '@/config/navigation.ts'
@@ -106,6 +108,19 @@ import {
   ALIAS_TOM,
 } from '../ui.tsx'
 import { MapaRota } from '../MapaRota.tsx'
+import {
+  FaixaTrecho,
+  ModalComoChegar,
+  PainelComoChegar,
+  useDesktop,
+} from '../ComoChegar.tsx'
+import { formatarHoraLocal } from '@/lib/hoje.ts'
+import {
+  auditarNavegacao,
+  resumoTrechos,
+  trechosDoDia,
+  type Trecho,
+} from '@/lib/trechos.ts'
 import { buscarClima, buscarClimaAgora, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 import { DiaSchema, EventoSchema, formatarErroZod } from '@/lib/schema.ts'
 import { lerArquivoDeMapa, casarPontos, type PontoKml } from '@/lib/kml.ts'
@@ -283,6 +298,11 @@ export function Roteiro() {
   // render faria o dia em foco pular sozinho à meia-noite, no meio de um toque.
   const [hoje] = useState(() => new Date())
   const [escolhido, setEscolhido] = useState<string | null>(null)
+  // Três leituras do MESMO dia, não três módulos. A agenda é a principal; o
+  // mapa e os deslocamentos são a mesma lista vista de outro ângulo.
+  const [visao, setVisao] = useState<Visao>('agenda')
+  const [trechoAberto, setTrechoAberto] = useState<string | null>(null)
+  const desktop = useDesktop()
 
   const dias = useMemo(
     () => montarDias(snapshot?.viagem ?? null, snapshot?.roteiro ?? [], snapshot?.dias ?? []),
@@ -296,6 +316,33 @@ export function Roteiro() {
   )
   const dia = dias[indice] ?? null
   const chaveHoje = chaveDia(hoje.toISOString())
+
+  // A linha do tempo COMPLETA — itens do roteiro mais voo, hospedagem e
+  // cruzeiro derivados. Os trechos saem daqui, e não de `dia.itens`, porque o
+  // que decide se um deslocamento cabe é o compromisso ANTERIOR na tela: um voo
+  // que aterrissa 11:30 é o que aperta o museu das 12:00, mesmo não sendo um
+  // item do roteiro.
+  //
+  // Memoizados porque `entradasDerivadas` monta JSX; e ACIMA das saídas
+  // antecipadas abaixo, porque hook depois de `return` some da render seguinte.
+  const linha = useMemo(
+    () => (dia ? montarLinha(dia, entradasDerivadas(dia, snapshot)) : []),
+    [dia, snapshot],
+  )
+  const trechos = useMemo(
+    () =>
+      dia
+        ? trechosDoDia(
+            linha.map((l) => l.item),
+            { hospedagem: hospedagemDoDia(dia, snapshot) },
+          )
+        : [],
+    [linha, dia, snapshot],
+  )
+  // Indexado pelo id do item de DESTINO: é assim que a linha do tempo acha o
+  // trecho de cada evento sem varrer a lista a cada linha.
+  const trechoPorDestino = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
+  const aberto = trechos.find((t) => t.id === trechoAberto) ?? null
 
   if (!snapshot) return null
 
@@ -330,9 +377,25 @@ export function Roteiro() {
           justamente o gesto mais repetido da tela. */}
       <FaixaDias dias={dias} indice={indice} chaveHoje={chaveHoje} aoEscolher={setEscolhido} />
 
+      <BarraDeVisao visao={visao} aoTrocar={setVisao} trechos={trechos} />
+
       <div className="mt-4 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
-          <TimelineDia dia={dia} moeda={moeda} mutate={mutate} posso={posso} />
+          {visao === 'agenda' && (
+            <TimelineDia
+              dia={dia}
+              linha={linha}
+              trechos={trechoPorDestino}
+              moeda={moeda}
+              mutate={mutate}
+              posso={posso}
+              aoAbrirTrecho={setTrechoAberto}
+            />
+          )}
+          {visao === 'mapa' && <VisaoMapa dia={dia} />}
+          {visao === 'deslocamentos' && (
+            <VisaoDeslocamentos trechos={trechos} aoAbrirTrecho={setTrechoAberto} />
+          )}
         </div>
 
         {/* A coluna de apoio: o dia inteiro ao lado do itinerário, um cartão por
@@ -342,7 +405,15 @@ export function Roteiro() {
             se descobre tarde demais. Abaixo de xl a coluna desce e vira a
             continuação da página, que é como o celular lê. */}
         <div className="min-w-0 space-y-4">
-          <MapaDoDia dia={dia} />
+          {/* O painel de "Como chegar" entra no TOPO da coluna, acima do mapa:
+              ele é a resposta ao toque que a pessoa acabou de dar, e qualquer
+              coisa antes dele é uma rolagem entre a pergunta e a resposta.
+              Abaixo de xl esta coluna desce para o fim da página, e aí o mesmo
+              corpo aparece como modal — ver `desktop`. */}
+          {aberto && desktop && (
+            <PainelComoChegar trecho={aberto} aoFechar={() => setTrechoAberto(null)} />
+          )}
+          {visao !== 'mapa' && <MapaDoDia dia={dia} />}
           {/* O clima que importa é o de onde o dia TERMINA — é lá que se dorme. */}
           <ClimaDoDia cidade={locais.destino ?? locais.cidade} chaveDia={dia.chave} />
           <InformacoesDoDia dia={dia} moeda={moeda} posso={posso} />
@@ -361,7 +432,227 @@ export function Roteiro() {
           <GastosDoDia dia={dia} moeda={moeda} />
         </div>
       </div>
+
+      {aberto && !desktop && (
+        <ModalComoChegar trecho={aberto} aoFechar={() => setTrechoAberto(null)} />
+      )}
     </>
+  )
+}
+
+// ---------------------------------------------------------------- barra de visões
+
+type Visao = 'agenda' | 'mapa' | 'deslocamentos'
+
+const VISOES: { chave: Visao; rotulo: string; Icone: LucideIcon }[] = [
+  { chave: 'agenda', rotulo: 'Agenda', Icone: CalendarDays },
+  { chave: 'mapa', rotulo: 'Mapa', Icone: IconeMapa },
+  { chave: 'deslocamentos', rotulo: 'Deslocamentos', Icone: ArrowLeftRight },
+]
+
+/**
+ * O alternador das três visões do mesmo dia.
+ *
+ * O contador de conflitos fica NA barra, não escondido dentro da visão de
+ * deslocamentos: um conflito que só aparece depois de trocar de aba é um
+ * conflito que ninguém vê. É a única insígnia da barra, por isso.
+ */
+function BarraDeVisao({
+  visao,
+  aoTrocar,
+  trechos,
+}: {
+  visao: Visao
+  aoTrocar: (v: Visao) => void
+  trechos: Trecho[]
+}) {
+  const conflitos = trechos.filter((t) => t.conflito).length
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Como ver o roteiro do dia"
+      className="sem-impressao mt-3 flex gap-1 overflow-x-auto rounded-xl border border-(--color-borda) bg-(--color-cartao) p-1"
+    >
+      {VISOES.map(({ chave, rotulo, Icone }) => {
+        const ativo = visao === chave
+        return (
+          <button
+            key={chave}
+            role="tab"
+            type="button"
+            aria-selected={ativo}
+            onClick={() => aoTrocar(chave)}
+            className="toque flex shrink-0 cursor-pointer items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors"
+            style={
+              ativo
+                ? { background: 'var(--color-destaque-tenue)', color: 'var(--destaque)' }
+                : { color: 'var(--color-tinta-2)' }
+            }
+          >
+            <Icone size={15} aria-hidden />
+            {rotulo}
+            {chave === 'deslocamentos' && conflitos > 0 && (
+              <span
+                className="tab-num rounded-full px-1.5 text-[11px] font-semibold"
+                style={{ background: 'var(--color-perigo-bg)', color: 'var(--color-perigo-ink)' }}
+              >
+                {conflitos}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- visão mapa
+
+/** O mapa do dia em largura inteira. Mesmo componente da coluna de apoio — o
+    mapa não muda, muda o espaço que ele tem. */
+function VisaoMapa({ dia }: { dia: DiaRoteiro }) {
+  return <MapaDoDia dia={dia} alto />
+}
+
+// ---------------------------------------------------------------- visão deslocamentos
+
+/**
+ * Só os trajetos, na ordem em que acontecem (§13).
+ *
+ * É uma tela operacional, não um segundo roteiro: nenhuma descrição, nenhuma
+ * dica, nenhum botão de editar. Origem, modo, tempo, destino — o que se olha
+ * andando.
+ */
+function VisaoDeslocamentos({
+  trechos,
+  aoAbrirTrecho,
+}: {
+  trechos: Trecho[]
+  aoAbrirTrecho: (id: string) => void
+}) {
+  const resumo = resumoTrechos(trechos)
+  const problemas = auditarNavegacao(trechos)
+
+  if (trechos.length === 0) {
+    return (
+      <Vazio
+        titulo="Nenhum deslocamento neste dia"
+        texto="Preencha a distância, a duração ou “Como se chega aqui” de uma atividade e o trajeto aparece aqui, com a hora de sair."
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <Cartao>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div>
+            <p className="tab-num text-2xl font-semibold">{resumo.quantos}</p>
+            <p className="t-aux">{resumo.quantos === 1 ? 'deslocamento' : 'deslocamentos'}</p>
+          </div>
+          <div>
+            <p className="tab-num text-2xl font-semibold">
+              {formatarDistancia(resumo.distanciaM) || '—'}
+            </p>
+            <p className="t-aux">percorridos</p>
+          </div>
+          <div>
+            <p className="tab-num text-2xl font-semibold">
+              {formatarDuracao(resumo.minutos) || '—'}
+            </p>
+            <p className="t-aux">em trânsito</p>
+          </div>
+        </div>
+      </Cartao>
+
+      {problemas.length > 0 && <AuditoriaNavegacao problemas={problemas} />}
+
+      <ol className="space-y-3">
+        {trechos.map((t) => (
+          <li key={t.id}>
+            <Cartao className="!p-0 overflow-hidden">
+              <div className="flex items-center gap-2.5 px-3.5 pt-3 pb-2">
+                <span
+                  className="size-2.5 shrink-0 rounded-full border-2"
+                  style={{ borderColor: 'var(--destaque)' }}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                  {t.origem?.titulo ?? 'Origem não definida'}
+                </span>
+              </div>
+
+              <div className="px-3.5">
+                <FaixaTrecho trecho={t} aoAbrir={() => aoAbrirTrecho(t.id)} />
+              </div>
+
+              <div className="flex items-center gap-2.5 px-3.5 pt-2 pb-3">
+                <MapPin
+                  size={12}
+                  className="shrink-0"
+                  style={{ color: 'var(--destaque)' }}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                  {t.destino.titulo}
+                </span>
+                {t.chegaAs && (
+                  <span className="tab-num shrink-0 text-[13px] text-(--color-tinta-3)">
+                    {formatarHoraLocal(t.chegaAs)}
+                  </span>
+                )}
+              </div>
+            </Cartao>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+/**
+ * A auditoria de navegação do dia (§41).
+ *
+ * Erro em vermelho, aviso em âmbar, e nada mais: a lista só cresce com o que
+ * `auditarNavegacao` consegue provar a partir do que está gravado.
+ */
+function AuditoriaNavegacao({
+  problemas,
+}: {
+  problemas: ReturnType<typeof auditarNavegacao>
+}) {
+  const erros = problemas.filter((p) => p.nivel === 'erro').length
+
+  return (
+    <Cartao>
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <AlertTriangle
+          size={15}
+          style={{ color: erros > 0 ? 'var(--color-perigo-ink)' : 'var(--color-atencao-ink)' }}
+          aria-hidden
+        />
+        {problemas.length} {problemas.length === 1 ? 'ponto a conferir' : 'pontos a conferir'}
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {problemas.map((p, i) => (
+          <li
+            key={`${p.id}-${i}`}
+            className="flex items-start gap-2 text-[13px] text-(--color-tinta-2)"
+          >
+            <span
+              className="mt-1.5 size-1.5 shrink-0 rounded-full"
+              style={{
+                background:
+                  p.nivel === 'erro' ? 'var(--color-perigo-ink)' : 'var(--color-atencao-ink)',
+              }}
+              aria-hidden
+            />
+            {p.texto}
+          </li>
+        ))}
+      </ul>
+    </Cartao>
   )
 }
 
@@ -439,6 +730,12 @@ function Cabecalho({
           {Boolean(dia.meta?.titulo) && (
             <p className="mt-1 text-sm text-(--color-tinta-2)">{String(dia.meta?.titulo ?? '')}</p>
           )}
+
+          {/* O que ESTE país exige, no dia em que se está nele. Some sozinha
+              quando o dia não tem país ou o país não tem exigência — ver
+              `RequisitosDoPais`. Não é alerta: é metadado do dia, do lado da
+              cidade, e por isso mora aqui dentro e não num cartão próprio. */}
+          <RequisitosDoPais pais={locais.pais} bandeira={bandeira} />
         </div>
 
         {/* `flex-wrap` + `max-w-full` pelo mesmo motivo do slot de ação do
@@ -1065,18 +1362,22 @@ function itemTemDetalhe(item: Record<string, unknown>, derivada: Derivada | null
 
 function TimelineDia({
   dia,
+  linha,
+  trechos,
   moeda,
   mutate,
   posso,
+  aoAbrirTrecho,
 }: {
   dia: DiaRoteiro
+  linha: ReturnType<typeof montarLinha>
+  /** Trecho ATÉ cada item, indexado pelo id do item de destino. */
+  trechos: Map<string, Trecho>
   moeda: string
   mutate: ReturnType<typeof useTrip>['mutate']
   posso: (minimo: Papel) => boolean
+  aoAbrirTrecho: (id: string) => void
 }) {
-  const { snapshot } = useTrip()
-  const derivadas = useMemo(() => entradasDerivadas(dia, snapshot), [dia, snapshot])
-  const linha = useMemo(() => montarLinha(dia, derivadas), [dia, derivadas])
   const semente = { ocorre_em: `${dia.chave}T09:00` }
 
   if (linha.length === 0) {
@@ -1103,9 +1404,14 @@ function TimelineDia({
             derivada={l.derivada}
             anterior={linha[i - 1]?.item ?? null}
             posterior={linha[i + 1]?.item ?? null}
+            // Só por id de verdade: `trechosDoDia` numera um item sem id pela
+            // posição DELE na lista ordenada, que não é este `i`, e casar pelo
+            // índice grudaria a faixa no evento errado.
+            trecho={l.item.id ? (trechos.get(String(l.item.id)) ?? null) : null}
             moeda={moeda}
             mutate={mutate}
             podeEditar={posso('editor')}
+            aoAbrirTrecho={aoAbrirTrecho}
           />
         ))}
       </ol>
@@ -1123,25 +1429,27 @@ function ItemLinha({
   derivada,
   anterior,
   posterior,
+  trecho,
   moeda,
   mutate,
   podeEditar,
+  aoAbrirTrecho,
 }: {
   item: Record<string, unknown>
   derivada: Derivada | null
   anterior: Record<string, unknown> | null
   posterior: Record<string, unknown> | null
+  /** O deslocamento ATÉ este item, quando existe. */
+  trecho: Trecho | null
   moeda: string
   mutate: ReturnType<typeof useTrip>['mutate']
   podeEditar: boolean
+  aoAbrirTrecho: (id: string) => void
 }) {
   const [aberto, setAberto] = useState(false)
   const tipo = String(item.tipo ?? 'passeio')
   const Icone = ICONE[tipo] ?? MapPin
   const tom = tomIcone(tipo)
-  const dist = formatarDistancia(item.distancia_m)
-  const dur = formatarDuracao(item.duracao_min)
-  const temDeslocamento = Boolean(dist || dur || item.transporte)
   const temDetalhe = itemTemDetalhe(item, derivada)
 
   // Duração da própria atividade (não do deslocamento até ela), só quando há hora de fim.
@@ -1152,21 +1460,6 @@ function ItemLinha({
     return formatarDuracao(Math.round((fim.getTime() - ini.getTime()) / 60_000))
   })()
   const primeiraDica = linhas(item.dicas)[0] ?? null
-  // Casamento de palavra-chave, não um enum — `transporte` é texto livre (quem
-  // escreve digita "Metrô U3" ou "Táxi até o porto"). Sem palavra-chave
-  // reconhecida cai em "a pé", o deslocamento mais comum num dia de cidade.
-  const textoTransporte = String(item.transporte ?? '').toLowerCase()
-  const IconeDeslocamento = /metr[oô]|u-?bahn|s-?bahn|subway|trem|train/.test(textoTransporte)
-    ? TrainFront
-    : /[oô]nibus|bus/.test(textoTransporte)
-      ? Bus
-      : /t[aá]xi|uber|carro/.test(textoTransporte)
-        ? Car
-        : /barco|balsa|ferry|navio/.test(textoTransporte)
-          ? Ship
-          : /avi[aã]o|voo|flight/.test(textoTransporte)
-            ? Plane
-            : Footprints
 
   /**
    * Subir e descer trocam o HORÁRIO com o vizinho, não um campo de ordem.
@@ -1218,15 +1511,13 @@ function ItemLinha({
         className="absolute top-0 bottom-0 left-[0.9375rem] border-l border-dashed border-(--color-borda-forte)"
       />
 
-      {temDeslocamento && anterior && (
+      {/* O deslocamento fica ENTRE os eventos, que é onde ele acontece. Aparece
+          também no PRIMEIRO item do dia — é a saída do hotel, e escondê-la só
+          porque não há evento acima deixava de fora justo o trajeto que se
+          consulta ainda de pijama. */}
+      {trecho && (
         <div className="relative py-1.5">
-          <div className="flex items-center gap-1.5 rounded-lg bg-(--color-superficie-2) px-3 py-1.5 text-[12px] font-medium text-(--color-tinta-2)">
-            <IconeDeslocamento size={13} className="shrink-0 text-(--color-tinta-3)" />
-            <span>
-              {[dist, dur].filter(Boolean).join(' · ')}
-              {item.transporte ? ` · ${String(item.transporte)}` : ''}
-            </span>
-          </div>
+          <FaixaTrecho trecho={trecho} aoAbrir={() => aoAbrirTrecho(trecho.id)} />
         </div>
       )}
 
@@ -2122,7 +2413,7 @@ function tipoEspecialDoDia(derivadas: Derivada[]): { Icone: LucideIcon; rotulo: 
  *
  * Sem nenhuma coordenada e sem cidade conhecida, o cartão não aparece.
  */
-function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
+function MapaDoDia({ dia, alto }: { dia: DiaRoteiro; alto?: boolean }) {
   const { snapshot, posso } = useTrip()
   const [ampliado, setAmpliado] = useState(false)
   const [importando, setImportando] = useState(false)
@@ -2185,7 +2476,7 @@ function MapaDoDia({ dia }: { dia: DiaRoteiro }) {
             <Maximize2 size={13} /> Tela cheia
           </Botao>
         </div>
-        <div className="h-56">
+        <div className={alto ? 'h-[26rem]' : 'h-56'}>
           <MapaRota lugares={pinos} numerados={numerado} />
         </div>
 

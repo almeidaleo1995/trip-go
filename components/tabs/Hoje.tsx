@@ -28,6 +28,7 @@ import {
   Landmark,
   ListChecks,
   MapPin,
+  Navigation,
   Phone,
   Plane,
   Ship,
@@ -42,6 +43,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
+import { ModalComoChegar } from '../ComoChegar.tsx'
+import { trechosDoDia, type Trecho } from '@/lib/trechos.ts'
 import { AppModal, Botao, Cartao, useAviso } from '../ui.tsx'
 import { PreviewDocumento } from '../CofreDocumento.tsx'
 import { documentosDe, type Documento } from '@/lib/cofre.ts'
@@ -134,6 +137,23 @@ export function Hoje({ irPara }: { irPara: (a: AbaId) => void }) {
   // um esteja aberto por vez.
   const [endereco, setEndereco] = useState<Endereco | null>(null)
   const [documento, setDocumento] = useState<Documento | null>(null)
+  const [trecho, setTrecho] = useState<Trecho | null>(null)
+
+  // Os MESMOS trechos do Roteiro, pela mesma função pura. O Hoje não recalcula
+  // nada de navegação: recalcular daria dois horários de saída para o mesmo
+  // compromisso, um em cada aba.
+  const trechos = useMemo(
+    () =>
+      trechosDoDia((dados?.itensDoDia ?? []) as unknown as Record<string, unknown>[], {
+        hospedagem: dados?.hospedagem as Record<string, unknown> | null,
+      }),
+    [dados?.itensDoDia, dados?.hospedagem],
+  )
+  const trechoProximo =
+    trechos.find((t) => t.id === String(dados?.proximo?.item?.id ?? '')) ?? null
+  /** A volta para o hotel (§29): o deslocamento que importa quando o dia acabou
+      e a cidade é estranha. */
+  const trechoVolta = trechos.find((t) => t.id.startsWith('volta:')) ?? null
 
   const documentos = useMemo(
     () => (snapshot?.documentos ?? []) as unknown as Documento[],
@@ -178,6 +198,8 @@ export function Hoje({ irPara }: { irPara: (a: AbaId) => void }) {
           {dados.proximo && (
             <CartaoProximo
               dados={dados}
+              trecho={trechoProximo}
+              aoComoChegar={setTrecho}
               aoAbrirEndereco={setEndereco}
               aoAbrirDocumentos={abrirDocumentos}
               temDocumento={(v) => documentosDe(documentos, v).length > 0}
@@ -194,6 +216,8 @@ export function Hoje({ irPara }: { irPara: (a: AbaId) => void }) {
           {dados.dia.fase === 'durante' && (
             <CartaoHospedagem
               hospedagem={dados.hospedagem}
+              trechoVolta={trechoVolta}
+              aoComoChegar={setTrecho}
               aoAbrirEndereco={setEndereco}
               aoAbrirDocumentos={abrirDocumentos}
               temDocumento={(v) => documentosDe(documentos, v).length > 0}
@@ -213,6 +237,7 @@ export function Hoje({ irPara }: { irPara: (a: AbaId) => void }) {
         </div>
       </div>
 
+      {trecho && <ModalComoChegar trecho={trecho} aoFechar={() => setTrecho(null)} />}
       {endereco && <PainelEndereco endereco={endereco} aoFechar={() => setEndereco(null)} />}
       {documento && (
         <AppModal titulo={documento.titulo} tamanho="grande" aoFechar={() => setDocumento(null)}>
@@ -440,7 +465,18 @@ function CartaoAgora({ dados, aoAbrirEndereco, aoAbrirDocumentos, temDocumento }
 
 // ---------------------------------------------------------------- a seguir
 
-function CartaoProximo({ dados, aoAbrirEndereco, aoAbrirDocumentos, temDocumento }: { dados: DadosHoje } & AcoesCartao) {
+function CartaoProximo({
+  dados,
+  trecho,
+  aoComoChegar,
+  aoAbrirEndereco,
+  aoAbrirDocumentos,
+  temDocumento,
+}: {
+  dados: DadosHoje
+  trecho: Trecho | null
+  aoComoChegar: (t: Trecho) => void
+} & AcoesCartao) {
   const { item, deslocamento: d } = dados.proximo!
   const Icone = ICONE_TIPO[String(item.tipo ?? '')] ?? Compass
   const endereco = enderecoDe(item)
@@ -510,6 +546,13 @@ function CartaoProximo({ dados, aoAbrirEndereco, aoAbrirDocumentos, temDocumento
       )}
 
       <Acoes>
+        {/* §14: o MESMO painel do Roteiro. Uma segunda implementação aqui
+            começaria igual e envelheceria diferente. */}
+        {trecho && (
+          <BotaoAcao icone={Navigation} onClick={() => aoComoChegar(trecho)}>
+            Como chegar
+          </BotaoAcao>
+        )}
         {temDocumento(vinculo) && (
           <BotaoAcao icone={Ticket} onClick={() => aoAbrirDocumentos(vinculo)}>
             Ingresso
@@ -586,11 +629,20 @@ function LinhaDepois({ itens, irPara }: { itens: ItemRoteiro[]; irPara: (a: AbaI
 
 function CartaoHospedagem({
   hospedagem,
+  trechoVolta,
+  aoComoChegar,
   irPara,
   aoAbrirEndereco,
   aoAbrirDocumentos,
   temDocumento,
-}: { hospedagem: Reserva | null; irPara: (a: AbaId) => void } & AcoesCartao) {
+}: {
+  hospedagem: Reserva | null
+  /** O caminho de volta ao hotel (§29). Entra como ação DESTE cartão em vez de
+      um cartão próprio: o Hoje é uma tela só, e "como volto" é sobre o hotel. */
+  trechoVolta: Trecho | null
+  aoComoChegar: (t: Trecho) => void
+  irPara: (a: AbaId) => void
+} & AcoesCartao) {
   const avisar = useAviso()
 
   // Este cartão NUNCA some com o fim do roteiro: às 23h ele é a única coisa que
@@ -637,6 +689,11 @@ function CartaoHospedagem({
       )}
 
       <Acoes>
+        {trechoVolta && (
+          <BotaoAcao icone={Navigation} onClick={() => aoComoChegar(trechoVolta)}>
+            Como voltar
+          </BotaoAcao>
+        )}
         {endereco && (
           <BotaoAcao icone={MapPin} onClick={() => aoAbrirEndereco(endereco)}>
             Endereço

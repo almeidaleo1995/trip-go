@@ -219,9 +219,9 @@ export const POST = rota(async (req) => {
     await sql`
     insert into document_requirements (trip_id, nome, descricao, categoria, obrigatorio,
                                        aplica_todos, assigned_to, exige_numero, exige_validade,
-                                       exige_arquivo, campo_perfil, prazo, obs, ordem)
+                                       exige_arquivo, campo_perfil, prazo, pais, obs, ordem)
     select ${novo}, nome, descricao, categoria, obrigatorio, true, '{}', exige_numero,
-           exige_validade, exige_arquivo, campo_perfil, prazo + ${d}::interval, obs, ordem
+           exige_validade, exige_arquivo, campo_perfil, prazo + ${d}::interval, pais, obs, ordem
     from document_requirements where trip_id = ${corpo.id}
   `
     await sql`

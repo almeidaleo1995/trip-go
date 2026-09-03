@@ -14,6 +14,12 @@
 --      diferentes de propósito: o orçamento corta em `editor` (o corte do
 --      dinheiro, de `financeiroDaViagem`) e o passaporte em `proprietario` (o
 --      corte do documento). Reusar um pelo outro foi o erro que este bloco pega.
+--   D. A entrega de documentacao: um `visualizador` ve o ESTADO de todo mundo
+--      (quem ja cumpriu o requisito do pais) e o VALOR de ninguem -- nem numero,
+--      nem validade, nem o comentario da revisao. Esta linha AFROUXOU de
+--      proposito: antes ele so via as proprias entregas. O bloco existe para
+--      fixar ate ONDE ela afrouxou, porque a parte que continua fechada e a que
+--      nao tem como ser testada olhando a tela.
 --   C. O `case when $1::boolean` funciona com o booleano chegando como TEXTO,
 --      que é como o driver HTTP do Neon manda parâmetro. Se essa coerção
 --      falhasse, o snapshot inteiro quebraria — toda tela do app.
@@ -146,6 +152,89 @@ begin
     raise exception 'B2 FALHOU: editor viu % passaportes, esperado 1 (o proprio)', quantos;
   end if;
   raise notice 'B2 ok: editor ve so o proprio passaporte';
+end $$;
+
+-- ---------------------------------------------------------------- D
+\echo 'D. um visualizador ve o estado da entrega alheia, nunca o valor'
+
+insert into document_requirements (id, trip_id, nome, pais, exige_numero, exige_validade)
+  values ('rr1','rt1','Passaporte','Espanha', true, true);
+insert into document_submissions (id, requirement_id, traveler_id, numero, validade, comentario)
+  values ('rs1','rr1','rp1','AA111111','2031-04-02','conferido no balcao'),
+         ('rs2','rr1','rp2','BB222222','2029-08-15',null);
+
+do $$
+declare linha record; quantas int; proprio text;
+begin
+  -- A consulta exatamente como `documentacaoDaViagem` a monta para quem NAO
+  -- revisa. `rp2` e o visualizador olhando a linha do dono (`rp1`).
+  select
+    case when s.traveler_id='rp2' then s.numero end     as numero,
+    case when s.traveler_id='rp2' then s.validade end   as validade,
+    case when s.traveler_id='rp2' then s.comentario end as comentario,
+    (s.validade is not null)    as tem_validade,
+    (s.documento_id is not null) as tem_arquivo,
+    s.status
+  into linha
+  from document_submissions s
+  join document_requirements r on r.id = s.requirement_id
+  where r.trip_id='rt1' and s.traveler_id='rp1';
+
+  if linha.numero is not null then
+    raise exception 'D FALHOU: visualizador leu o numero alheio (%)', linha.numero;
+  end if;
+  if linha.validade is not null then
+    raise exception 'D FALHOU: visualizador leu a validade alheia (%)', linha.validade;
+  end if;
+  if linha.comentario is not null then
+    raise exception 'D FALHOU: visualizador leu o comentario da revisao alheia (%)', linha.comentario;
+  end if;
+
+  -- E o que ele PRECISA ver continua vindo. Sem `tem_validade`, `faltando()`
+  -- leria "sem data, logo falta a validade" e marcaria como pendente justamente
+  -- quem ja cumpriu -- a redacao de privacidade virando bug de status, que e o
+  -- mesmo motivo pelo qual `tem_arquivo` existe.
+  if linha.tem_validade is not true then
+    raise exception 'D FALHOU: o booleano da validade nao saiu, e o dono virou pendente';
+  end if;
+  if linha.status is null then
+    raise exception 'D FALHOU: o estado da entrega alheia nao saiu';
+  end if;
+
+  -- Ele ve as DUAS linhas, nao so a propria: e essa a mudanca.
+  select count(*) into quantas
+    from document_submissions s
+    join document_requirements r on r.id = s.requirement_id
+   where r.trip_id='rt1';
+  if quantas <> 2 then
+    raise exception 'D FALHOU: visualizador viu % entregas, esperado 2', quantas;
+  end if;
+
+  -- E a propria linha vem inteira: o corte e por DONO, nao um apagao geral.
+  select case when s.traveler_id='rp2' then s.numero end into proprio
+    from document_submissions s where s.traveler_id='rp2';
+  if proprio is null then
+    raise exception 'D FALHOU: visualizador perdeu o numero do proprio documento';
+  end if;
+
+  raise notice 'D ok: estado de todo mundo, valor de ninguem';
+end $$;
+
+-- `passaporte_validade` e o unico VALOR do resumo de perfil, e ele NAO afrouxou:
+-- continua cortado em `editor` ou dono da linha, com o booleano ao lado.
+do $$
+declare validade text; preenchida boolean;
+begin
+  select case when 'false'::boolean or p.id='rp2'
+              then to_char(u.passaporte_validade, 'YYYY-MM-DD') end,
+         (u.passaporte_validade is not null)
+    into validade, preenchida
+    from travelers p left join users u on u.id = p.user_id where p.id='rp1';
+
+  if validade is not null then
+    raise exception 'D FALHOU: visualizador leu a validade do perfil alheio (%)', validade;
+  end if;
+  raise notice 'D ok: a validade do perfil alheio continua fechada';
 end $$;
 
 -- ---------------------------------------------------------------- C

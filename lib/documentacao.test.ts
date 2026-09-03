@@ -13,8 +13,10 @@ import {
   pendenciasDe,
   pendenciasPorRequisito,
   requisitosDoDia,
+  requisitosDoPais,
   resumir,
   statusPrazo,
+  temValidade,
   validadeDe,
   type Participante,
   type PerfilResumo,
@@ -394,4 +396,91 @@ test('a lista de faltas e escrita como se fala em portugues', () => {
   // O caso que o join(' e ') errava: tres partes viravam "a e b e c".
   assert.equal(textoFalta(['numero', 'validade', 'arquivo']), 'número, validade e arquivo')
   assert.equal(textoFalta([]), '')
+})
+
+// ---------------------------------------------------------------- pais
+
+test('requisito sem pais vale em todo pais', () => {
+  const reqs = [req({ id: 'p', nome: 'Passaporte' })]
+  assert.deepEqual(
+    requisitosDoPais(reqs, 'Espanha').map((r) => r.id),
+    ['p'],
+  )
+  assert.deepEqual(
+    requisitosDoPais(reqs, 'Alemanha').map((r) => r.id),
+    ['p'],
+  )
+})
+
+test('o pais casa sem acento e sem caixa', () => {
+  const reqs = [req({ id: 'v', nome: 'Visto', pais: 'França' })]
+  for (const escrito of ['França', 'franca', 'FRANCA', '  frança  ']) {
+    assert.deepEqual(
+      requisitosDoPais(reqs, escrito).map((r) => r.id),
+      ['v'],
+      `deveria casar com ${escrito}`,
+    )
+  }
+})
+
+test('requisito de outro pais fica de fora', () => {
+  const reqs = [
+    req({ id: 'p', nome: 'Passaporte' }),
+    req({ id: 'v', nome: 'Visto', pais: 'Japão' }),
+  ]
+  assert.deepEqual(
+    requisitosDoPais(reqs, 'Espanha').map((r) => r.id),
+    ['p'],
+  )
+})
+
+test('dia sem pais nao exige nada — nem os da viagem inteira', () => {
+  // Responder "tudo" aqui encheria o cabecalho de um dia sem pais cadastrado com
+  // exigencias de lugares onde ninguem vai pisar.
+  const reqs = [req({ id: 'p', nome: 'Passaporte' })]
+  assert.deepEqual(requisitosDoPais(reqs, null), [])
+  assert.deepEqual(requisitosDoPais(reqs, ''), [])
+  assert.deepEqual(requisitosDoPais(reqs, '   '), [])
+})
+
+test('a coluna nova nao mexe em requisito antigo', () => {
+  // Nao-regressao: a coluna nasceu nula em toda linha ja gravada, e um requisito
+  // sem pais tem que continuar com o MESMO estado de antes de ela existir.
+  const r = req({ id: 'p', nome: 'Passaporte', exige_numero: true })
+  const semEntrega = estadoDe(r, undefined, undefined, HOJE)
+  assert.equal(semEntrega.estado, 'pendente')
+  const comEntrega = estadoDe(r, sub({ requirement_id: 'p', traveler_id: 'leo', numero: 'X1' }), undefined, HOJE)
+  assert.equal(comEntrega.estado, 'enviado')
+})
+
+// ---------------------------------------------------------------- redacao
+
+test('validade redigida com tem_validade nao vira pendencia', () => {
+  // O visualizador recebe `tem_validade` no lugar da data (documentacaoDaViagem).
+  // Sem o booleano, "sem data" seria lido como "falta a validade" e marcaria como
+  // pendente exatamente quem ja cumpriu — a redacao virando bug de status.
+  const r = req({ id: 'p', nome: 'Passaporte', exige_validade: true })
+  const redigida = sub({ requirement_id: 'p', traveler_id: 'ana', tem_validade: true })
+  assert.equal(temValidade(r, redigida, undefined), true)
+  assert.deepEqual(faltando(r, redigida, undefined), [])
+  assert.equal(estadoDe(r, redigida, undefined, HOJE).estado, 'enviado')
+})
+
+test('sem data e sem booleano a validade continua faltando', () => {
+  const r = req({ id: 'p', nome: 'Passaporte', exige_validade: true })
+  const vazia = sub({ requirement_id: 'p', traveler_id: 'ana' })
+  assert.equal(temValidade(r, vazia, undefined), false)
+  assert.deepEqual(faltando(r, vazia, undefined), ['validade'])
+})
+
+test('validade do perfil conta pelo booleano quando a data nao sai', () => {
+  const r = req({ id: 'p', nome: 'Passaporte', exige_validade: true, campo_perfil: 'passaporte' })
+  const perfil: PerfilResumo = {
+    traveler_id: 'ana',
+    campos: { passaporte: true },
+    passaporte_validade_preenchida: true,
+  }
+  assert.equal(temValidade(r, undefined, perfil), true)
+  // E `validadeDe` continua respondendo a outra pergunta: QUE data e.
+  assert.equal(validadeDe(r, undefined, perfil), null)
 })
