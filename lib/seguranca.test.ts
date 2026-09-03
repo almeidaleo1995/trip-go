@@ -65,9 +65,10 @@ test('csp: as fontes que o app realmente usa continuam permitidas', () => {
   assert.match(csp, /worker-src 'self'/)
 })
 
-test('csp: a Anthropic nao esta em connect-src', () => {
-  // Se um dia estiver, é porque a chave foi parar no navegador.
+test('csp: nenhum servico de modelo esta em connect-src', () => {
+  // O app nao fala com nenhum. Se um dia falar, a chave foi parar no navegador.
   assert.ok(!politicaCsp('n').includes('anthropic'))
+  assert.ok(!politicaCsp('n').includes('openai'))
 })
 
 test('csp: clickjacking barrado pelos dois caminhos', () => {

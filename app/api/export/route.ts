@@ -311,8 +311,10 @@ export const GET = rota(async (req) => {
     // ele E o dado documental — este backup so e gerado por quem ja o enxerga
     // (`documentacaoDaViagem` redige o de terceiros antes de chegar aqui).
     entregas: (s.entregas ?? []).map((e) => ({
-      requirement_id: '',
-      traveler_id: '',
+      // Os ids NAO saem: eles nao existem na viagem que a importacao vai criar, e
+      // sair como `''` para agradar ao zod era pior que nao sair — `Id` recusa
+      // string vazia, entao a trava de round-trip logo abaixo transformava toda
+      // exportacao de viagem COM entrega num 500. Ver `SubmissaoArquivoSchema`.
       requisito_nome: texto(nomePorRequisito.get(String(e.requirement_id))),
       dono_nome: texto(nomePorParticipante.get(String(e.traveler_id))),
       numero: texto(e.numero),

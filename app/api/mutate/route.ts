@@ -2,7 +2,8 @@
 //
 // A rota é uma casca: ela valida o lote, resolve a sessão e delega. Quem decide
 // QUEM pode escrever o quê, e como a escrita cai na viagem certa, é
-// `lib/escrita.ts` - o mesmo módulo que a rota do assistente usa, de propósito.
+// `lib/escrita.ts` — um módulo só, para que uma segunda rota de escrita nunca
+// precise de uma segunda cópia das regras de autorização.
 import { envelope } from '@/lib/db.ts'
 import { paraLog, motivoSeguro } from '@/lib/seguranca.ts'
 import { exigirUsuario, exigirViagem } from '@/lib/auth.ts'

@@ -2,7 +2,7 @@
 // como a operação cai na viagem certa.
 //
 // Estas funções moravam dentro de `app/api/mutate/route.ts`. Saíram de lá quando
-// o assistente de IA passou a precisar gravar: duas rotas com duas cópias das
+// uma segunda rota passou a precisar gravar: duas rotas com duas cópias das
 // regras de autorização são duas regras que divergem, e a que fica para trás é
 // justamente a que ninguém olha. Aqui elas são uma só, e as rotas são cascas.
 //
@@ -24,11 +24,19 @@ export { colunaValida } from '@/lib/schema.ts'
 /**
  * De onde veio a escrita, para o `change_log`.
  *
- * `pessoa` e o padrao e cobre toda a tela. `assistente` marca o que foi aceito
- * de uma proposta da IA, e o `lote` agrupa o aceite inteiro — e o que permite
- * desfazer uma viagem gerada de uma vez num toque, em vez de linha por linha.
+ * `pessoa` e o padrao e cobre toda a tela. `skill` marca a linha que a skill
+ * `roteiro-trip-go` gravou — ela monta a viagem fora do app (de PDF, de voucher,
+ * de conversa) e sobe pelo MESMO `autorizar`/`aplicar` daqui, com o `Acesso` da
+ * conta de quem pediu. O `lote` agrupa a carga inteira, e e o que torna a carga
+ * desfazivel: saber quais linhas vieram juntas so e possivel se for gravado no
+ * momento da escrita, nunca reconstruido depois.
+ *
+ * `assistente` nao esta na lista aqui, mas continua ACEITO PELO BANCO: ele esta
+ * gravado em historico de viagem em uso, e um check que o recusasse quebraria
+ * duplicar viagem e reimportar backup — os dois caminhos que RE-INSEREM linha
+ * antiga. Ver db/schema.sql.
  */
-export type Marca = { origem: 'pessoa' | 'assistente'; lote: string | null }
+export type Marca = { origem: 'pessoa' | 'skill'; lote: string | null }
 
 const SEM_MARCA: Marca = { origem: 'pessoa', lote: null }
 
@@ -124,11 +132,12 @@ export async function autorizar(
   //
   // Derivar o dono de `campos.traveler_id` funcionava por /api/mutate só porque o
   // zod EXIGE `traveler_id` em toda operação de entrega — a autorização estava
-  // pendurada numa propriedade do schema, não numa checagem própria. O desfazer do
-  // assistente monta `campos` com UM campo só (`{ numero: <valor antigo> }`), então
-  // por aquele caminho `traveler_id` sumia, `meu` virava true por ausência e um
-  // visualizador revertia o número do passaporte de outra pessoa — um registro que
-  // ele nem pode LER. Com o dono vindo da linha, os dois caminhos concordam.
+  // pendurada numa propriedade do schema, não numa checagem própria. Bastava um
+  // chamador que montasse `campos` com UM campo só (`{ numero: <valor antigo> }`,
+  // que é a forma de um desfazer) para `traveler_id` sumir, `meu` virar true por
+  // ausência e um visualizador reverter o número do passaporte de outra pessoa —
+  // um registro que ele nem pode LER. Com o dono vindo da linha, todo caminho de
+  // escrita concorda, inclusive um que ainda não existe.
   let entregaAlvo: { traveler_id: string } | undefined
   if (entidade === 'entrega' && (op === 'editar' || op === 'remover') && id) {
     const r = await sql`
@@ -674,8 +683,17 @@ export async function aplicar(
     // O dia do roteiro e unique por (trip_id, dia); a entrega, por (requisito,
     // pessoa). Sem o on conflict, reenviar o passaporte pela fila offline viraria
     // 409 em vez de atualizar a entrega que ja estava la.
+    //
+    // A chave tem que bater EXATAMENTE com um unique do banco: o Postgres casa o
+    // `on conflict` com um indice, nao com uma coluna. `dia: ['dia']` nao casava
+    // com `unique (trip_id, dia)`, e criar um dia do roteiro morria com "there is
+    // no unique or exclusion constraint matching the ON CONFLICT specification" —
+    // um 500 em toda anotacao de dia novo, na tela e na fila offline. O
+    // `trip_id` entra por `vinculo`, entao ele existe na linha; o que faltava era
+    // nomea-lo aqui. `lib/arquitetura.test.ts` confere cada chave contra os
+    // `unique (...)` de db/schema.sql.
     const CHAVE_UPSERT: Partial<Record<Entidade, string[]>> = {
-      dia: ['dia'],
+      dia: ['trip_id', 'dia'],
       entrega: ['requirement_id', 'traveler_id'],
     }
     const chave = CHAVE_UPSERT[op.entidade]
@@ -757,12 +775,11 @@ export async function aplicar(
         anterior[c],
         campos[c],
         // A `marca` tem que vir ate aqui. Sem ela esta chamada caia no padrao
-        // ('pessoa', null), e uma EDICAO feita pelo assistente era registrada
-        // como edicao humana sem lote — entao `/api/assistente/desfazer`, que
-        // filtra por `origem = 'assistente' and lote = ...`, nao a encontrava.
-        // O efeito: um lote so de edicoes respondia "esse lote nao existe mais",
-        // e um lote misto revertia as criacoes e deixava as edicoes de pe. O
-        // desfazer e o que torna seguro aceitar uma proposta; um desfazer que
+        // ('pessoa', null), e uma EDICAO feita por um lote era registrada como
+        // edicao humana sem lote — entao um desfazer, que filtra por
+        // `origem = <lote> and lote = ...`, nao a encontrava. O efeito medido: um
+        // lote so de edicoes respondia "esse lote nao existe mais", e um lote
+        // misto revertia as criacoes e deixava as edicoes de pe. Um desfazer que
         // reverte pela metade e pior do que nao ter desfazer nenhum.
         marca.origem,
         marca.lote,

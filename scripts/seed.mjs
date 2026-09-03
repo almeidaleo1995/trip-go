@@ -3,12 +3,6 @@
 
 import { neon } from '@neondatabase/serverless'
 import { scryptSync, randomBytes } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const __dir = dirname(fileURLToPath(import.meta.url))
-const raiz = join(__dir, '..')
 
 if (!process.env.DATABASE_URL) {
   console.error('❌ DATABASE_URL não definida')

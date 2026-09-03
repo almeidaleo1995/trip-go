@@ -147,9 +147,9 @@ export function decifrar(valor: string | null | undefined): string | null {
  * As colunas de `users` que viajam cifradas.
  *
  * Lista explícita, e não uma convenção de nome, porque quem adiciona um campo
- * novo de documento precisa VER esta lista para saber que ela existe — do mesmo
- * jeito que `PROIBIDOS` em lib/assistente.ts. Um campo esquecido aqui não quebra
- * nada; só fica em texto puro, que é exatamente a falha que ninguém percebe.
+ * novo de documento precisa VER esta lista para saber que ela existe. Um campo
+ * esquecido aqui não quebra nada; só fica em texto puro, que é exatamente a
+ * falha que ninguém percebe.
  *
  * Datas ficam de fora: `nascimento` e `passaporte_validade` são colunas `date`, e
  * texto cifrado não entra numa delas. Elas também são o dado menos identificador

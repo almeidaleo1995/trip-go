@@ -261,11 +261,10 @@ export default function Viagens() {
           aoSalvar={(v) => {
             setCriando(false)
             avisar('sucesso', 'Viagem criada.')
-            // Entra na viagem com o guia já aberto para montar o roteiro. A
-            // viagem em si nasce pela rota de sempre (`POST /api/viagens`), com
-            // a validação e a autorização que já existem — o assistente entra
-            // depois, para preencher, e não ganha um caminho de escrita próprio.
-            router.push(`/viagens/${v.id}?guia=montar`)
+            // Abre a viagem no roteiro: numa viagem recém-criada é a primeira
+            // tela com trabalho a fazer, seja escrevendo à mão ou recebendo o
+            // que a skill `roteiro-trip-go` montou a partir dos documentos.
+            router.push(`/viagens/${v.id}?aba=roteiro`)
           }}
         />
       )}

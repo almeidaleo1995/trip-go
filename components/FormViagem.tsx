@@ -4,7 +4,7 @@
 // vezes; separá-los em duas telas é como os dois divergem — uma ganha um campo
 // e a outra não.
 //
-// Não é assistente de cinco passos de propósito. Criar viagem aqui é escrever um
+// Não é um passo a passo de cinco telas, de propósito. Criar viagem aqui é escrever um
 // nome e escolher duas datas; o resto (cor, capa, moeda, descrição) fica atrás de
 // "Personalizar" e pode esperar. Cinco telas para quatro campos é o cansaço que o
 // próprio pedido manda evitar — e tudo isso continua editável depois.

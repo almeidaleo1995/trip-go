@@ -1,8 +1,11 @@
 // A lista branca de colunas do caminho de escrita.
 //
-// Ela existe por causa de UM lugar: `/api/assistente/desfazer` monta
-// `set <campo> = $1` com um `campo` lido do `change_log`. Hoje esse valor só
-// pode ser chave de schema, porque o zod descarta o resto antes de
+// Ela existe por causa de UMA forma de escrita: desfazer um lote monta
+// `set <campo> = $1` com um `campo` lido do `change_log`. Hoje nenhuma rota faz
+// isso — a que fazia saiu com o assistente —, e é justamente por isso que a
+// função fica: quem escrever a próxima precisa encontrar a lista branca já
+// pronta, e não redescobrir sozinho que `campo` vem do banco. Esse valor só pode
+// ser chave de schema, porque o zod descarta o resto antes de
 // `registrarAlteracao` receber — mas a distância entre "não há injeção" e "não
 // pode haver injeção" é exatamente esta função.
 import { test } from 'node:test'

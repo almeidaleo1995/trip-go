@@ -4,7 +4,6 @@
 // própria em tabs/Checklist.tsx — cresceu demais para caber aqui junto.
 // O Financeiro tem tela própria em tabs/Financeiro.tsx — ele deixou de ser uma
 // lista de custos e virou um módulo com divisão, parcelas e acertos.
-import { useState } from 'react'
 import { Phone } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
 import { Cartao, Titulo, Vazio } from '../ui.tsx'

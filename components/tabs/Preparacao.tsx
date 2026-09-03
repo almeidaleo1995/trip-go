@@ -99,9 +99,8 @@ const ICONE_FONTE: Record<Fonte, LucideIcon> = {
  * O `Contexto` do motor, montado do snapshot.
  *
  * A montagem em si vive em `lib/preparacao.ts` (`contextoDoSnapshot`), nao aqui:
- * o assistente de IA monta o mesmo contexto no servidor, e duas montagens
- * significariam duas listas de pendencias divergindo em silencio. Este hook e a
- * casca de memoizacao.
+ * o servidor monta o mesmo contexto, e duas montagens significariam duas listas
+ * de pendencias divergindo em silencio. Este hook e a casca de memoizacao.
  */
 function useCentral() {
   const { snapshot, posso } = useTrip()

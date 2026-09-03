@@ -89,7 +89,6 @@ import { DocumentosVinculados } from '../CofreDocumento.tsx'
 import { RequisitosDoDia } from './Documentacao.tsx'
 import { type Papel } from '@/config/navigation.ts'
 import { AdminAcoes } from '../EditorSheet.tsx'
-import { GatilhoGuia } from '../GatilhoGuia.tsx'
 import {
   Badge,
   Botao,
@@ -312,20 +311,8 @@ export function Roteiro() {
         </Titulo>
         <Vazio
           titulo="Seu roteiro ainda não foi montado"
-          texto="Defina as datas da viagem em Participantes e dados, ou adicione o primeiro item para o roteiro começar a se montar sozinho."
-          acao={
-            <span className="flex flex-wrap items-center justify-center gap-2">
-              {/* Montar com o guia vem primeiro: num roteiro vazio, escrever o
-                  primeiro item à mão é o caminho longo. */}
-              <GatilhoGuia
-                modo="criar_viagem"
-                aba="Roteiro"
-                rotulo="Montar com o guia"
-                pergunta="Monte o roteiro desta viagem inteira e proponha os itens: cidades, dias com título e resumo, e passeios com horário plausível. Prefira menos itens bem escolhidos a uma agenda cheia — dia de viagem tem deslocamento, fila e cansaço."
-              />
-              <AdminAcoes entidade="roteiro">Primeiro item</AdminAcoes>
-            </span>
-          }
+          texto="Defina as datas da viagem em Participantes e dados, adicione o primeiro item, ou importe um arquivo pronto em Participantes e dados → Importar."
+          acao={<AdminAcoes entidade="roteiro">Primeiro item</AdminAcoes>}
         />
       </>
     )
