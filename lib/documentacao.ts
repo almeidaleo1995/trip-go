@@ -32,6 +32,8 @@ export type Requisito = {
   exige_arquivo?: boolean
   campo_perfil?: string | null
   prazo?: string | null
+  /** O país que exige. Nulo/ausente = a viagem inteira exige. Ver `requisitosDoPais`. */
+  pais?: string | null
   obs?: string | null
   ordem?: number
 }
@@ -54,6 +56,15 @@ export type Submissao = {
    * como pendente — a redacao de privacidade viraria um bug de status.
    */
   tem_arquivo?: boolean
+  /**
+   * A validade esta preenchida?
+   *
+   * Existe pela MESMA razao que `tem_arquivo`, e a razao ficou mais larga: a
+   * data em si nao vai para quem nao revisa (ver `documentacaoDaViagem`), e sem
+   * este booleano `faltando` leria "sem data, logo falta a validade" e marcaria
+   * como pendente exatamente quem ja cumpriu.
+   */
+  tem_validade?: boolean
   status?: string | null
   comentario?: string | null
   revisado_por?: string | null
@@ -75,6 +86,11 @@ export type PerfilResumo = {
   /** 'cpf' | 'passaporte' | ... -> preenchido? */
   campos: Record<string, boolean>
   passaporte_validade?: string | null
+  /** A validade esta preenchida no perfil? Mesmo papel de `tem_validade` numa
+      entrega: `passaporte_validade` e o unico VALOR que este resumo carrega, e
+      ele nao sai para quem nao revisa. Sem o booleano, a pessoa que cadastrou a
+      validade no perfil apareceria pendente para os outros participantes. */
+  passaporte_validade_preenchida?: boolean
 }
 
 export type Participante = { id: string; nome: string; papel?: string }
@@ -272,6 +288,27 @@ export function temNumero(
   return Boolean(sub?.numero)
 }
 
+/**
+ * A validade exigida esta cumprida?
+ *
+ * Gemeo de `temNumero`, e separado de `validadeDe` de proposito: `validadeDe`
+ * responde "que data e", esta responde "existe data". Sao a mesma pergunta so
+ * para quem enxerga o valor — para todos os outros a segunda tem resposta e a
+ * primeira nao.
+ */
+export function temValidade(
+  req: Requisito,
+  sub: Submissao | undefined,
+  perfil: PerfilResumo | undefined,
+): boolean {
+  if (validadeDe(req, sub, perfil)) return true
+  const campo = fichaCampoPerfil(req.campo_perfil)
+  if (campo?.validade === 'passaporte_validade' && perfil?.passaporte_validade_preenchida) {
+    return true
+  }
+  return Boolean(sub?.tem_validade)
+}
+
 export function validadeDe(
   req: Requisito,
   sub: Submissao | undefined,
@@ -299,7 +336,7 @@ export function faltando(
 ): Parte[] {
   const falta: Parte[] = []
   if (req.exige_numero && !temNumero(req, sub, perfil)) falta.push('numero')
-  if (req.exige_validade && !validadeDe(req, sub, perfil)) falta.push('validade')
+  if (req.exige_validade && !temValidade(req, sub, perfil)) falta.push('validade')
   if (req.exige_arquivo && !(sub?.documento_id || sub?.tem_arquivo)) falta.push('arquivo')
 
   const nadaExigido = !req.exige_numero && !req.exige_validade && !req.exige_arquivo
@@ -599,6 +636,35 @@ export function filtrarCelulas(
 export function requisitosDoDia(requisitos: Requisito[], dia: string): Requisito[] {
   return ordenarRequisitos(
     requisitos.filter((r) => r.obrigatorio !== false || (r.prazo && r.prazo <= dia)),
+  )
+}
+
+/**
+ * Os requisitos que valem num país.
+ *
+ * `pais` nulo no requisito significa "a viagem inteira exige" — passaporte não
+ * pertence à Espanha, pertence à viagem — então ele entra em TODO país. Foi essa
+ * regra que permitiu a coluna nascer nula: nenhum requisito já cadastrado mudou
+ * de sentido no dia em que ela apareceu.
+ *
+ * A comparação passa por `normalizarTitulo` (a mesma da deduplicação do
+ * checklist) porque os dois lados são texto que gente digitou, em telas
+ * diferentes e em momentos diferentes: "França" no requisito e "Franca" no
+ * lugar são o mesmo país, e um casamento literal deixaria a nota do dia vazia
+ * sem nunca dizer por quê.
+ *
+ * País vazio na CHAMADA devolve lista vazia, não a lista toda: um dia sem país
+ * cadastrado não sabe o que exigir, e responder "tudo" ali encheria o cabeçalho
+ * de exigências de países onde a pessoa não vai pisar.
+ */
+export function requisitosDoPais(requisitos: Requisito[], pais: string | null | undefined): Requisito[] {
+  const alvo = normalizarTitulo(String(pais ?? ''))
+  if (!alvo) return []
+  return ordenarRequisitos(
+    requisitos.filter((r) => {
+      const dele = normalizarTitulo(String(r.pais ?? ''))
+      return dele === '' || dele === alvo
+    }),
   )
 }
 

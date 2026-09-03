@@ -558,16 +558,24 @@ export async function documentosPessoais(userId: string) {
  *   entregas    `proprietario` ve tudo. `editor` ve o ESTADO de todo mundo (e o
  *               painel de cobranca do §14 nao existiria sem isso) mas NAO o numero
  *               do passaporte alheio nem o id do arquivo — ele cobra, nao le.
- *               `visualizador` ve so as proprias.
+ *               `visualizador` ve o ESTADO de todo mundo tambem, e menos que o
+ *               editor: alem do numero, ficam de fora a VALIDADE e o COMENTARIO
+ *               da revisao. Ele nao revisa, entao nao precisa nem da data que
+ *               vence nem do que o revisor escreveu — sabe apenas quem ja
+ *               cumpriu o requisito do pais e quem ainda nao.
  *
  *   perfis      quais campos estao preenchidos, nunca os valores. Uma bolinha
  *               verde nao justifica mandar o CPF de cinco pessoas para o
- *               navegador de todas elas.
+ *               navegador de todas elas. Os BOOLEANOS saem para todo mundo (e o
+ *               que a linha acima precisa para nao mentir); o unico VALOR aqui,
+ *               `passaporte_validade`, continua cortado em `editor` ou dono da
+ *               linha — soltar os nomes nao afrouxou esse corte.
  *
- * `tem_arquivo` existe justamente por causa da redacao: sem ele, esconder o
- * `documento_id` do editor faria toda a viagem aparecer como pendente no painel —
- * a protecao de privacidade viraria um bug de status. Ver `Submissao` em
- * lib/documentacao.ts.
+ * `tem_arquivo` e `tem_validade` existem justamente por causa da redacao: sem
+ * eles, esconder `documento_id` e `validade` faria toda a viagem aparecer como
+ * pendente no painel — a protecao de privacidade viraria um bug de status. Toda
+ * vez que uma coluna sair daqui, o booleano correspondente tem que entrar. Ver
+ * `Submissao` e `temValidade` em lib/documentacao.ts.
  */
 export async function documentacaoDaViagem(tripId: string, papel: Papel, participanteId: string) {
   const dono = papelAlcanca(papel, 'proprietario')
@@ -595,10 +603,18 @@ export async function documentacaoDaViagem(tripId: string, papel: Papel, partici
             from document_submissions s
             join document_requirements r on r.id = s.requirement_id
             where r.trip_id = ${tripId}`
-        : sql`select s.*, (s.documento_id is not null) as tem_arquivo
+        : sql`select s.id, s.requirement_id, s.traveler_id,
+                   case when s.traveler_id = ${participanteId} then s.numero end as numero,
+                   case when s.traveler_id = ${participanteId} then s.emitido_em end as emitido_em,
+                   case when s.traveler_id = ${participanteId} then s.documento_id end as documento_id,
+                   case when s.traveler_id = ${participanteId} then s.validade end as validade,
+                   case when s.traveler_id = ${participanteId} then s.comentario end as comentario,
+                   (s.documento_id is not null) as tem_arquivo,
+                   (s.validade is not null) as tem_validade,
+                   s.status, s.revisado_por, s.revisado_em, s.enviado_em, s.updated_at
             from document_submissions s
             join document_requirements r on r.id = s.requirement_id
-            where r.trip_id = ${tripId} and s.traveler_id = ${participanteId}`,
+            where r.trip_id = ${tripId}`,
 
     // `travelers.passaporte` e `travelers.documento` sao as colunas ANTIGAS, de
     // antes de o perfil existir. Continuam contando: uma viagem em uso ja tem esses
@@ -609,21 +625,24 @@ export async function documentacaoDaViagem(tripId: string, papel: Papel, partici
     // que existia aqui recortava "Wed Jan 05" — string que `parseData` recusa, que
     // `formatarData` vira vazio ("Vence em ") e que `diasAte` conta como zero, ou
     // seja: TODO passaporte com validade cadastrada aparecia vencendo hoje.
-    revisor
-      ? sql`select p.id, u.cpf, u.rg, u.nacionalidade, u.nascimento,
-                   u.passaporte_numero, u.emergencia_telefone,
-                   to_char(u.passaporte_validade, 'YYYY-MM-DD') as passaporte_validade,
-                   p.passaporte as passaporte_antigo, p.documento as documento_antigo,
-                   p.nascimento as nascimento_antigo
-            from travelers p left join users u on u.id = p.user_id
-            where p.trip_id = ${tripId}`
-      : sql`select p.id, u.cpf, u.rg, u.nacionalidade, u.nascimento,
-                   u.passaporte_numero, u.emergencia_telefone,
-                   to_char(u.passaporte_validade, 'YYYY-MM-DD') as passaporte_validade,
-                   p.passaporte as passaporte_antigo, p.documento as documento_antigo,
-                   p.nascimento as nascimento_antigo
-            from travelers p left join users u on u.id = p.user_id
-            where p.trip_id = ${tripId} and p.id = ${participanteId}`,
+    // Uma consulta so, para todos os papeis. As colunas de VALOR (cpf, rg,
+    // passaporte_numero, emergencia_telefone) nao chegam ao navegador de
+    // ninguem: o `.map` la embaixo as reduz a booleanos antes de devolver, e e
+    // por isso que le-las de todo participante aqui nao publica nada.
+    //
+    // `passaporte_validade` e a excecao, porque ela SAI como valor — entao ela,
+    // e so ela, continua cortada por papel. O booleano ao lado
+    // (`passaporte_validade_preenchida`) e o que permite ao visualizador saber
+    // que o requisito do outro esta cumprido sem saber quando ele vence.
+    sql`select p.id, u.cpf, u.rg, u.nacionalidade, u.nascimento,
+               u.passaporte_numero, u.emergencia_telefone,
+               (u.passaporte_validade is not null) as passaporte_validade_preenchida,
+               case when ${revisor}::boolean or p.id = ${participanteId}
+                    then to_char(u.passaporte_validade, 'YYYY-MM-DD') end as passaporte_validade,
+               p.passaporte as passaporte_antigo, p.documento as documento_antigo,
+               p.nascimento as nascimento_antigo
+        from travelers p left join users u on u.id = p.user_id
+        where p.trip_id = ${tripId}`,
   ])
 
   const cheio = (v: unknown) => Boolean(v && String(v).trim())
@@ -642,6 +661,7 @@ export async function documentacaoDaViagem(tripId: string, papel: Papel, partici
         emergencia: cheio(p.emergencia_telefone),
       },
       passaporte_validade: (p.passaporte_validade as string | null) ?? null,
+      passaporte_validade_preenchida: Boolean(p.passaporte_validade_preenchida),
     })),
   }
 }

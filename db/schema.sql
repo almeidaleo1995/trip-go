@@ -439,6 +439,15 @@ create table if not exists document_requirements (
   -- Data limite para ENVIAR (§21). Diferente da validade do documento (§22):
   -- um passaporte valido ate 2031 ainda pode estar atrasado para entrega.
   prazo          date,
+  -- O pais que EXIGE este documento. NULO = a viagem inteira exige, que e o
+  -- comportamento de sempre -- por isso a coluna nasce nula e nenhum requisito
+  -- ja cadastrado muda de sentido ao ganha-la.
+  --
+  -- Texto livre, e nao um country_code ISO, pela mesma razao que places.pais,
+  -- itinerary_days.pais, cruise_ports.pais e checklist_items.pais ja sao texto:
+  -- um quinto vocabulario para a mesma coisa e como o app passa a ter duas
+  -- cabecas. `requisitosDoPais` (lib/documentacao.ts) casa sem acento e sem caixa.
+  pais           text,
   obs            text,
   ordem          integer not null default 0,
   criado_por     text references travelers(id) on delete set null,
@@ -1030,6 +1039,8 @@ alter table users add column if not exists passaporte_pais      text;
 alter table users add column if not exists emergencia_nome      text;
 alter table users add column if not exists emergencia_telefone  text;
 alter table users add column if not exists emergencia_parentesco text;
+
+alter table document_requirements add column if not exists pais text;
 
 alter table document_requirements drop constraint if exists requisito_pessoal_tem_dono;
 alter table document_requirements add  constraint requisito_pessoal_tem_dono

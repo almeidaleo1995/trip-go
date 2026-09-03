@@ -610,6 +610,10 @@ export const RequisitoSchema = z.object({
   campo_perfil: z.enum(CAMPOS_PERFIL_REQUISITO).nullish(),
   /** Data limite para ENVIAR. Diferente da validade do documento. */
   prazo: Data.nullish(),
+  /** O pais que EXIGE o documento. Nulo = a viagem inteira exige (o padrao de
+      sempre). Texto livre igual a `pais` de lugar, dia, porto e checklist -- um
+      country_code ISO aqui seria o quinto vocabulario para a mesma coisa. */
+  pais: TextoOpc,
   obs: TextoOpc,
   ordem: z.number().int().default(0),
 

@@ -199,6 +199,25 @@ test('a documentacao exigida entra no resumo da importacao', () => {
   assert.equal(resumo.entregas, 1)
 })
 
+// O `pais` do requisito atravessa os mesmos quatro pontos, e zod descarta chave
+// desconhecida em SILENCIO: sem esta trava, um backup restaurado devolveria todo
+// requisito valendo para a viagem inteira e a nota do dia sumiria do roteiro sem
+// ninguem entender por que.
+test('o pais do requisito sobrevive a exportar e importar', () => {
+  const r = validarImportacao({
+    ...MINIMA,
+    requisitos: [
+      { nome: 'Visto', pais: 'Japão' },
+      { nome: 'Passaporte' },
+    ],
+  })
+  assert.equal(r.sucesso, true)
+  if (!r.sucesso) return
+  assert.equal(r.dados.requisitos[0].pais, 'Japão')
+  // Ausente continua ausente: nulo e "a viagem inteira exige", nao um default.
+  assert.equal(r.dados.requisitos[1].pais ?? null, null)
+})
+
 test('requisito sem nada exigido e valido: existe requisito que so pede o de-acordo', () => {
   const r = validarImportacao({ ...MINIMA, requisitos: [{ nome: 'Comprovante de vacinacao' }] })
   assert.equal(r.sucesso, true)

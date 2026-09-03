@@ -85,6 +85,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useTrip } from '../TripProvider.tsx'
+import { RequisitosDoPais } from '../RequisitosDoPais.tsx'
 import { DocumentosVinculados } from '../CofreDocumento.tsx'
 import { RequisitosDoDia } from './Documentacao.tsx'
 import { type Papel } from '@/config/navigation.ts'
@@ -439,6 +440,12 @@ function Cabecalho({
           {Boolean(dia.meta?.titulo) && (
             <p className="mt-1 text-sm text-(--color-tinta-2)">{String(dia.meta?.titulo ?? '')}</p>
           )}
+
+          {/* O que ESTE país exige, no dia em que se está nele. Some sozinha
+              quando o dia não tem país ou o país não tem exigência — ver
+              `RequisitosDoPais`. Não é alerta: é metadado do dia, do lado da
+              cidade, e por isso mora aqui dentro e não num cartão próprio. */}
+          <RequisitosDoPais pais={locais.pais} bandeira={bandeira} />
         </div>
 
         {/* `flex-wrap` + `max-w-full` pelo mesmo motivo do slot de ação do

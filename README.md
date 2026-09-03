@@ -603,7 +603,7 @@ Three tables and one pure engine:
 
 | Piece                                         | Holds                                                                                                                                                |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `document_requirements`                       | what the trip demands: name, category, whether it's mandatory, who it applies to, whether it wants a number / an expiry / a file, an upload deadline |
+| `document_requirements`                       | what the trip demands: name, category, whether it's mandatory, who it applies to, whether it wants a number / an expiry / a file, an upload deadline, and the `pais` that demands it (null = the whole trip does) |
 | `document_submissions`                        | one row per _(requirement, person)_ — the number, the expiry, the attached vault document, and the review verdict, in the same row                   |
 | `users.cpf` / `passaporte_*` / `emergencia_*` | the person's documental data, on the **account**, so a CPF is not retyped for every trip                                                             |
 | `lib/documentacao.ts`                         | the whole traffic light, pure and tested — no DOM, no network                                                                                        |
@@ -636,11 +636,11 @@ documentation that matters is complete.
 `documentacaoDaViagem()` in `lib/db.ts` returns three lists with three different
 rules, cut **in the query**:
 
-|                | requirements | submissions                                            | profiles                |
-| -------------- | ------------ | ------------------------------------------------------ | ----------------------- |
-| `proprietario` | all          | all, with numbers                                      | which fields are filled |
-| `editor`       | all          | everyone's **state**, no passport numbers, no file ids | which fields are filled |
-| `visualizador` | all          | own only                                               | own only                |
+|                | requirements | submissions                                                                   | profiles                                        |
+| -------------- | ------------ | ----------------------------------------------------------------------------- | ----------------------------------------------- |
+| `proprietario` | all          | all, with numbers                                                             | which fields are filled + passport expiry       |
+| `editor`       | all          | everyone's **state** + expiry + review comment, no numbers, no file ids       | which fields are filled + passport expiry       |
+| `visualizador` | all          | everyone's **state**, no numbers, no expiry, no review comment, no file ids   | which fields are filled, own expiry only        |
 
 Everyone sees the requirements: knowing what the trip demands exposes nobody, and
 a traveller who cannot see the demand has no way to meet it. An editor chases the
@@ -648,9 +648,23 @@ delivery, so they get the state — but the redaction is a `case` in SQL, not a
 deleted field in React, because deleting it in JavaScript still ships the number
 over the wire where the network tab prints it whole.
 
-That redaction created one trap worth naming: with the id hidden, "no id, so no
-file" would have shown the entire trip as pending. `tem_arquivo` exists so the
-privacy protection does not become a status bug.
+**The `visualizador` row was deliberately widened** when the country-requirements
+note landed in the itinerary: it used to be "own submissions only". The note in a
+day's header answers "who has already met what this country demands", and that
+question cannot be answered from one's own row alone. What widened is the
+**state**; every VALUE stayed shut, and one that an `editor` does see — the expiry
+date and the reviewer's comment — is closed here, because a viewer does not
+review. `db/teste-recorte.sql` block D pins both halves against a real Postgres:
+the state comes through, the number, the expiry and the comment do not.
+
+That redaction created one trap worth naming, twice. With the id hidden, "no id,
+so no file" would have shown the entire trip as pending; `tem_arquivo` exists so
+the privacy protection does not become a status bug. Hiding the expiry from a
+viewer reopened exactly the same hole from the other side — "no date, so the
+expiry is missing" — and `tem_validade` (plus `passaporte_validade_preenchida` on
+the profile summary) closes it the same way. **Any column that leaves this query
+needs its boolean to arrive**, or the semaphore lies about whoever already
+complied.
 
 ### The two owners of one row
 
@@ -1197,6 +1211,28 @@ The Roteiro is the one screen meant to be used **with one hand, on a phone, in a
 foreign city**. It answers, in this order: where do I need to be now, what comes
 next, how do I get there, how long does it take, do I need a document, do I have a
 booking, what does it cost, and is there anything I should know first.
+
+### What this country demands
+
+The day's header carries a quiet note — flag, `Requisitos <country>`, `3 de 4` —
+between the city line and the timeline. It is **not a module**: it is
+`document_requirements` filtered by the day's country through `requisitosDoPais()`,
+scored by the same `montarMatriz()` the Documentos tab uses. Nothing is stored for
+it and nothing is marked from it; tapping it lists who has complied, and resolving
+happens where it always did.
+
+Three rules keep it from becoming noise. A requirement with **no `pais` applies
+everywhere** — a passport belongs to the trip, not to Spain — which is why the
+column could be born null without changing the meaning of a single existing row. A
+day with **no country shows nothing**, because the country is never guessed from
+the city name (same rule `locaisDoDia()` already follows), and answering "here is
+everything" there would fill the header with demands from places nobody will set
+foot in. And a country with **no applicable requirement shows nothing at all** —
+a block that says "nothing to declare here" spends the one header line a phone has
+on teaching people to ignore it.
+
+The note is the whole surface, on purpose: no tab, no route, no `AbaId`. Content
+has no top-level routes here, and this is content.
 
 ### Three levels
 
