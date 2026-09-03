@@ -58,7 +58,7 @@ export default function Login() {
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/15">
             <MapPinned size={19} />
           </span>
-          <span className="text-xl font-bold tracking-tight">TripGo</span>
+          <span className="text-xl font-bold tracking-tight">{siteConfig.nome}</span>
         </div>
 
         <div className="relative z-10">
@@ -122,13 +122,11 @@ export default function Login() {
             >
               <MapPinned size={19} />
             </span>
-            <span className="text-xl font-bold tracking-tight">TripGo</span>
+            <span className="text-xl font-bold tracking-tight">{siteConfig.nome}</span>
           </div>
 
           <h1 className="t-pagina">Entrar</h1>
-          <p className="t-aux mt-1">
-            Use o e-mail com que você foi convidado para a viagem.
-          </p>
+          <p className="t-aux mt-1">Use o e-mail com que você foi convidado para a viagem.</p>
 
           <form onSubmit={entrar} className="mt-6 space-y-4">
             <Campo

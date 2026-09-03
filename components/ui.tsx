@@ -29,6 +29,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
+import { siteConfig } from '@/config/site.ts'
 
 // ================================================================ carregamento
 
@@ -43,7 +44,7 @@ export function Carregando({ texto = 'Preparando sua viagem…' }: { texto?: str
         >
           <MapPinned size={19} strokeWidth={2} />
         </span>
-        <span className="text-xl font-bold tracking-tight">TripGo</span>
+        <span className="text-xl font-bold tracking-tight">{siteConfig.nome}</span>
       </div>
 
       <svg viewBox="0 0 240 60" className="h-14 w-60" role="img" aria-label={texto}>
@@ -82,7 +83,7 @@ export function EsqueletoLista({ linhas = 3 }: { linhas?: number }) {
   return (
     <div className="space-y-3" role="status" aria-label="Carregando">
       {Array.from({ length: linhas }).map((_, i) => (
-        <div key={i} className="rounded-2xl border border-(--color-borda) bg-(--color-cartao) p-4">
+        <div key={i} className="rounded-3xl bg-(--color-superficie-2) p-4">
           <Esqueleto className="h-4 w-1/3" />
           <Esqueleto className="mt-2.5 h-3 w-2/3" />
           <Esqueleto className="mt-2 h-3 w-1/2" />
@@ -155,10 +156,17 @@ export function CabecalhoSecao({ titulo, acao }: { titulo: string; acao?: ReactN
 
 // ================================================================ cartão
 
-type TomCartao = 'padrao' | 'destaque' | 'sucesso' | 'atencao' | 'perigo' | 'info'
+// `padrao` é o card do sistema (regra 9 do redesign): mist, sem borda, sem
+// sombra — a superfície que se levanta do papel branco só pela cor. `elevado`
+// é o único que flutua de verdade (mapa, artefato de produto) e por isso é o
+// único com sombra e borda de verdade. Os tons semânticos continuam existindo
+// para alerta pequeno e pontual — não para "card azul"/"card verde" do dia a
+// dia (regra 6): eles são a EXCEÇÃO deliberada, não o padrão.
+type TomCartao = 'padrao' | 'elevado' | 'destaque' | 'sucesso' | 'atencao' | 'perigo' | 'info'
 
 const FUNDO_CARTAO: Record<TomCartao, { background: string; borderColor: string }> = {
-  padrao: { background: 'var(--color-cartao)', borderColor: 'var(--color-borda)' },
+  padrao: { background: 'var(--color-superficie-2)', borderColor: 'transparent' },
+  elevado: { background: 'var(--color-cartao)', borderColor: 'var(--color-borda)' },
   destaque: {
     background: 'var(--color-destaque-tenue)',
     borderColor: 'var(--color-destaque-fraco)',
@@ -182,10 +190,10 @@ export function Cartao({
   tom?: TomCartao
   onClick?: () => void
 }) {
-  const base = 'quebra-evitar rounded-2xl border p-4'
+  const base = 'quebra-evitar rounded-3xl border p-4'
   const estilo: CSSProperties = {
     ...FUNDO_CARTAO[tom],
-    boxShadow: tom === 'padrao' ? 'var(--sombra-1)' : 'none',
+    boxShadow: tom === 'elevado' ? 'var(--sombra-1)' : 'none',
     ...style,
   }
 
@@ -193,7 +201,7 @@ export function Cartao({
     <button
       onClick={onClick}
       style={estilo}
-      className={`${base} w-full cursor-pointer text-left transition-shadow hover:shadow-[var(--sombra-2)] ${className}`}
+      className={`${base} w-full cursor-pointer text-left transition-[filter] hover:brightness-[0.97] ${className}`}
     >
       {children}
     </button>
@@ -215,7 +223,7 @@ export function Vazio({
   acao?: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-(--color-borda-forte) px-6 py-12 text-center">
+    <div className="rounded-3xl border border-dashed border-(--color-borda-forte) px-6 py-12 text-center">
       <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-(--color-superficie-2)">
         <Inbox className="text-(--color-tinta-3)" size={20} strokeWidth={1.75} />
       </span>
@@ -229,7 +237,7 @@ export function Vazio({
 /** Falha de carregamento, com o caminho de volta. Nunca um beco sem saída. */
 export function Falha({ texto, aoTentar }: { texto: string; aoTentar?: () => void }) {
   return (
-    <div className="rounded-2xl bg-(--color-perigo-bg) px-6 py-8 text-center">
+    <div className="rounded-3xl bg-(--color-perigo-bg) px-6 py-8 text-center">
       <AlertTriangle className="mx-auto mb-2 text-(--color-perigo-ink)" size={20} />
       <p className="t-corpo font-medium text-(--color-perigo-ink)">{texto}</p>
       {aoTentar && (
@@ -338,17 +346,21 @@ export function Badge({
 
 type Variante = 'principal' | 'secundario' | 'contorno' | 'fantasma' | 'perigo'
 
+// Três famílias (regra 13 do redesign): `principal` é tinta sólida — a única
+// cor primária do sistema é preta, em qualquer viagem; `secundario` é o par
+// ghost da mesma pílula; `fantasma` é o link textual sem contêiner.
+// `contorno`/`perigo` sobrevivem como variantes pragmáticas (acento da viagem,
+// ação destrutiva) — não substituem as três, complementam onde elas não bastam.
 const ESTILO: Record<Variante, CSSProperties> = {
   principal: {
-    background: 'var(--destaque)',
+    background: 'var(--color-tinta)',
     color: '#fff',
     border: '1px solid transparent',
-    boxShadow: 'var(--sombra-1)',
   },
   secundario: {
-    background: 'var(--color-cartao)',
+    background: 'transparent',
     color: 'var(--color-tinta)',
-    border: '1px solid var(--color-borda-forte)',
+    border: '1px solid var(--color-tinta)',
   },
   contorno: {
     background: 'transparent',
@@ -364,7 +376,6 @@ const ESTILO: Record<Variante, CSSProperties> = {
     background: 'var(--color-perigo-ink)',
     color: '#fff',
     border: '1px solid transparent',
-    boxShadow: 'var(--sombra-1)',
   },
 }
 
@@ -396,8 +407,8 @@ export function Botao({
       aria-busy={carregando || undefined}
       style={{ ...ESTILO[variante], transition: 'all var(--transicao)' }}
       className={`${
-        tamanho === 'pequeno' ? 'min-h-9 px-3 text-[13px]' : 'toque px-4 text-sm'
-      } inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl font-medium disabled:cursor-not-allowed disabled:opacity-55 not-disabled:hover:brightness-95 not-disabled:active:scale-[0.97] ${className}`}
+        tamanho === 'pequeno' ? 'min-h-9 px-4 text-[13px]' : 'toque px-5 text-sm'
+      } inline-flex cursor-pointer items-center justify-center gap-2 rounded-full font-medium disabled:cursor-not-allowed disabled:opacity-55 not-disabled:hover:brightness-95 not-disabled:active:scale-[0.97] ${className}`}
     >
       {carregando && <Girando />}
       {children}
@@ -439,7 +450,7 @@ export function BotaoIcone({
       // toda listagem densa seria pior. A área de TOQUE vai a 44x44 pelo
       // pseudo-elemento, que não ocupa espaço no layout: o dedo acerta os 44 do
       // `.toque` sem que o desenho mude um pixel.
-      className={`relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl after:absolute after:-inset-1 after:content-[''] disabled:cursor-not-allowed disabled:opacity-50 ${estilos}`}
+      className={`relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-2xl after:absolute after:-inset-1 after:content-[''] disabled:cursor-not-allowed disabled:opacity-50 ${estilos}`}
     >
       {children}
     </button>
@@ -512,7 +523,7 @@ export function Copiar({
 // ================================================================ formulário
 
 export const CLASSE_CAMPO =
-  'w-full rounded-xl border border-(--color-borda-forte) bg-(--color-cartao) px-3 py-2.5 text-[15px] text-(--color-tinta) outline-none transition-colors placeholder:text-(--color-tinta-3) focus:border-(--destaque) focus:ring-2 focus:ring-(--color-destaque-fraco) disabled:cursor-not-allowed disabled:bg-(--color-superficie-2) disabled:text-(--color-tinta-3)'
+  'w-full rounded-2xl border border-(--color-borda-forte) bg-(--color-cartao) px-3.5 py-2.5 text-[15px] text-(--color-tinta) outline-none transition-colors placeholder:text-(--color-tinta-4) focus:border-(--destaque) focus:ring-2 focus:ring-(--color-destaque-fraco) disabled:cursor-not-allowed disabled:bg-(--color-superficie-2) disabled:text-(--color-tinta-3)'
 
 /**
  * Campo com rótulo, dica e erro no mesmo lugar.
@@ -799,7 +810,7 @@ export function AppModal({
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{ boxShadow: 'var(--sombra-modal)' }}
-        className={`anim-subir flex max-h-[85dvh] w-full ${LARGURA[tamanho]} flex-col overflow-hidden rounded-2xl bg-(--color-cartao)`}
+        className={`anim-subir flex max-h-[85dvh] w-full ${LARGURA[tamanho]} flex-col overflow-hidden rounded-[24px] bg-(--color-cartao)`}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5 pb-3">
           <div className="min-w-0">

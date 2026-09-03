@@ -1,6 +1,9 @@
 'use client'
 
-// Casca de navegação: barra lateral no desktop, tab bar embaixo no celular.
+// Casca de navegação: cabeçalho horizontal no desktop, tab bar embaixo no
+// celular — o app deixou de parecer painel administrativo (barra lateral
+// pesada) e passou a se ler como o topo de uma revista: logo, o nome da
+// viagem como se fosse uma edição, e a navegação num fio só de ícones.
 //
 // A lista de abas é montada a partir dos DADOS, não fixa no código:
 //   - Financeiro só existe para admin
@@ -11,6 +14,11 @@
 // horizontal (que esconde metade do app atrás de um gesto que ninguém descobre),
 // quatro abas ficam fixas pelo que se procura com pressa — onde estou, o que vem
 // agora, meu voo, socorro — e o resto abre num painel "Mais".
+//
+// No desktop o mesmo problema (13 abas, espaço finito) se resolve diferente:
+// nove ficam no fio do cabeçalho — as que a viagem usa TODO DIA — e o resto
+// (Checklist, Documentos, Emergência, Participantes) mora em "Mais", que abre
+// o mesmo painel do celular.
 import { useEffect, useState, type ReactNode } from 'react'
 import {
   Home,
@@ -29,17 +37,18 @@ import {
   LogOut,
   WifiOff,
   RefreshCw,
-  MapPinned,
   MoreHorizontal,
   ArrowLeft,
+  ChevronDown,
   UserRound,
   type LucideIcon,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useTrip } from './TripProvider.tsx'
 import { AppModal, Avatar } from './ui.tsx'
-import { faseDaViagem, formatarHora } from '@/lib/derive.ts'
+import { faseDaViagem, formatarData, formatarHora } from '@/lib/derive.ts'
 import { registrarRecente } from '@/lib/recentes.ts'
+import { siteConfig } from '@/config/site.ts'
 
 export type AbaId =
   | 'inicio'
@@ -104,7 +113,50 @@ const conhecida = (a: string | null | undefined): a is AbaId =>
 const NO_CELULAR: AbaId[] = ['inicio', 'roteiro', 'voos', 'emergencia']
 const NO_CELULAR_EM_VIAGEM: AbaId[] = ['inicio', 'hoje', 'voos', 'emergencia']
 
+/**
+ * As nove que ficam no fio do cabeçalho, no desktop — as que a viagem usa todo
+ * dia. Diferente do celular, aqui Hoje e Roteiro ficam os dois sempre visíveis:
+ * a tela é larga o bastante para não escolher entre "onde estou" e "o plano".
+ */
+const NO_TOPO: AbaId[] = [
+  'inicio',
+  'hoje',
+  'roteiro',
+  'voos',
+  'cruzeiro',
+  'hospedagem',
+  'lugares',
+  'preparacao',
+  'financeiro',
+]
+
 const CHAVE_ABA = 'viagem:aba'
+
+/** O breakpoint em que o cabeçalho de topo substitui a tab bar (xl, 1280px) —
+    reativo a resize, para o painel "Mais" saber qual das duas listas mostrar
+    sem depender de uma leitura de `window` congelada no render.
+
+    Era `md` (768px), e abaixo de ~1280 as nove seções do fio não cabem ao lado
+    do logo, do nome da viagem e do avatar: o `overflow-x-auto` do `<nav>` abria
+    uma barra de rolagem horizontal DENTRO do cabeçalho, encostada no avatar.
+    Navegação que exige rolar para ser vista não é navegação, e o fio não pode
+    ficar centralizado enquanto rola. Entre 768 e 1280 a tab bar de baixo dá
+    conta — cinco itens e o resto em "Mais", que é como ela foi desenhada.
+
+    Mexer nesta constante é mexer nas quatro classes `xl:` do JSX abaixo: as duas
+    metades TÊM que virar na mesma largura, senão existe uma faixa com as duas
+    navegações ou com nenhuma. */
+function useCabecalhoDeTopo(): boolean {
+  const [desktop, setDesktop] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1280px)')
+    const aplicar = () => setDesktop(mq.matches)
+    aplicar()
+    mq.addEventListener('change', aplicar)
+    return () => mq.removeEventListener('change', aplicar)
+  }, [])
+  return desktop
+}
 
 export function Shell({
   aba,
@@ -118,6 +170,7 @@ export function Shell({
   const { snapshot, papel, online, offlineOk, pendentes, ultimaSync, erro, sair } = useTrip()
   const [montado, setMontado] = useState(false)
   const [maisAberto, setMaisAberto] = useState(false)
+  const cabecalhoDeTopo = useCabecalhoDeTopo()
 
   // A aba que ACENDE. Nem sempre é a que está no estado: `documentacao` acende
   // `documentos`, que é onde ela passou a morar.
@@ -190,7 +243,6 @@ export function Shell({
     if (montado && !visiveis.some((a) => a.id === ativa)) setAba('inicio')
   }, [ativa, visiveis, montado, setAba])
 
-  const destaque = snapshot?.viagem?.cor_destaque ?? '#0F766E'
   const eu = snapshot?.eu?.usuario
   const atual = visiveis.find((a) => a.id === ativa)
 
@@ -208,82 +260,105 @@ export function Shell({
   const emMais = visiveis.filter((a) => !fixas.includes(a.id))
   const abaOcultaAtiva = emMais.some((a) => a.id === ativa)
 
-  // Agrupa preservando a ordem de ABAS.
-  const grupos = new Map<string, Aba[]>()
-  for (const a of visiveis) {
-    if (!grupos.has(a.grupo)) grupos.set(a.grupo, [])
-    grupos.get(a.grupo)!.push(a)
-  }
+  const noTopo = visiveis.filter((a) => NO_TOPO.includes(a.id))
+  const foraDoTopo = visiveis.filter((a) => !NO_TOPO.includes(a.id))
+  const abaForaDoTopoAtiva = foraDoTopo.some((a) => a.id === ativa)
 
   function ir(id: AbaId) {
     setAba(id)
     setMaisAberto(false)
   }
 
-  return (
-    <div style={{ ['--destaque' as string]: destaque }} className="min-h-dvh">
-      {/* barra lateral — desktop */}
-      <aside className="sem-impressao fixed top-0 left-0 hidden h-dvh w-64 flex-col border-r border-(--color-borda) bg-(--color-cartao) md:flex">
-        <div className="flex items-center gap-2 border-b border-(--color-borda) px-5 py-4">
-          <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white"
-            style={{ background: 'var(--destaque)' }}
-          >
-            <MapPinned size={17} strokeWidth={2} />
-          </span>
-          <span className="text-lg font-bold tracking-tight">TripGo</span>
-        </div>
+  const nomeViagem = String(snapshot?.viagem?.nome ?? '—')
+  const datas =
+    [snapshot?.viagem?.data_partida, snapshot?.viagem?.data_retorno]
+      .filter(Boolean)
+      .map((d) => formatarData(String(d), { day: '2-digit', month: 'short' }))
+      .join(' — ') || null
 
-        {/* Onde estou: a viagem aberta, e a saída para trocar de viagem. */}
-        <div className="border-b border-(--color-borda) px-5 py-3">
+  return (
+    <div className="min-h-dvh bg-(--color-fundo)">
+      {/* cabeçalho — desktop. Editorial, transparente de fio: logo, a edição
+          (o nome e as datas da viagem) e a navegação num traço só. */}
+      <header className="sem-impressao fixed inset-x-0 top-0 z-40 hidden border-b border-(--color-borda) bg-(--color-cartao)/95 backdrop-blur xl:block">
+        {/* UM GRUPO SÓ, centrado — não três blocos empurrados para os cantos.
+            O `<nav>` era `flex-1 justify-center`, então num monitor largo sobrava
+            um vão de uns 200px de cada lado dele: o nome da viagem ficava à
+            esquerda, o fio no meio e o avatar colado na borda direita, como se
+            fossem três coisas sem relação. São a mesma coisa — onde estou, em que
+            viagem, e eu —, e ficam juntas. `justify-center` no lugar do `flex-1`
+            é o que faz o conjunto encolher em vez de esticar. */}
+        <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-center gap-5 px-6">
+          <Link href="/dashboard" className="flex shrink-0 items-center gap-2">
+            <span
+              className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white"
+              style={{ background: 'var(--color-tinta)' }}
+              aria-hidden
+            >
+              T
+            </span>
+            <span className="t-secao !text-[19px]">{siteConfig.nome}</span>
+          </Link>
+
           <Link
             href="/viagens"
-            className="-ml-1 mb-1.5 inline-flex items-center gap-1.5 rounded-lg px-1 py-1 text-[13px] text-(--color-tinta-3) transition-colors hover:text-(--destaque)"
+            className="group flex min-w-0 shrink-0 items-center gap-1 rounded-xl px-1 py-1 text-left"
+            title="Trocar de viagem"
           >
-            <ArrowLeft size={14} /> Minhas viagens
-          </Link>
-          <p className="t-legenda">Viagem</p>
-          <p className="mt-0.5 truncate leading-tight font-semibold">
-            {String(snapshot?.viagem?.nome ?? '—')}
-          </p>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-3 py-3" aria-label="Seções da viagem">
-          {[...grupos.entries()].map(([grupo, abas]) => (
-            <div key={grupo} className="mb-3">
-              <p className="t-legenda px-3 pb-1.5">{grupo}</p>
-              <div className="space-y-0.5">
-                {abas.map((a) => (
-                  <ItemLateral key={a.id} aba={a} ativo={a.id === ativa} onClick={() => ir(a.id)} />
-                ))}
-              </div>
-            </div>
-          ))}
-        </nav>
-
-        <div className="border-t border-(--color-borda) p-3">
-          <Link
-            href="/perfil"
-            className="toque flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-(--color-superficie-2)"
-          >
-            <Avatar nome={String(eu?.nome ?? '?')} url={eu?.avatar_url} tamanho={30} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium">
-                {String(eu?.nome ?? 'Meu perfil')}
+            <span className="min-w-0">
+              <span className="flex items-center gap-1">
+                <span className="max-w-[16rem] truncate text-[14px] font-semibold">
+                  {nomeViagem}
+                </span>
+                <ChevronDown
+                  size={14}
+                  className="shrink-0 text-(--color-tinta-3) transition-colors group-hover:text-(--color-tinta)"
+                  aria-hidden
+                />
               </span>
-              <span className="block text-[11px] text-(--color-tinta-3)">Ver perfil</span>
+              {datas && (
+                <span className="tab-num block text-[11px] text-(--color-tinta-3)">{datas}</span>
+              )}
             </span>
           </Link>
-          <button
-            onClick={sair}
-            className="toque mt-1 flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm text-(--color-tinta-2) transition-colors hover:bg-(--color-superficie-2)"
-          >
-            <LogOut size={18} strokeWidth={1.75} /> Sair
-          </button>
-        </div>
-      </aside>
 
-      <div className="md:pl-64">
+          {/* SEM rolagem: o fio ou cabe inteiro, ou o cabeçalho não é a
+              navegação daquela largura (abaixo de xl a tab bar assume).
+              `overflow-x-auto` aqui abria uma barra de rolagem horizontal dentro
+              do cabeçalho, encostada no avatar. E sem `flex-1`: era ele que
+              abria os vãos: o fio esticava para ocupar tudo que sobrava e
+              centrava os botões dentro de si mesmo, afastando o nome da viagem
+              de "Início" e o avatar de "Mais". */}
+          <nav aria-label="Seções da viagem" className="flex min-w-0 items-center gap-0.5">
+            {noTopo.map((a) => (
+              <ItemTopo key={a.id} aba={a} ativo={a.id === ativa} onClick={() => ir(a.id)} />
+            ))}
+            {foraDoTopo.length > 0 && (
+              <button
+                onClick={() => setMaisAberto(true)}
+                aria-current={abaForaDoTopoAtiva ? 'page' : undefined}
+                className="toque flex shrink-0 cursor-pointer flex-col items-center gap-1 rounded-xl px-2.5 py-1.5"
+                style={{
+                  color: abaForaDoTopoAtiva ? 'var(--color-tinta)' : 'var(--color-tinta-3)',
+                }}
+              >
+                <MoreHorizontal size={19} strokeWidth={abaForaDoTopoAtiva ? 2.25 : 1.75} />
+                <span className="text-[11px] leading-none font-medium">Mais</span>
+              </button>
+            )}
+          </nav>
+
+          <Link
+            href="/perfil"
+            className="toque flex shrink-0 items-center gap-2 rounded-full pl-1"
+            aria-label="Meu perfil"
+          >
+            <Avatar nome={String(eu?.nome ?? '?')} url={eu?.avatar_url} tamanho={32} />
+          </Link>
+        </div>
+      </header>
+
+      <div className="xl:pt-16">
         <Avisos
           online={online}
           offlineOk={offlineOk}
@@ -292,8 +367,8 @@ export function Shell({
           erro={erro}
         />
 
-        {/* cabeçalho do celular: diz a viagem e a seção, que a barra lateral diz no desktop */}
-        <div className="sem-impressao sticky top-0 z-30 flex items-center gap-3 border-b border-(--color-borda) bg-(--color-cartao)/90 px-4 py-2.5 backdrop-blur md:hidden">
+        {/* cabeçalho do celular: diz a viagem e a seção, que o topo diz no desktop */}
+        <div className="sem-impressao sticky top-0 z-30 flex items-center gap-3 border-b border-(--color-borda) bg-(--color-cartao)/90 px-4 py-2.5 backdrop-blur xl:hidden">
           <Link
             href="/viagens"
             aria-label="Voltar para minhas viagens"
@@ -302,9 +377,7 @@ export function Shell({
             <ArrowLeft size={18} />
           </Link>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] leading-tight font-semibold">
-              {String(snapshot?.viagem?.nome ?? '—')}
-            </p>
+            <p className="truncate text-[13px] leading-tight font-semibold">{nomeViagem}</p>
             <p className="truncate text-[11px] text-(--color-tinta-3)">{atual?.nome ?? ''}</p>
           </div>
           <Link
@@ -316,12 +389,25 @@ export function Shell({
           </Link>
         </div>
 
-        {/* O painel financeiro é a única tela com duas colunas de conteúdo, e
-            5xl aperta o painel lateral contra a tabela. As demais abas leem
-            melhor na medida mais estreita. */}
+        {/* A largura é por ABA, e cada medida tem um motivo.
+
+            `max-w-5xl` (1024px) é a medida de LEITURA: uma coluna de texto e
+            cartões, que a partir daí só ficaria pior — linha longa demais para
+            os olhos acompanharem.
+
+            O Financeiro (`7xl`) e o Roteiro (`[1600px]`) não leem em uma coluna:
+            os dois têm painel lateral, e num monitor de 2560 ou 3440 o `5xl`
+            deixava o conteúdo numa tira central com meia tela de cinza morto de
+            cada lado. O teto existe do mesmo jeito — nada cresce sem fim, e
+            acima dele a página fica centralizada — só que largo o bastante para
+            o mapa e a timeline caberem lado a lado sem se espremer. */}
         <main
-          className={`mx-auto px-4 py-5 md:px-8 md:py-8 ${
-            aba === 'financeiro' && financeiroCompleto ? 'max-w-7xl' : 'max-w-5xl'
+          className={`mx-auto px-4 py-5 lg:px-8 lg:py-8 ${
+            aba === 'roteiro'
+              ? 'max-w-[1600px]'
+              : aba === 'financeiro' && financeiroCompleto
+                ? 'max-w-7xl'
+                : 'max-w-5xl'
           }`}
         >
           {children}
@@ -331,7 +417,7 @@ export function Shell({
       {/* tab bar — celular. Quatro fixas + "Mais". */}
       <nav
         aria-label="Navegação principal"
-        className="sem-impressao fixed inset-x-0 bottom-0 z-30 border-t border-(--color-borda) bg-(--color-cartao)/95 backdrop-blur md:hidden"
+        className="sem-impressao fixed inset-x-0 bottom-0 z-30 border-t border-(--color-borda) bg-(--color-cartao)/95 backdrop-blur xl:hidden"
       >
         <div className="flex" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {naBarra.map((a) => (
@@ -357,7 +443,9 @@ export function Shell({
       {maisAberto && (
         <AppModal titulo="Ir para" tamanho="medio" aoFechar={() => setMaisAberto(false)}>
           <div className="grid grid-cols-3 gap-2 pb-2">
-            {emMais.map((a) => {
+            {/* No desktop "Mais" mostra tudo que não está no fio do cabeçalho;
+                no celular, tudo que não está na barra de baixo. */}
+            {(cabecalhoDeTopo ? foraDoTopo : emMais).map((a) => {
               const Icone = a.icone
               const ativo = a.id === ativa
               return (
@@ -365,20 +453,13 @@ export function Shell({
                   key={a.id}
                   onClick={() => ir(a.id)}
                   aria-current={ativo ? 'page' : undefined}
-                  className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-(--color-borda) px-2 py-4 text-center transition-colors hover:bg-(--color-superficie-2)"
-                  style={
-                    ativo
-                      ? {
-                          background: 'var(--color-destaque-tenue)',
-                          borderColor: 'var(--color-destaque-fraco)',
-                        }
-                      : undefined
-                  }
+                  className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl px-2 py-4 text-center transition-colors hover:bg-(--color-superficie-2)"
+                  style={ativo ? { background: 'var(--color-superficie-2)' } : undefined}
                 >
                   <Icone
                     size={20}
                     strokeWidth={1.75}
-                    style={{ color: ativo ? 'var(--destaque)' : 'var(--color-tinta-2)' }}
+                    style={{ color: ativo ? 'var(--color-tinta)' : 'var(--color-tinta-2)' }}
                   />
                   <span className="text-[12px] leading-tight font-medium">{a.nome}</span>
                 </button>
@@ -405,6 +486,35 @@ export function Shell({
   )
 }
 
+/** Um item do fio de navegação do cabeçalho — ícone fino em cima, rótulo
+    embaixo, um traço de destaque quando ativo. Nenhuma caixa ao redor: a
+    barra é silenciosa, não uma fileira de botões (regra 14 do redesign). */
+function ItemTopo({ aba, ativo, onClick }: { aba: Aba; ativo: boolean; onClick: () => void }) {
+  const Icone = aba.icone
+  return (
+    <button
+      onClick={onClick}
+      aria-current={ativo ? 'page' : undefined}
+      className="toque relative flex shrink-0 cursor-pointer flex-col items-center gap-1 rounded-xl px-2.5 py-1.5 transition-colors"
+      style={{ color: ativo ? 'var(--color-tinta)' : 'var(--color-tinta-3)' }}
+    >
+      <Icone size={19} strokeWidth={ativo ? 2.25 : 1.75} />
+      <span
+        className={`text-[11px] leading-none whitespace-nowrap ${ativo ? 'font-semibold' : 'font-medium'}`}
+      >
+        {aba.nome}
+      </span>
+      {ativo && (
+        <span
+          className="absolute -bottom-[1px] h-[2px] w-5 rounded-full"
+          style={{ background: 'var(--destaque)' }}
+          aria-hidden
+        />
+      )}
+    </button>
+  )
+}
+
 function BotaoBarra({
   icone: Icone,
   nome,
@@ -421,7 +531,7 @@ function BotaoBarra({
       onClick={onClick}
       aria-current={ativo ? 'page' : undefined}
       className="toque relative flex flex-1 cursor-pointer flex-col items-center gap-1 px-1 py-2"
-      style={{ color: ativo ? 'var(--destaque)' : 'var(--color-tinta-3)' }}
+      style={{ color: ativo ? 'var(--color-tinta)' : 'var(--color-tinta-3)' }}
     >
       {ativo && (
         <span
@@ -431,32 +541,6 @@ function BotaoBarra({
       )}
       <Icone size={20} strokeWidth={ativo ? 2.25 : 1.75} />
       <span className={`text-[10px] leading-none ${ativo ? 'font-semibold' : ''}`}>{nome}</span>
-    </button>
-  )
-}
-
-function ItemLateral({ aba, ativo, onClick }: { aba: Aba; ativo: boolean; onClick: () => void }) {
-  const Icone = aba.icone
-  return (
-    <button
-      onClick={onClick}
-      aria-current={ativo ? 'page' : undefined}
-      className={`toque flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors ${
-        ativo ? '' : 'hover:bg-(--color-superficie-2)'
-      }`}
-      style={
-        ativo
-          ? {
-              background: 'var(--destaque)',
-              color: '#fff',
-              fontWeight: 600,
-              boxShadow: 'var(--sombra-1)',
-            }
-          : { color: 'var(--color-tinta-2)' }
-      }
-    >
-      <Icone size={18} strokeWidth={ativo ? 2.25 : 1.75} className="shrink-0" />
-      <span className="truncate">{aba.nome}</span>
     </button>
   )
 }

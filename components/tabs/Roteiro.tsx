@@ -3,10 +3,20 @@
 // O Roteiro — a aba que deixou de ser agenda e virou o manual operacional da
 // viagem, um dia de cada vez.
 //
-// A tela responde nesta ordem: cabeçalho do dia (data, cidade, dia N de M) →
-// chips rápidos (clima, dia N de M, hospedagem) → faixa de dias →
-// Detalhes / Reservas / Dicas / Checklists do dia) → conteúdo da aba + coluna
-// fixa de apoio (mapa, clima, informações) → faixa de dias no rodapé.
+// A tela responde nesta ordem: cabeçalho do dia (data, cidade + temperatura de
+// agora, ações) → faixa de dias → UMA barra com as sete leituras do dia (Agenda ·
+// Mapa · Deslocamentos · Reservas · Dicas · Transportes · Gastos) → a leitura
+// escolhida, com a coluna de apoio ao lado.
+//
+// A divisão entre a barra e a coluna é uma pergunta só: isso se lê NO LUGAR do
+// dia, ou ENQUANTO se lê o dia? Reservas, dicas, transportes e gastos são
+// assuntos que se abre, se lê inteiro e se fecha — barra. O mapa e o "não
+// esquecer hoje" acompanham qualquer uma das outras leituras — coluna. Empilhar
+// os seis na coluna somava ~3.000px por dia; parti-los em duas barras de aba
+// criou "Mapa" em cima e "Lugar" (um mapa) do lado.
+//
+// Cada botão da barra mostra QUANTO tem dentro antes de ser aberto — é isso, e
+// não a aba, que impede o dado de sumir.
 //
 // Quatro decisões que explicam quase tudo aqui:
 //
@@ -108,19 +118,10 @@ import {
   ALIAS_TOM,
 } from '../ui.tsx'
 import { MapaRota } from '../MapaRota.tsx'
-import {
-  FaixaTrecho,
-  ModalComoChegar,
-  PainelComoChegar,
-  useDesktop,
-} from '../ComoChegar.tsx'
+import { MapaViagem } from '../MapaViagem.tsx'
+import { FaixaTrecho, ModalComoChegar, PainelComoChegar, useDesktop } from '../ComoChegar.tsx'
 import { formatarHoraLocal } from '@/lib/hoje.ts'
-import {
-  auditarNavegacao,
-  resumoTrechos,
-  trechosDoDia,
-  type Trecho,
-} from '@/lib/trechos.ts'
+import { auditarNavegacao, resumoTrechos, trechosDoDia, type Trecho } from '@/lib/trechos.ts'
 import { buscarClima, buscarClimaAgora, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 import { DiaSchema, EventoSchema, formatarErroZod } from '@/lib/schema.ts'
 import { lerArquivoDeMapa, casarPontos, type PontoKml } from '@/lib/kml.ts'
@@ -128,6 +129,7 @@ import { buscarLugar, consultaDaParada, temCampoDeLugar, type Achado } from '@/l
 import {
   montarDias,
   resumoDoDia,
+  etapasDaViagem,
   diaFoco,
   chaveDia,
   parseData,
@@ -279,17 +281,6 @@ function bandeiraDoPais(pais: string): string | null {
   return PAIS_BANDEIRA[pais.trim().toLowerCase()] ?? null
 }
 
-/** Código de moeda -> "Euro (EUR)". Cai no próprio código se o navegador não souber nomeá-lo. */
-function nomeMoeda(codigo: string): string {
-  try {
-    const nome = new Intl.DisplayNames(['pt-BR'], { type: 'currency' }).of(codigo)
-    if (!nome) return codigo
-    return `${nome.charAt(0).toUpperCase()}${nome.slice(1)} (${codigo})`
-  } catch {
-    return codigo
-  }
-}
-
 // ---------------------------------------------------------------- a aba
 
 export function Roteiro() {
@@ -343,6 +334,10 @@ export function Roteiro() {
   // trecho de cada evento sem varrer a lista a cada linha.
   const trechoPorDestino = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
   const aberto = trechos.find((t) => t.id === trechoAberto) ?? null
+  const contagens = useMemo(
+    () => (dia ? contagensDoDia(dia, snapshot, linha) : null),
+    [dia, snapshot, linha],
+  )
 
   if (!snapshot) return null
 
@@ -370,66 +365,94 @@ export function Roteiro() {
 
   return (
     <>
-      <Cabecalho dia={dia} dias={dias} indice={indice} aoEscolher={setEscolhido} />
+      {/* AS TRÊS REGIÕES, e elas não mudam de dia para dia.
+          [ índice da viagem | o dia | o contexto do dia ]
 
-      {/* A faixa fica ACIMA do itinerário: é com ela que se troca de dia, e no
-          rodapé isso exigia rolar a página inteira só para ir ao dia seguinte —
-          justamente o gesto mais repetido da tela. */}
-      <FaixaDias dias={dias} indice={indice} chaveHoje={chaveHoje} aoEscolher={setEscolhido} />
+          O índice entra a 1536px e o contexto a 1280 — abaixo disso cada um
+          desce e vira uma faixa da página, na mesma ordem. O que NUNCA acontece
+          é uma região trocar de lugar, encolher ou sumir porque o dia aberto
+          tem menos dado: quem preenche cada slot é responsável pelo próprio
+          estado vazio. Um dia sem mapa continua com o cartão do mapa. */}
+      <div className="grid items-start gap-6 2xl:grid-cols-[15rem_minmax(0,1fr)]">
+        <TrilhoDaViagem dias={dias} indice={indice} aoEscolher={setEscolhido} />
 
-      <BarraDeVisao visao={visao} aoTrocar={setVisao} trechos={trechos} />
-
-      <div className="mt-4 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
-          {visao === 'agenda' && (
-            <TimelineDia
-              dia={dia}
-              linha={linha}
-              trechos={trechoPorDestino}
-              moeda={moeda}
-              mutate={mutate}
-              posso={posso}
-              aoAbrirTrecho={setTrechoAberto}
-            />
-          )}
-          {visao === 'mapa' && <VisaoMapa dia={dia} />}
-          {visao === 'deslocamentos' && (
-            <VisaoDeslocamentos trechos={trechos} aoAbrirTrecho={setTrechoAberto} />
-          )}
-        </div>
+          <Cabecalho dia={dia} dias={dias} indice={indice} aoEscolher={setEscolhido} />
 
-        {/* A coluna de apoio: o dia inteiro ao lado do itinerário, um cartão por
-            assunto, na ordem em que se consulta — onde estou, que tempo faz, o
-            que preciso saber, o que está reservado, o que lembrar, como andar.
-            Nada atrás de aba: o que fica escondido numa aba é exatamente o que
-            se descobre tarde demais. Abaixo de xl a coluna desce e vira a
-            continuação da página, que é como o celular lê. */}
-        <div className="min-w-0 space-y-4">
-          {/* O painel de "Como chegar" entra no TOPO da coluna, acima do mapa:
-              ele é a resposta ao toque que a pessoa acabou de dar, e qualquer
-              coisa antes dele é uma rolagem entre a pergunta e a resposta.
-              Abaixo de xl esta coluna desce para o fim da página, e aí o mesmo
-              corpo aparece como modal — ver `desktop`. */}
-          {aberto && desktop && (
-            <PainelComoChegar trecho={aberto} aoFechar={() => setTrechoAberto(null)} />
-          )}
-          {visao !== 'mapa' && <MapaDoDia dia={dia} />}
-          {/* O clima que importa é o de onde o dia TERMINA — é lá que se dorme. */}
-          <ClimaDoDia cidade={locais.destino ?? locais.cidade} chaveDia={dia.chave} />
-          <InformacoesDoDia dia={dia} moeda={moeda} posso={posso} />
-          <SecaoDia titulo="Reservas">
-            <ReservasDia dia={dia} moeda={moeda} />
-          </SecaoDia>
-          <SecaoDia titulo="Dicas">
-            <DicasDia dia={dia} />
-          </SecaoDia>
-          <SecaoDia titulo="Checklist do dia">
-            <ChecklistsDoDiaSecao dia={dia} />
-          </SecaoDia>
-          <SecaoDia titulo="Transportes">
-            <TransportesDoDia dia={dia} />
-          </SecaoDia>
-          <GastosDoDia dia={dia} moeda={moeda} />
+          {/* A faixa fica ACIMA do itinerário: é com ela que se troca de dia, e
+              no rodapé isso exigia rolar a página inteira só para ir ao dia
+              seguinte — justamente o gesto mais repetido da tela. */}
+          <FaixaDias dias={dias} indice={indice} chaveHoje={chaveHoje} aoEscolher={setEscolhido} />
+
+          <BarraDeVisao
+            visao={visao}
+            aoTrocar={setVisao}
+            trechos={trechos}
+            contagens={contagens}
+            dia={dia}
+          />
+
+          {/* Só o mapa em tela cheia dispensa a coluna de contexto: ele já é o
+              contexto, e espremê-lo em 60% da largura para manter um cartão de
+              clima ao lado troca a única coisa que aquela visão existe para
+              mostrar. */}
+          <div
+            className={`mt-4 grid items-start gap-5 ${
+              visao === 'mapa' ? '' : 'xl:grid-cols-[minmax(0,1fr)_21rem]'
+            }`}
+          >
+            <div className="min-w-0">
+              {visao === 'agenda' && (
+                <TimelineDia
+                  dia={dia}
+                  linha={linha}
+                  trechos={trechoPorDestino}
+                  moeda={moeda}
+                  mutate={mutate}
+                  posso={posso}
+                  aoAbrirTrecho={setTrechoAberto}
+                />
+              )}
+              {visao === 'mapa' && <VisaoMapa dia={dia} aoEscolherDia={setEscolhido} />}
+              {visao === 'deslocamentos' && (
+                <VisaoDeslocamentos trechos={trechos} aoAbrirTrecho={setTrechoAberto} />
+              )}
+              {visao === 'reservas' && <ReservasDia dia={dia} moeda={moeda} />}
+              {visao === 'dicas' && <DicasDia dia={dia} />}
+              {visao === 'transportes' && <TransportesDoDia dia={dia} />}
+              {visao === 'gastos' && (
+                <GastosDoDia
+                  dia={dia}
+                  moeda={moeda}
+                  vazio={<Nada>Nada lançado neste dia — nem custo estimado no roteiro.</Nada>}
+                />
+              )}
+            </div>
+
+            {/* A COLUNA DE CONTEXTO, sempre nesta ordem e sempre com os cinco
+                blocos: resumo, mapa, clima, não esquecer. Nenhum deles devolve
+                `null` — os que não têm dado devolvem uma linha dizendo isso.
+                Era essa a causa de trocar de dia parecer trocar de tela: o mapa
+                sumia num dia sem coordenada, o clima sumia fora da janela de
+                previsão, e a coluna inteira subia 400px de uma vez. */}
+            <div className={`min-w-0 space-y-4 ${visao === 'mapa' ? 'hidden' : ''}`}>
+              {/* "Como chegar" entra no TOPO: é a resposta ao toque que a pessoa
+                  acabou de dar, e qualquer coisa antes dele é uma rolagem entre a
+                  pergunta e a resposta. Abaixo de xl a coluna desce para o fim da
+                  página, e aí o mesmo corpo aparece como modal — ver `desktop`. */}
+              {aberto && desktop && (
+                <PainelComoChegar trecho={aberto} aoFechar={() => setTrechoAberto(null)} />
+              )}
+              <ResumoDoDia dia={dia} linha={linha} contagens={contagens} moeda={moeda} />
+              <MapaDoDia dia={dia} />
+              {/* O clima que importa é o de onde o dia TERMINA — é lá que se dorme. */}
+              <ClimaDoDia cidade={locais.destino ?? locais.cidade} chaveDia={dia.chave} />
+              <section>
+                <h2 className="t-legenda mb-2">Não esquecer hoje</h2>
+                <ChecklistsDoDiaSecao dia={dia} />
+              </section>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -440,79 +463,257 @@ export function Roteiro() {
   )
 }
 
+// ---------------------------------------------------------------- trilho da viagem
+
+/**
+ * O ÍNDICE DA VIAGEM: um trecho por cidade, na ordem, com o trecho do dia aberto
+ * aceso.
+ *
+ * Responde uma pergunta que a faixa de dias não responde — "onde este dia cai na
+ * viagem inteira?". A faixa mostra 17 quadradinhos e é ótima para andar de um
+ * dia ao seguinte; ela não mostra que Madri são dois dias e Hamburgo três. Clicar
+ * num trecho abre o PRIMEIRO dia dele, que é o que alguém quer ao procurar "onde
+ * mesmo começa Paris".
+ *
+ * A separação por cidade sai de `etapasDaViagem` (lib/derive.ts), pura e testada,
+ * e não daqui: agrupar dias seguidos tem casos de borda de verdade (dia sem
+ * cidade anotada, a mesma cidade duas vezes na viagem) e nenhum deles se
+ * verifica olhando a tela.
+ *
+ * Some abaixo de 1536px, e some inteiro — não vira um acordeão no topo do
+ * celular. É um atalho de tela larga: no celular a faixa de dias já faz o
+ * trabalho, e um segundo índice ali seria mais uma coisa a rolar antes do dia.
+ */
+function TrilhoDaViagem({
+  dias,
+  indice,
+  aoEscolher,
+}: {
+  dias: DiaRoteiro[]
+  indice: number
+  aoEscolher: (chave: string) => void
+}) {
+  const etapas = useMemo(
+    () =>
+      etapasDaViagem(
+        dias.map((d) => ({
+          chave: d.chave,
+          cidade: locaisDoDia(d, null).destino ?? locaisDoDia(d, null).cidade,
+          atividades: d.itens.length,
+        })),
+      ),
+    [dias],
+  )
+
+  const atual = dias[indice]?.chave ?? ''
+
+  return (
+    <nav aria-label="Trechos da viagem" className="hidden min-w-0 2xl:block">
+      <h2 className="t-legenda mb-2">Roteiro da viagem</h2>
+      {etapas.length === 0 ? (
+        <Nada>Anote a cidade de um dia e os trechos da viagem aparecem aqui.</Nada>
+      ) : (
+        <ol className="space-y-1">
+          {etapas.map((e) => {
+            const aqui = atual >= e.inicio && atual <= e.fim
+            return (
+              <li key={e.inicio}>
+                <button
+                  type="button"
+                  onClick={() => aoEscolher(e.inicio)}
+                  aria-current={aqui ? 'true' : undefined}
+                  className="toque w-full cursor-pointer rounded-xl px-3 py-2 text-left transition-colors hover:bg-(--color-superficie-2)"
+                  style={aqui ? { background: 'var(--color-destaque-tenue)' } : undefined}
+                >
+                  <span className="tab-num block text-[11px] font-medium text-(--color-tinta-3)">
+                    {formatarData(e.inicio, { day: '2-digit', month: 'short' })}
+                    {e.fim !== e.inicio &&
+                      ` — ${formatarData(e.fim, { day: '2-digit', month: 'short' })}`}
+                  </span>
+                  <span
+                    className="block truncate text-[14px] font-semibold"
+                    style={{ color: aqui ? 'var(--destaque)' : 'var(--color-tinta)' }}
+                  >
+                    {e.cidade}
+                  </span>
+                  <span className="tab-num block text-[12px] text-(--color-tinta-3)">
+                    {e.dias} {e.dias === 1 ? 'dia' : 'dias'} ·{' '}
+                    {e.atividades === 0
+                      ? 'sem atividade'
+                      : `${e.atividades} ${e.atividades === 1 ? 'atividade' : 'atividades'}`}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </nav>
+  )
+}
+
+// ---------------------------------------------------------------- resumo do dia
+
+/**
+ * O dia em números, no topo da coluna de contexto.
+ *
+ * É o bloco que responde "o que me espera hoje" antes de ler a agenda inteira, e
+ * ele existe também por uma razão estrutural: é o primeiro slot da coluna, e o
+ * único que TEM dado em qualquer dia — mesmo um dia vazio tem "nenhuma
+ * atividade" para dizer. Com o mapa no topo, um dia sem coordenada começava a
+ * coluna 400px mais acima que o dia anterior.
+ *
+ * Nada aqui é contado de novo: `resumoDoDia` (lib/derive.ts) e `contagens` são as
+ * mesmas fontes que a barra de visões usa. Dois contadores da mesma coisa
+ * divergem no dia em que alguém mexe num só.
+ */
+function ResumoDoDia({
+  dia,
+  linha,
+  contagens,
+  moeda,
+}: {
+  dia: DiaRoteiro
+  linha: ReturnType<typeof montarLinha>
+  contagens: Contagens | null
+  moeda: string
+}) {
+  const resumo = resumoDoDia(dia.itens)
+  const voo = linha.filter((l) => String(l.item.tipo) === 'voo').length
+
+  const fatos: { Icone: LucideIcon; texto: string }[] = [
+    {
+      Icone: CalendarDays,
+      texto:
+        dia.itens.length === 0
+          ? 'Nenhuma atividade'
+          : `${dia.itens.length} ${dia.itens.length === 1 ? 'atividade' : 'atividades'}`,
+    },
+  ]
+  if (contagens && contagens.reservas > 0) {
+    fatos.push({
+      Icone: Ticket,
+      texto: `${contagens.reservas} ${contagens.reservas === 1 ? 'reserva' : 'reservas'}`,
+    })
+  }
+  if (resumo.deslocamentos > 0) {
+    fatos.push({
+      Icone: ArrowLeftRight,
+      texto: `${resumo.deslocamentos} ${resumo.deslocamentos === 1 ? 'deslocamento' : 'deslocamentos'}`,
+    })
+  }
+  if (voo > 0) fatos.push({ Icone: Plane, texto: `${voo} ${voo === 1 ? 'voo' : 'voos'}` })
+  if (resumo.distanciaM > 0) {
+    fatos.push({ Icone: Route, texto: `${formatarDistancia(resumo.distanciaM)} percorridos` })
+  }
+  if (resumo.custoCentavos > 0) {
+    fatos.push({
+      Icone: Wallet,
+      texto: `${formatarDinheiro(resumo.custoCentavos, moeda)} estimados`,
+    })
+  }
+
+  return (
+    <section>
+      <h2 className="t-legenda mb-2">Resumo do dia</h2>
+      <Cartao>
+        <ul className="space-y-2">
+          {fatos.map((f) => (
+            <li key={f.texto} className="flex items-center gap-2.5 text-[13.5px]">
+              <f.Icone size={15} className="shrink-0 text-(--color-tinta-3)" aria-hidden />
+              <span className="tab-num">{f.texto}</span>
+            </li>
+          ))}
+        </ul>
+      </Cartao>
+    </section>
+  )
+}
+
 // ---------------------------------------------------------------- barra de visões
 
-type Visao = 'agenda' | 'mapa' | 'deslocamentos'
+type Visao = 'agenda' | 'mapa' | 'deslocamentos' | 'reservas' | 'dicas' | 'transportes' | 'gastos'
 
 const VISOES: { chave: Visao; rotulo: string; Icone: LucideIcon }[] = [
   { chave: 'agenda', rotulo: 'Agenda', Icone: CalendarDays },
   { chave: 'mapa', rotulo: 'Mapa', Icone: IconeMapa },
   { chave: 'deslocamentos', rotulo: 'Deslocamentos', Icone: ArrowLeftRight },
+  { chave: 'reservas', rotulo: 'Reservas', Icone: Ticket },
+  { chave: 'dicas', rotulo: 'Dicas', Icone: Lightbulb },
+  { chave: 'transportes', rotulo: 'Transportes', Icone: Route },
+  { chave: 'gastos', rotulo: 'Gastos', Icone: Wallet },
 ]
 
 /**
- * O alternador das três visões do mesmo dia.
+ * Uma barra só para todas as leituras do mesmo dia.
  *
- * O contador de conflitos fica NA barra, não escondido dentro da visão de
- * deslocamentos: um conflito que só aparece depois de trocar de aba é um
- * conflito que ninguém vê. É a única insígnia da barra, por isso.
+ * Eram duas — três visões em cima, seis assuntos numa aba lateral — e a divisão
+ * não descrevia nada: "Mapa" em cima e "Lugar" (um mapa) do lado, "Deslocamentos"
+ * em cima e "Transportes" do lado. Aqui a regra é uma: se é uma leitura do dia
+ * inteiro, é um botão desta barra; se é algo que se consulta ENQUANTO se lê o
+ * dia, mora na coluna (o mapa e o checklist).
+ *
+ * Todo contador fica NA barra, nunca dentro da visão: um conflito que só aparece
+ * depois de trocar de aba é um conflito que ninguém vê — e o mesmo vale para uma
+ * reserva. O de deslocamentos é o único vermelho porque é o único que conta
+ * problema, e não conteúdo.
  */
 function BarraDeVisao({
   visao,
   aoTrocar,
   trechos,
+  contagens,
+  dia,
 }: {
   visao: Visao
   aoTrocar: (v: Visao) => void
   trechos: Trecho[]
+  contagens: Contagens | null
+  dia: DiaRoteiro
 }) {
   const conflitos = trechos.filter((t) => t.conflito).length
 
   return (
-    <div
-      role="tablist"
-      aria-label="Como ver o roteiro do dia"
-      className="sem-impressao mt-3 flex gap-1 overflow-x-auto rounded-xl border border-(--color-borda) bg-(--color-cartao) p-1"
-    >
-      {VISOES.map(({ chave, rotulo, Icone }) => {
-        const ativo = visao === chave
-        return (
-          <button
-            key={chave}
-            role="tab"
-            type="button"
-            aria-selected={ativo}
-            onClick={() => aoTrocar(chave)}
-            className="toque flex shrink-0 cursor-pointer items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors"
-            style={
-              ativo
-                ? { background: 'var(--color-destaque-tenue)', color: 'var(--destaque)' }
-                : { color: 'var(--color-tinta-2)' }
-            }
-          >
-            <Icone size={15} aria-hidden />
-            {rotulo}
-            {chave === 'deslocamentos' && conflitos > 0 && (
-              <span
-                className="tab-num rounded-full px-1.5 text-[11px] font-semibold"
-                style={{ background: 'var(--color-perigo-bg)', color: 'var(--color-perigo-ink)' }}
-              >
-                {conflitos}
-              </span>
-            )}
-          </button>
-        )
-      })}
+    <div className="mt-3">
+      <BarraAbas
+        rotuloLista="Como ver o roteiro do dia"
+        ativa={visao}
+        aoTrocar={aoTrocar}
+        abas={VISOES.map((v) => {
+          if (v.chave === 'deslocamentos') return { ...v, num: conflitos, perigo: true }
+          if (v.chave === 'agenda') return { ...v, num: dia.itens.length }
+          const num = contagens?.[v.chave as keyof Contagens]
+          return num === undefined ? v : { ...v, num }
+        })}
+      />
     </div>
   )
 }
 
 // ---------------------------------------------------------------- visão mapa
 
-/** O mapa do dia em largura inteira. Mesmo componente da coluna de apoio — o
-    mapa não muda, muda o espaço que ele tem. */
-function VisaoMapa({ dia }: { dia: DiaRoteiro }) {
-  return <MapaDoDia dia={dia} alto />
+/**
+ * O MAPA VIVO: a viagem inteira, ou o dia dentro dela.
+ *
+ * O cartão "Mapa do dia" continua existindo na coluna de apoio das outras duas
+ * visões — ele responde "o que eu faço hoje, e a que distância". Este responde
+ * outra pergunta: "onde esta viagem acontece". São dois recortes do mesmo dado,
+ * e a barra de dias no topo liga um ao outro.
+ */
+function VisaoMapa({
+  dia,
+  aoEscolherDia,
+}: {
+  dia: DiaRoteiro
+  aoEscolherDia: (chave: string) => void
+}) {
+  return (
+    <MapaViagem
+      chaveDoDia={dia.chave}
+      rotuloDoDia={`Só ${formatarData(dia.chave, { day: '2-digit', month: 'short' })}`}
+      aoVerDia={aoEscolherDia}
+    />
+  )
 }
 
 // ---------------------------------------------------------------- visão deslocamentos
@@ -617,11 +818,7 @@ function VisaoDeslocamentos({
  * Erro em vermelho, aviso em âmbar, e nada mais: a lista só cresce com o que
  * `auditarNavegacao` consegue provar a partir do que está gravado.
  */
-function AuditoriaNavegacao({
-  problemas,
-}: {
-  problemas: ReturnType<typeof auditarNavegacao>
-}) {
+function AuditoriaNavegacao({ problemas }: { problemas: ReturnType<typeof auditarNavegacao> }) {
   const erros = problemas.filter((p) => p.nivel === 'erro').length
 
   return (
@@ -681,19 +878,10 @@ function Cabecalho({
 
   return (
     <div>
-      <nav
-        aria-label="Caminho"
-        className="mb-2 flex items-center gap-1.5 text-[13px] text-(--color-tinta-3)"
-      >
-        <span>Roteiro</span>
-        <ChevronRight size={13} aria-hidden />
-        <span className="font-medium text-(--color-tinta-2)">
-          {dia.numero > 0
-            ? `Dia ${dia.numero} de ${dias.length}`
-            : formatarData(dia.chave, { day: '2-digit', month: 'long' })}
-        </span>
-      </nav>
-
+      {/* Sem migalha de pão: "Roteiro › Dia 2 de 17" repetia, numa linha só sua,
+          o que a insígnia ao lado do título e a faixa de dias já dizem. Três
+          linhas de moldura antes do primeiro fato do dia é o que empurrava o
+          conteúdo para fora da primeira tela. */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -725,6 +913,7 @@ function Cabecalho({
               {locais.pais && !locais.destino && (
                 <span className="text-(--color-tinta-3)">· {locais.pais}</span>
               )}
+              <ClimaAgora cidades={locais.cidades} />
             </p>
           )}
           {Boolean(dia.meta?.titulo) && (
@@ -735,7 +924,20 @@ function Cabecalho({
               quando o dia não tem país ou o país não tem exigência — ver
               `RequisitosDoPais`. Não é alerta: é metadado do dia, do lado da
               cidade, e por isso mora aqui dentro e não num cartão próprio. */}
-          <RequisitosDoPais pais={locais.pais} bandeira={bandeira} />
+          <RequisitosDoPais
+            pais={locais.pais}
+            bandeira={bandeira}
+            vazio={
+              // A mesma caixa, a mesma altura, no mesmo lugar — só sem exigência
+              // a cumprir. É o que faz o dia 31 e o dia 04 começarem a agenda na
+              // mesma linha da tela.
+              <p className="toque mt-3 flex w-full items-center rounded-xl bg-(--color-superficie-2) px-3.5 py-2.5 text-[12.5px] text-(--color-tinta-3)">
+                {locais.pais
+                  ? `Nenhum documento exigido para ${locais.pais} neste dia.`
+                  : 'Sem país anotado neste dia — cadastre a cidade em Cidades para ver as exigências.'}
+              </p>
+            }
+          />
         </div>
 
         {/* `flex-wrap` + `max-w-full` pelo mesmo motivo do slot de ação do
@@ -793,94 +995,52 @@ function Cabecalho({
         </div>
       </div>
 
-      <ChipsTopo dia={dia} totalDias={dias.length} />
-
       {importando && <ImportarRoteiroModal aoFechar={() => setImportando(false)} />}
     </div>
   )
 }
 
-/** Os quatro fatos rápidos do dia. Cada um só aparece com dado real por trás. */
-function ChipsTopo({ dia, totalDias }: { dia: DiaRoteiro; totalDias: number }) {
-  const { snapshot } = useTrip()
-  const locais = locaisDoDia(dia, snapshot)
-  const agora = useClimaAgora(locais.cidades)
-  const hospedagem = hospedagemDoDia(dia, snapshot)
-
-  const chips: {
-    icone: ReactNode
-    linha1: ReactNode
-    linha2: ReactNode
-    destaqueLinha1: boolean
-  }[] = []
-
-  if (dia.numero > 0) {
-    chips.push({
-      icone: <CalendarDays size={16} className="text-(--color-tinta-3)" />,
-      linha1: `Dia ${dia.numero} de ${totalDias}`,
-      linha2: formatarData(dia.chave, { weekday: 'long' }),
-      destaqueLinha1: true,
-    })
-  }
-
-  // Logo depois do "Dia N de M": uma cidade por chip, na ordem do trajeto.
-  for (const c of agora) {
-    const IconeClima = CODIGO_ICONE[c.codigo] ?? Cloud
-    chips.push({
-      icone: <IconeClima size={18} style={{ color: 'var(--destaque)' }} />,
-      linha1: `${Math.round(c.temp)}° ${c.cidade}`,
-      linha2: `agora · ${descricaoClima(c.codigo)}`,
-      destaqueLinha1: true,
-    })
-  }
-
-  if (hospedagem) {
-    chips.push({
-      icone: <BedDouble size={16} className="text-(--color-tinta-3)" />,
-      linha1: 'Hospedagem',
-      linha2: String(hospedagem.nome),
-      destaqueLinha1: false,
-    })
-  }
+/**
+ * A temperatura de AGORA, na própria linha da cidade.
+ *
+ * Era uma faixa de cartões ("Dia 2 de 17", clima, hospedagem) numa linha só
+ * sua — e dos três fatos, dois já estavam na tela: o "Dia N de M" na insígnia
+ * ao lado do título e a hospedagem no painel de Reservas. Sobrou o clima, que
+ * é pequeno o bastante para caber ao lado do nome da cidade em vez de custar
+ * 72px de altura antes do primeiro compromisso do dia.
+ *
+ * Continua dizendo "agora" porque é o que é: o cartão de previsão só existe
+ * dentro da janela de ~16 dias e fica calado numa viagem marcada para daqui a
+ * meses — sem essa palavra o número mentiria sobre o dia que está aberto.
+ */
+function ClimaAgora({ cidades }: { cidades: string[] }) {
+  const agora = useClimaAgora(cidades)
+  if (agora.length === 0) return null
 
   return (
-    <div className="-mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1">
-      {chips.map((c, i) => (
-        <div
-          key={i}
-          className="flex shrink-0 items-center gap-2.5 rounded-2xl border border-(--color-borda) bg-(--color-cartao) px-3 py-2"
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-(--color-superficie-2)">
-            {c.icone}
-          </span>
-          <span className="min-w-0">
-            <span
-              className={`block truncate text-[13px] ${c.destaqueLinha1 ? 'font-semibold' : 'text-(--color-tinta-3)'}`}
-            >
-              {c.linha1}
-            </span>
-            <span
-              className={`block truncate text-[12px] ${c.destaqueLinha1 ? 'text-(--color-tinta-3)' : 'font-semibold'}`}
-            >
-              {c.linha2}
+    <>
+      {agora.map((c) => {
+        const IconeClima = CODIGO_ICONE[c.codigo] ?? Cloud
+        return (
+          <span
+            key={c.cidade}
+            className="inline-flex items-center gap-1 text-[13px] font-normal text-(--color-tinta-3)"
+            title={`${c.cidade} agora · ${descricaoClima(c.codigo)}`}
+          >
+            <IconeClima size={14} style={{ color: 'var(--destaque)' }} aria-hidden />
+            <span className="tab-num">{Math.round(c.temp)}°</span>
+            <span className="sr-only">
+              em {c.cidade} agora, {descricaoClima(c.codigo)}
             </span>
           </span>
-        </div>
-      ))}
-    </div>
+        )
+      })}
+    </>
   )
 }
 
 // ---------------------------------------------------------------- seções
 
-/**
- * O título de cada bloco, agora que as abas sumiram.
- *
- * É o mesmo `t-legenda` dos rótulos de cartão, mas num `<h2>`: sem as abas, a
- * única coisa que dizia "aqui começa outro assunto" era o clique — e leitor de
- * tela nenhum navegava por isso. Com heading de verdade dá para pular de seção
- * em seção.
- */
 /**
  * O vazio de uma seção da coluna lateral: uma linha, não um bloco.
  *
@@ -897,12 +1057,117 @@ function Nada({ children }: { children: ReactNode }) {
   )
 }
 
-function SecaoDia({ titulo, children }: { titulo: string; children: ReactNode }) {
+// ---------------------------------------------------------------- contagens da barra
+
+type Contagens = { reservas: number; dicas: number; transportes: number; gastos: number }
+
+/**
+ * Quanto cada visão tem dentro, contado ANTES de abrir.
+ *
+ * É o que paga a troca de tudo-empilhado por barra: sem o número, "Reservas" e
+ * "Reservas com três coisas" são o mesmo botão, e a pessoa descobre o que existe
+ * abrindo uma por uma. Cada contagem repete o MESMO filtro do componente que ela
+ * conta — se um deles mudar, o número mente; por isso todos ficam aqui, um do
+ * lado do outro, e não espalhados pela tela.
+ */
+function contagensDoDia(
+  dia: DiaRoteiro,
+  snapshot: ReturnType<typeof useTrip>['snapshot'],
+  linha: ReturnType<typeof montarLinha>,
+): Contagens {
+  const reservas = (snapshot?.reservas as Record<string, unknown>[] | undefined) ?? []
+  const fin = snapshot?.financeiro
+  const gastos = !fin
+    ? 0
+    : fin.admin
+      ? (fin.despesas as Record<string, unknown>[]).filter(
+          (d) => chaveDia(d.ocorre_em) === dia.chave,
+        ).length
+      : fin.obrigacoes.filter((o) => chaveDia(o.vence_em) === dia.chave).length
+
+  return {
+    reservas:
+      (hospedagemDoDia(dia, snapshot) ? 1 : 0) +
+      linha.filter((l) => l.derivada?.detalhe).length +
+      dia.itens.filter((i) => reservas.some((r) => r.id === i.reserva_id)).length,
+    dicas:
+      linhas(dia.meta?.alertas).length +
+      linha.filter((l) => linhas(l.item.dicas).length > 0).length +
+      lerLinks(dia.meta?.links).length +
+      (dia.meta?.mapa_url ? 1 : 0),
+    transportes: dia.itens.filter(
+      (e) =>
+        e.transporte ||
+        e.como_chegar ||
+        Number(e.distancia_m) > 0 ||
+        Number(e.duracao_min) > 0 ||
+        ((e.opcoes ?? []) as unknown[]).length > 0,
+    ).length,
+    gastos: gastos + (dia.itens.some((e) => Number(e.custo_centavos) > 0) ? 1 : 0),
+  }
+}
+
+/**
+ * A barra de abas da tela.
+ *
+ * `num` só vira insígnia quando é maior que zero: um "0" ao lado do rótulo ocupa
+ * o mesmo espaço de um número real e não diz nada que a aba apagada já não diga.
+ */
+function BarraAbas<T extends string>({
+  abas,
+  ativa,
+  aoTrocar,
+  rotuloLista,
+}: {
+  abas: { chave: T; rotulo: string; Icone: LucideIcon; num?: number; perigo?: boolean }[]
+  ativa: T
+  aoTrocar: (v: T) => void
+  rotuloLista: string
+}) {
   return (
-    <section>
-      <h2 className="t-legenda mb-2">{titulo}</h2>
-      {children}
-    </section>
+    <div
+      role="tablist"
+      aria-label={rotuloLista}
+      className="sem-impressao rola-limpo flex gap-1 overflow-x-auto rounded-xl border border-(--color-borda) bg-(--color-cartao) p-1"
+    >
+      {abas.map(({ chave, rotulo, Icone, num, perigo }) => {
+        const ativo = ativa === chave
+        return (
+          <button
+            key={chave}
+            role="tab"
+            type="button"
+            aria-selected={ativo}
+            onClick={() => aoTrocar(chave)}
+            className="toque flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors"
+            style={
+              ativo
+                ? { background: 'var(--color-destaque-tenue)', color: 'var(--destaque)' }
+                : // Aba vazia fica apagada, nunca desabilitada: "não há reserva
+                  // hoje" é resposta, e uma resposta precisa ser clicável.
+                  // `tinta-3` é o piso de contraste do tema (4.6:1), não cinza
+                  // sobre cinza.
+                  { color: num === 0 && !perigo ? 'var(--color-tinta-3)' : 'var(--color-tinta-2)' }
+            }
+          >
+            <Icone size={15} aria-hidden />
+            {rotulo}
+            {(num ?? 0) > 0 && (
+              <span
+                className="tab-num rounded-full px-1.5 text-[11px] font-semibold"
+                style={
+                  perigo
+                    ? { background: 'var(--color-perigo-bg)', color: 'var(--color-perigo-ink)' }
+                    : { background: 'var(--color-superficie-2)', color: 'var(--color-tinta-2)' }
+                }
+              >
+                {num}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -2275,7 +2540,24 @@ function useClimaAgora(cidades: string[]) {
 function ClimaDoDia({ cidade, chaveDia: chaveAlvo }: { cidade: string | null; chaveDia: string }) {
   const { lugar, previsoes, hoje } = usePrevisaoDoDia(cidade, chaveAlvo)
   const [verTudo, setVerTudo] = useState(false)
-  if (!lugar || !hoje) return null
+
+  // O cartão FICA nos dois casos em que não há previsão — cidade sem coordenada
+  // cadastrada e dia além da janela de ~16 dias do serviço. Sumir fazia a coluna
+  // de contexto ter alturas diferentes no dia 2 e no dia 9 da mesma viagem, e a
+  // ausência ficava sem explicação: quem não vê o cartão conclui que o app não
+  // tem clima, não que a previsão ainda não existe.
+  if (!lugar || !hoje) {
+    return (
+      <section>
+        <h2 className="t-legenda mb-2">Clima</h2>
+        <Nada>
+          {!lugar
+            ? 'Cadastre a cidade em Cidades, com o local no mapa, para ver a previsão deste dia.'
+            : 'Ainda longe demais para ter previsão — ela aparece a partir de duas semanas antes.'}
+        </Nada>
+      </section>
+    )
+  }
 
   const Icone = CODIGO_ICONE[hoje.codigo] ?? Cloud
   const chove = CODIGO_CHUVA.has(hoje.codigo)
@@ -2458,7 +2740,23 @@ function MapaDoDia({ dia, alto }: { dia: DiaRoteiro; alto?: boolean }) {
     ? localizadas.map((p) => ({ cidade: p.titulo, lat: p.lat!, lon: p.lon! }))
     : porCidade
 
-  if (pinos.length === 0 || paradas.length === 0) return null
+  // Sem coordenada nenhuma o cartão FICA, com uma linha dizendo por quê. Devolver
+  // `null` aqui era o maior salto de layout da tela: a coluna de contexto subia
+  // uns 400px de um dia para o outro, e trocar de dia parecia trocar de tela.
+  // Nada é inventado para preencher — um mapa vazio de propósito é honesto; um
+  // mapa com o centro da cidade fingindo ser as paradas do dia, não.
+  if (pinos.length === 0 || paradas.length === 0) {
+    return (
+      <section>
+        <h2 className="t-legenda mb-2">Mapa do dia</h2>
+        <Nada>
+          {paradas.length === 0
+            ? 'Nenhuma parada neste dia. O mapa aparece quando houver a primeira.'
+            : 'Nenhuma parada deste dia tem local. Abra “Localizar paradas” numa atividade, ou importe o KML do mapa da viagem.'}
+        </Nada>
+      </section>
+    )
+  }
 
   // O número da linha é a posição do pino no mapa — quem não tem pino não tem
   // número, senão a lista contaria uma sequência que o mapa não mostra.
@@ -2476,7 +2774,10 @@ function MapaDoDia({ dia, alto }: { dia: DiaRoteiro; alto?: boolean }) {
             <Maximize2 size={13} /> Tela cheia
           </Botao>
         </div>
-        <div className={alto ? 'h-[26rem]' : 'h-56'}>
+        {/* Altura fixa, e nunca menor que 320px: o mapa é o bloco que ancora a
+            coluna, e um dia com muitas paradas não pode achatá-lo até virar uma
+            miniatura enquanto o do dia anterior era legível. */}
+        <div className={alto ? 'h-[26rem]' : 'h-80'}>
           <MapaRota lugares={pinos} numerados={numerado} />
         </div>
 
@@ -3069,99 +3370,14 @@ function LinhaParada({
   )
 }
 
-// ---------------------------------------------------------------- informações e gastos
+// ---------------------------------------------------------------- transportes e gastos
 
-/**
- * Tudo que o dia É, abaixo do mapa: os fatos da viagem que valem hoje (moeda, a
- * dica do topo de "Atenção hoje") e, na sequência, a ficha completa de cada
- * atividade — endereço, como chegar, dicas, reserva, custo — sem clicar em nada.
- *
- * Os dois eram telas separadas ("Informações do dia" num cartão no canto,
- * "Detalhes" atrás de uma aba) e respondiam à mesma pergunta: o que eu preciso
- * saber sobre hoje. Separados, quem lia um achava que tinha lido o dia inteiro.
- *
- * Idioma, voltagem e fuso do destino ficam de fora: não têm coluna no banco, e
- * deduzir do nome da cidade é o tipo de chute que o resto do app se recusa a dar.
- */
-function InformacoesDoDia({
-  dia,
-  moeda,
-  posso,
-}: {
-  dia: DiaRoteiro
-  moeda: string
-  posso: (minimo: Papel) => boolean
-}) {
-  const { snapshot } = useTrip()
-  const dica = linhas(dia.meta?.alertas)[0] ?? null
-  const derivadas = useMemo(() => entradasDerivadas(dia, snapshot), [dia, snapshot])
-  const linha = useMemo(() => montarLinha(dia, derivadas), [dia, derivadas])
-
-  return (
-    <section>
-      <h2 className="t-legenda mb-2">Informações do dia</h2>
-
-      <Cartao>
-        <div className="flex items-center justify-between gap-3 py-1 text-sm">
-          <span className="flex items-center gap-2 text-(--color-tinta-3)">
-            <Wallet size={14} /> Moeda
-          </span>
-          <span className="font-medium">{nomeMoeda(moeda)}</span>
-        </div>
-        {dica && (
-          <p className="mt-2 flex items-start gap-2 border-t border-(--color-borda) pt-3 text-[13px] text-(--color-tinta-2)">
-            <Lightbulb size={14} className="mt-0.5 shrink-0" style={{ color: 'var(--destaque)' }} />
-            <span>
-              <span className="font-semibold">Dica do dia · </span>
-              {dica}
-            </span>
-          </p>
-        )}
-      </Cartao>
-
-      {linha.length > 0 && (
-        <div className="mt-3 space-y-3">
-          {linha.map((l, i) => {
-            const tipo = String(l.item.tipo ?? 'passeio')
-            const Icone = ICONE[tipo] ?? MapPin
-            const tom = tomIcone(tipo)
-            return (
-              <Cartao key={String(l.item.id ?? `d${i}`)}>
-                <div className="flex items-start gap-3">
-                  <span
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-                    style={{ background: tom.bg }}
-                  >
-                    <Icone size={16} style={{ color: tom.ink }} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="tab-num text-[12px] font-semibold text-(--color-tinta-3)">
-                      {formatarHora(l.item.ocorre_em) || '—'}
-                    </p>
-                    <p className="font-medium">{String(l.item.titulo)}</p>
-                  </div>
-                  <Badge tipo={tipo} />
-                </div>
-                {itemTemDetalhe(l.item, l.derivada) ? (
-                  <DetalheItem
-                    item={l.item}
-                    derivada={l.derivada}
-                    moeda={moeda}
-                    podeEditar={posso('editor') && !l.derivada}
-                  />
-                ) : (
-                  <p className="mt-3 border-t border-(--color-borda) pt-3 text-[13px] text-(--color-tinta-3)">
-                    Sem detalhes adicionais para esta atividade.
-                  </p>
-                )}
-              </Cartao>
-            )
-          })}
-        </div>
-      )}
-    </section>
-  )
-}
+// "Informações do dia" morava aqui: um cartão com a moeda da viagem e a primeira
+// linha de "Atenção hoje", e abaixo dele a linha do tempo INTEIRA montada de
+// novo, logo ao lado da agenda que já a mostrava. As três coisas eram cópias — a
+// moeda está em Financeiro, o alerta abre em Dicas com todos os outros, e o
+// detalhe de um item se abre no próprio item, em "Ver detalhes". Nada foi
+// escondido: foi apagado o segundo lugar onde o mesmo dado aparecia.
 
 /**
  * Como se anda no dia: um trecho por parada com deslocamento cadastrado, com o
@@ -3319,10 +3535,19 @@ function TransportesDoDia({ dia }: { dia: DiaRoteiro }) {
  * vê as parcelas DELE que vencem hoje — que é tudo que o servidor mandou. Não há
  * um total do grupo a esconder aqui porque ele nunca chegou ao navegador.
  */
-function GastosDoDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
+function GastosDoDia({
+  dia,
+  moeda,
+  vazio,
+}: {
+  dia: DiaRoteiro
+  moeda: string
+  /** Numa aba, sumir não é opção: quem clicou em "Gastos" precisa de resposta. */
+  vazio?: ReactNode
+}) {
   const { snapshot } = useTrip()
   const fin = snapshot?.financeiro
-  if (!fin) return null
+  if (!fin) return vazio ?? null
 
   const itens = fin.admin
     ? (fin.despesas as Record<string, unknown>[])
@@ -3337,7 +3562,7 @@ function GastosDoDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
         .map((o) => ({ id: o.id, nome: o.descricao, centavos: o.valor_centavos }))
 
   const estimado = dia.itens.reduce((s, e) => s + (Number(e.custo_centavos) || 0), 0)
-  if (itens.length === 0 && estimado === 0) return null
+  if (itens.length === 0 && estimado === 0) return vazio ?? null
 
   const total = itens.reduce((s, i) => s + i.centavos, 0)
 
@@ -3572,7 +3797,7 @@ function FaixaDias({
         ref={faixa}
         role="tablist"
         aria-label="Dias da viagem"
-        className="flex min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto px-1 py-1"
+        className="rola-limpo flex min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto px-1 py-1"
       >
         {dias.map((d, i) => {
           const ativo = i === indice

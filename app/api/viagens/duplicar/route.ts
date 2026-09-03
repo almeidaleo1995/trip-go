@@ -139,8 +139,10 @@ export const POST = rota(async (req) => {
     from cruises where trip_id = ${corpo.id}
   `
     await sql`
-    insert into cruise_ports (cruise_id, porto, cidade, pais, chega_em, sai_em, dia_no_mar, ordem, nota)
-    select md5(p.cruise_id || ${novo}), p.porto, p.cidade, p.pais, p.chega_em + ${d}::interval,
+    insert into cruise_ports (cruise_id, porto, cidade, pais, lat, lon, chega_em, sai_em,
+                              dia_no_mar, ordem, nota)
+    select md5(p.cruise_id || ${novo}), p.porto, p.cidade, p.pais, p.lat, p.lon,
+           p.chega_em + ${d}::interval,
            p.sai_em + ${d}::interval, p.dia_no_mar, p.ordem, p.nota
     from cruise_ports p join cruises c on c.id = p.cruise_id where c.trip_id = ${corpo.id}
   `
@@ -154,10 +156,10 @@ export const POST = rota(async (req) => {
 
   if (copiar('reservas')) {
     await sql`
-    insert into reservations (trip_id, tipo, nome, cidade, inicio_em, fim_em, endereco, link,
-                              telefone, localizador, valor_centavos, nota, ordem)
+    insert into reservations (trip_id, tipo, nome, cidade, inicio_em, fim_em, endereco, lat, lon,
+                              link, telefone, localizador, valor_centavos, nota, ordem)
     select ${novo}, tipo, nome, cidade, inicio_em + ${d}::interval, fim_em + ${d}::interval,
-           endereco, link, telefone, localizador, valor_centavos, nota, ordem
+           endereco, lat, lon, link, telefone, localizador, valor_centavos, nota, ordem
     from reservations where trip_id = ${corpo.id}
   `
   }

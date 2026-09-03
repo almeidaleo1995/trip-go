@@ -2,7 +2,8 @@
 
 // Cartão de viagem usado no Início e em Minhas viagens. Existe uma vez para que
 // as duas telas não descrevam a mesma viagem de dois jeitos diferentes.
-import { CalendarDays, Users, Globe, ChevronRight } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { CalendarDays, Users, Globe, ChevronRight, type LucideIcon } from 'lucide-react'
 import { faseDaViagem, formatarData, formatarRelativo, statusViagem } from '@/lib/derive.ts'
 import type { StatusViagem } from '@/lib/derive.ts'
 import { CapaViagem } from './CapaViagem.tsx'
@@ -68,7 +69,12 @@ export function CartaoViagem({
   acoes?: React.ReactNode
   href?: string
 }) {
-  const cor = viagem.cor_destaque || '#0F766E'
+  // A capa não usa mais `cor_destaque`: era o último lugar do sistema onde a
+  // cor da viagem ainda pintava a interface, e o redesign editorial é
+  // monocromático por definição (cor sobra só para o mapa e o pêssego — ver
+  // nota em app/globals.css § --destaque). O horizonte gerado continua vivo,
+  // só que sempre no mesmo cinza neutro, como qualquer outro card do sistema.
+  const cor = '#9a9a9c'
   const status = statusViagem(
     new Date(),
     viagem.data_partida,
@@ -81,10 +87,13 @@ export function CartaoViagem({
   const pct = total > 0 ? Math.round(((viagem.tarefas_feitas ?? 0) / total) * 100) : null
 
   return (
-    <div
-      style={{ ['--destaque' as string]: cor }}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-1)] transition-shadow hover:shadow-[var(--sombra-2)]"
-    >
+    // O único movimento do cartão: 2px para cima com a sombra abrindo junto,
+    // 200ms. É resposta a um gesto da pessoa, não enfeite — diz "isto abre".
+    // `transition-[box-shadow,translate]` e não `transition-all`: só estas duas
+    // o navegador compõe na GPU, e `all` faria a altura do cartão animar quando
+    // o texto muda. `prefers-reduced-motion` zera a duração em globals.css, e aí
+    // a sombra ainda muda — o retorno visual nunca depende só do movimento.
+    <div className="group relative flex flex-col overflow-hidden rounded-3xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-1)] transition-[box-shadow,translate] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--sombra-2)]">
       <a href={href ?? `/viagens/${viagem.id}`} className="flex flex-1 flex-col">
         {/* A capa não tem texto em cima: assim nenhum contraste depende da arte. */}
         <div className="relative h-24 shrink-0 overflow-hidden">
@@ -100,26 +109,35 @@ export function CartaoViagem({
             <Badge tipo={rotulo.tom} texto={rotulo.texto} />
           </div>
 
-          <div className="space-y-1.5 text-sm text-(--color-tinta-2)">
-            <p className="tab-num flex items-center gap-2">
-              <CalendarDays size={14} className="shrink-0 text-(--color-tinta-3)" />
+          {/* UMA COLUNA DE ÍCONES, não ícones soltos no meio do texto.
+              Cada linha é `[ícone de 16px] [texto]` com o mesmo recuo, então os
+              três ícones se alinham verticalmente e os três textos começam no
+              mesmo x. Antes cada linha usava um gap diferente (2, 2, 1.5) e a
+              segunda enfileirava dois pares ícone+texto na mesma linha, o que
+              punha o globo num x que dependia de quantos participantes a viagem
+              tinha. */}
+          <ul className="space-y-1.5 text-sm text-(--color-tinta-2)">
+            <LinhaMeta Icone={CalendarDays} numerico>
               {periodo(viagem)}
-            </p>
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="flex items-center gap-2">
-                <Users size={14} className="shrink-0 text-(--color-tinta-3)" />
-                {viagem.participantes}{' '}
-                {viagem.participantes === 1 ? 'participante' : 'participantes'}
-              </span>
-              {(viagem.paises ?? 0) > 0 && (
-                <span className="flex items-center gap-1.5">
-                  <Globe size={14} className="shrink-0 text-(--color-tinta-3)" />
-                  {viagem.paises} {viagem.paises === 1 ? 'país' : 'países'}
-                </span>
+              {f.totalDias > 0 && (
+                <span className="text-(--color-tinta-3)"> · {f.totalDias} dias</span>
               )}
-              {f.totalDias > 0 && <span>· {f.totalDias} dias</span>}
-            </p>
-          </div>
+            </LinhaMeta>
+            <LinhaMeta Icone={Users}>
+              {viagem.participantes} {viagem.participantes === 1 ? 'participante' : 'participantes'}
+            </LinhaMeta>
+            {(viagem.paises ?? 0) > 0 && (
+              <LinhaMeta Icone={Globe}>
+                {viagem.paises} {viagem.paises === 1 ? 'país' : 'países'}
+                {(viagem.cidades ?? 0) > 0 && (
+                  <span className="text-(--color-tinta-3)">
+                    {' '}
+                    · {viagem.cidades} {viagem.cidades === 1 ? 'cidade' : 'cidades'}
+                  </span>
+                )}
+              </LinhaMeta>
+            )}
+          </ul>
 
           {pct !== null && (
             <div className="mt-3">
@@ -131,11 +149,13 @@ export function CartaoViagem({
             </div>
           )}
 
-          <div className="mt-3 flex items-end justify-between gap-2 pt-1">
+          {/* `mt-auto` empurra o rodapé para baixo: numa fileira de três cartões
+              a grade já os deixa da mesma altura, mas sem isto o "Faltam 118
+              dias" flutuava no meio do cartão mais curto e no pé do mais alto —
+              três cartões iguais com a mesma informação em três alturas. */}
+          <div className="mt-auto flex items-end justify-between gap-2 pt-4">
             <div className="min-w-0">
-              <p className="text-sm font-semibold" style={{ color: 'var(--destaque)' }}>
-                {contagem(viagem)}
-              </p>
+              <p className="text-sm font-semibold">{contagem(viagem)}</p>
               {viagem.atualizada_em && (
                 <p className="text-[12px] text-(--color-tinta-3)">
                   Atualizada {formatarRelativo(viagem.atualizada_em)}
@@ -152,5 +172,37 @@ export function CartaoViagem({
 
       {acoes && <div className="absolute top-3 right-3 flex gap-1">{acoes}</div>}
     </div>
+  )
+}
+
+/**
+ * Uma linha de metadado do cartão: ícone numa caixa fixa, texto ao lado.
+ *
+ * A caixa de 16px é o que faz a coluna de ícones existir. `items-start` com um
+ * `mt-px` no ícone, e não `items-center`: quando o texto quebra em duas linhas o
+ * ícone tem de ficar junto da PRIMEIRA, senão ele desce para o meio do parágrafo
+ * e sai da coluna — que é exatamente o caso de um nome de cidade longo num
+ * cartão estreito.
+ */
+function LinhaMeta({
+  Icone,
+  numerico,
+  children,
+}: {
+  Icone: LucideIcon
+  /** Datas e contagens: dígitos de largura fixa, para não dançarem entre cartões. */
+  numerico?: boolean
+  children: ReactNode
+}) {
+  return (
+    <li className={`flex items-start gap-2.5 ${numerico ? 'tab-num' : ''}`}>
+      <Icone
+        size={16}
+        strokeWidth={1.75}
+        aria-hidden
+        className="mt-px shrink-0 text-(--color-tinta-3)"
+      />
+      <span className="min-w-0">{children}</span>
+    </li>
   )
 }

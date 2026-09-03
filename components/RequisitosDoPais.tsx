@@ -17,7 +17,7 @@
 // lib/db.ts): um visualizador recebe o ESTADO de todo mundo e o VALOR de
 // ninguém. Este arquivo desenha o que chegou e não filtra permissão — não teria
 // como, e fingir que tem seria esconder na tela o que a rede já entregou.
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useTrip } from './TripProvider.tsx'
 import { AppModal } from './ui.tsx'
@@ -45,25 +45,32 @@ type Resumo = {
 }
 
 /**
- * A nota. Devolve `null` — some inteira — em três casos, e cada um é deliberado:
- * dia sem país cadastrado (o país nunca é adivinhado pelo nome da cidade),
- * viagem sem requisito nenhum, e país sem requisito que se aplique a ele.
+ * A nota. Sem nota a desenhar ela devolve `vazio` — e `null` quando ninguém
+ * passa um. São três casos, e cada um é deliberado: dia sem país cadastrado (o
+ * país nunca é adivinhado pelo nome da cidade), viagem sem requisito nenhum, e
+ * país sem requisito que se aplique a ele.
  *
- * Um bloco que aparece dizendo "nada a exigir aqui" gasta a única linha de
- * cabeçalho que o celular tem para ensinar a pessoa a ignorá-lo.
+ * O `vazio` existe porque o Roteiro precisa de uma linha de altura CONSTANTE
+ * aqui: com a nota sumindo, a faixa de dias e a agenda inteira subiam alguns
+ * pixels ao trocar para um dia sem país, e o dia parecia outra tela. Onde não
+ * há esse problema — o celular, onde a nota é a única linha daquele espaço —
+ * continua valendo sumir, porque um bloco dizendo "nada a exigir aqui" ensina a
+ * pessoa a ignorar aquele canto.
  */
 export function RequisitosDoPais({
   pais,
   bandeira,
+  vazio = null,
 }: {
   pais: string | null
   bandeira: string | null
+  vazio?: ReactNode
 }) {
   const { snapshot } = useTrip()
   const [aberto, setAberto] = useState(false)
 
   const resumo = useMemo(() => montarResumo(snapshot, pais), [snapshot, pais])
-  if (!resumo) return null
+  if (!resumo) return <>{vazio}</>
 
   const tudoCerto = resumo.cumpridos === resumo.total
   const detalhe =
@@ -71,7 +78,8 @@ export function RequisitosDoPais({
       ? resumo.requisitos
           .slice(0, 2)
           .map((r) => r.nome)
-          .join(', ') + (resumo.requisitos.length > 2 ? ` e mais ${resumo.requisitos.length - 2}` : '')
+          .join(', ') +
+        (resumo.requisitos.length > 2 ? ` e mais ${resumo.requisitos.length - 2}` : '')
       : resumo.faltando.length === 1
         ? `Falta ${resumo.faltando[0].toLowerCase()}`
         : `Faltam ${resumo.faltando.length} documentos`
@@ -209,10 +217,7 @@ function montarResumo(
 ): Resumo | null {
   if (!snapshot || !pais) return null
 
-  const requisitos = requisitosDoPais(
-    snapshot.requisitos as unknown as Requisito[],
-    pais,
-  )
+  const requisitos = requisitosDoPais(snapshot.requisitos as unknown as Requisito[], pais)
   if (requisitos.length === 0) return null
 
   const participantes = snapshot.participantes.map((p) => ({

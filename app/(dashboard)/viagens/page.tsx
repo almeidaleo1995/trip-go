@@ -124,7 +124,11 @@ export default function Viagens() {
 
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-6xl">
+      {/* Sem medida própria: quem limita e centra é o `DashboardLayout`. Uma
+          grade de cartões não tem "linha de leitura" a respeitar — o `max-w-6xl`
+          que estava aqui prendia três cartões no meio de um monitor de 2560 e
+          deixava mil pixels de branco à direita. */}
+      <div>
         <Titulo
           descricao="Todas as suas aventuras em um só lugar."
           acao={
@@ -241,7 +245,7 @@ export default function Viagens() {
                 }
               />
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {visiveis.map((v) => (
                   <CartaoViagem
                     key={v.id}

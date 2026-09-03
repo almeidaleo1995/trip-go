@@ -121,8 +121,10 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     `)
     for (const p of c.portos) {
       q.push(sql`
-        insert into cruise_ports (id, cruise_id, porto, cidade, pais, chega_em, sai_em, dia_no_mar, ordem, nota)
+        insert into cruise_ports (id, cruise_id, porto, cidade, pais, lat, lon, chega_em, sai_em,
+                                  dia_no_mar, ordem, nota)
         values (${randomUUID()}, ${cruzeiroId}, ${p.porto ?? null}, ${p.cidade ?? null}, ${p.pais ?? null},
+                ${p.lat ?? null}, ${p.lon ?? null},
                 ${p.chega_em ?? null}, ${p.sai_em ?? null}, ${p.dia_no_mar}, ${p.ordem}, ${p.nota ?? null})
       `)
     }
@@ -136,9 +138,10 @@ export async function importarViagem(d: TripImport, ownerId: string): Promise<Re
     idPorReserva.set(r.nome, reservaId)
     q.push(sql`
       insert into reservations (id, trip_id, tipo, nome, cidade, inicio_em, fim_em, endereco,
-                                link, telefone, localizador, valor_centavos, nota, ordem)
+                                lat, lon, link, telefone, localizador, valor_centavos, nota, ordem)
       values (${reservaId}, ${tripId}, ${r.tipo}, ${r.nome}, ${r.cidade ?? null},
-              ${r.inicio_em ?? null}, ${r.fim_em ?? null}, ${r.endereco ?? null}, ${r.link ?? null},
+              ${r.inicio_em ?? null}, ${r.fim_em ?? null}, ${r.endereco ?? null},
+              ${r.lat ?? null}, ${r.lon ?? null}, ${r.link ?? null},
               ${r.telefone ?? null}, ${r.localizador ?? null}, ${r.valor_centavos ?? null},
               ${r.nota ?? null}, ${r.ordem})
     `)

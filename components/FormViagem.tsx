@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { ChevronDown, Palette } from 'lucide-react'
 import { AppModal, Botao, Campo, GrupoCampos, RotuloCampo, CLASSE_CAMPO } from './ui.tsx'
 import type { ViagemResumo } from './CartaoViagem.tsx'
+import { CapaViagem } from './CapaViagem.tsx'
 import { MOEDAS } from '@/lib/schema.ts'
 import { theme } from '@/config/theme.ts'
 
@@ -148,6 +149,38 @@ export function FormViagem({
 
           <div className="mt-3 space-y-4">
             <GrupoCampos titulo="Aparência">
+              {/* A foto vem ANTES da cor: é ela que a pessoa procura ao abrir
+                  "Personalizar", e a cor só pinta o desenho que aparece quando
+                  não há foto. Com a prévia ao lado dá para ver se o link
+                  funcionou sem fechar o formulário — um link que não carrega é
+                  o modo de falha desse campo, e ele é silencioso. */}
+              <div className="sm:col-span-2">
+                <div className="flex items-end gap-3">
+                  <div className="min-w-0 flex-1">
+                    {/* O rótulo fica NO `Campo`, e não num `RotuloCampo` por
+                        fora: um `rotulo=""` desenha uma linha em branco e deixa
+                        o input sem nome para o leitor de tela. */}
+                    <Campo
+                      rotulo="Foto de capa"
+                      dica="link de uma foto do destino — em branco, o app desenha uma"
+                      tipo="url"
+                      valor={capa}
+                      aoMudar={setCapa}
+                      placeholder="https://…"
+                    />
+                  </div>
+                  <span
+                    className="h-[42px] w-24 shrink-0 overflow-hidden rounded-xl border border-(--color-borda)"
+                    aria-hidden
+                  >
+                    <CapaViagem
+                      cor={cor}
+                      semente={viagem?.id ?? 'nova'}
+                      url={capa.trim() || null}
+                    />
+                  </span>
+                </div>
+              </div>
               <div className="sm:col-span-2">
                 <RotuloCampo>Cor da viagem</RotuloCampo>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -179,16 +212,6 @@ export function FormViagem({
                     />
                   </label>
                 </div>
-              </div>
-              <div className="sm:col-span-2">
-                <Campo
-                  rotulo="Capa"
-                  dica="link de imagem — em branco, o app desenha uma"
-                  tipo="url"
-                  valor={capa}
-                  aoMudar={setCapa}
-                  placeholder="https://…"
-                />
               </div>
             </GrupoCampos>
 

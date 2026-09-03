@@ -690,3 +690,79 @@ export function formatarDuracao(minutos: unknown): string {
   if (h === 0) return `${r}min`
   return r === 0 ? `${h}h` : `${h}h${String(r).padStart(2, '0')}`
 }
+
+// ------------------------------------------------------------------ etapas
+/**
+ * Um trecho da viagem: dias SEGUIDOS na mesma cidade.
+ *
+ * É o índice do roteiro — "Paris, 04 a 07 de jan, 4 atividades" — e existe para
+ * a tela poder mostrar a viagem inteira ao lado do dia aberto sem que a faixa de
+ * dias tenha de virar uma lista de 17 cartões.
+ */
+export type EtapaViagem = {
+  cidade: string
+  /** Chave do primeiro e do último dia do trecho ('AAAA-MM-DD'). */
+  inicio: string
+  fim: string
+  dias: number
+  atividades: number
+}
+
+/** Cidade normalizada para comparar: sem acento, sem caixa, sem espaço à toa. */
+function chaveCidade(c: string): string {
+  return (
+    c
+      // `\p{Diacritic}` e não um intervalo de U+0300..U+036F escrito à mão: os
+      // sinais combinantes são invisíveis dentro de um `[...]` em qualquer editor,
+      // e o próximo a ler acha que o colchete está vazio.
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .trim()
+      .toLowerCase()
+  )
+}
+
+/**
+ * Os dias do roteiro agrupados em trechos por cidade.
+ *
+ * Um dia SEM cidade continua o trecho anterior em vez de abrir um trecho novo:
+ * quase nenhuma viagem preenche `itinerary_days.cidade` em todos os dias, e um
+ * dia em branco no meio de Paris não é uma mudança de lugar — é um dia que
+ * ninguém anotou. Antes do primeiro trecho ele é ignorado, porque aí não há
+ * cidade nenhuma a herdar e inventar uma seria adivinhar.
+ */
+export function etapasDaViagem(
+  dias: { chave: string; cidade: string | null; atividades: number }[],
+): EtapaViagem[] {
+  const etapas: EtapaViagem[] = []
+
+  for (const d of dias ?? []) {
+    const cidade = (d.cidade ?? '').trim()
+    const atual = etapas[etapas.length - 1]
+
+    if (!cidade) {
+      if (!atual) continue
+      atual.fim = d.chave
+      atual.dias += 1
+      atual.atividades += d.atividades
+      continue
+    }
+
+    if (atual && chaveCidade(atual.cidade) === chaveCidade(cidade)) {
+      atual.fim = d.chave
+      atual.dias += 1
+      atual.atividades += d.atividades
+      continue
+    }
+
+    etapas.push({
+      cidade,
+      inicio: d.chave,
+      fim: d.chave,
+      dias: 1,
+      atividades: d.atividades,
+    })
+  }
+
+  return etapas
+}
