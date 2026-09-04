@@ -30,7 +30,11 @@ const BANCO = 'viagem'
 //           assim mesmo porque a regra e a regra, e o preco de errar o julgamento
 //           de "aditiva o suficiente" e tela branca na primeira pintura -- o preco
 //           de subir a toa e uma ida a rede.
-const VERSAO = 8
+//   8 -> 9  `reservas` e os `portos` do cruzeiro ganharam lat/lon, que e o que
+//           poe hotel e escala no mapa da viagem. Tambem aditiva -- sem a subida
+//           o mapa simplesmente mostraria o hotel no centro da cidade, marcado
+//           como aproximado, ate a rede responder. Sobe pela mesma regra.
+const VERSAO = 9
 const SNAPSHOT = 'snapshot'
 const FILA = 'fila'
 const ARQUIVOS = 'arquivos'

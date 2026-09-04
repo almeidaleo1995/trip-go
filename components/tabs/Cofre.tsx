@@ -441,7 +441,7 @@ export function Cofre() {
 
       {/* Celular: tela própria, do jeito que o §11 pede — não um painel espremido. */}
       {docAberto && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-(--color-fundo) lg:hidden">
+        <div className="anim-surgir fixed inset-0 z-50 flex flex-col bg-(--color-fundo) lg:hidden">
           <header className="flex items-center gap-2 border-b border-(--color-borda) bg-(--color-cartao) px-3 py-2">
             <BotaoIcone rotulo="Voltar ao cofre" onClick={() => setAberto(null)}>
               <ArrowLeft size={18} />

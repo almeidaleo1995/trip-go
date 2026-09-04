@@ -74,6 +74,9 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
       "terminal": null,      // "só o seu voucher sabe"
       "portos": [
         { "porto": "Zeebrugge", "cidade": "Bruges", "pais": "Bélgica",
+          // coordenada do PORTO, não do centro turístico: é onde o navio encosta.
+          // Sem ela a escala cai no centro da cidade, marcada como aproximada.
+          "lat": 51.3306, "lon": 3.2069,
           "chega_em": "2027-01-05T07:00", "sai_em": "2027-01-05T18:00", "ordem": 1 },
         { "dia_no_mar": true, "ordem": 0, "nota": "Mar do Norte" }  // sem porto
       ]
@@ -88,6 +91,10 @@ Toda lista é opcional. Uma viagem só com `viagem` e `roteiro` é válida; as a
       // aparece sem os botões de virar o celular e de ligar.
       "endereco": "Calle Atocha, 36, 28012 Madrid",
       "telefone": "+34 91 369 71 71",
+      // põe o hotel no mapa no lugar certo. Sem isso ele ainda aparece, no
+      // centro da cidade e escrito "Localização aproximada" — o que é honesto.
+      // Coordenada chutada, não: ela some do aviso e vira endereço errado.
+      "lat": 40.4118, "lon": -3.6969,
       "link": null, "localizador": null }
   ],
 
@@ -239,7 +246,7 @@ um roteiro que só se lê de um que resolve o dia:
 | `distancia_m` | `roteiro[]` | "950 m" ao lado do tempo. |
 | `transporte` | `roteiro[]` | O ícone e a palavra: `a_pe`, `metro`, `onibus`, `trem`, `taxi`, `carro`, `barco`, `aviao`. |
 | `endereco` | `roteiro[]`, `reservas[]` | O botão **Endereço**, que abre a tela de virar o celular para o motorista. |
-| `lat`/`lon` | `roteiro[]`, `lugares[]` | "Abrir no mapa" e o clima da cidade. |
+| `lat`/`lon` | `roteiro[]`, `lugares[]`, `reservas[]`, `portos[]` | "Abrir no mapa", o clima da cidade e o pino de cada categoria em Roteiro → Mapa. |
 | `telefone` | `reservas[]` | O botão **Telefone** do hotel. |
 | `fuso` | `viagem` | Que horas são NO DESTINO quando se abre o app de casa. |
 

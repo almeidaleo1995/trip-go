@@ -6,6 +6,7 @@ import { CadastroSchema, SENHA_MINIMA } from '@/lib/schema.ts'
 import { Botao, Campo } from '@/components/ui.tsx'
 import { Turnstile, captchaAtivo } from '@/components/Turnstile.tsx'
 import { CAMPO_ARMADILHA } from '@/lib/seguranca.ts'
+import { siteConfig } from '@/config/site.ts'
 
 export default function Register() {
   const [nome, setNome] = useState('')
@@ -79,7 +80,7 @@ export default function Register() {
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/15">
             <MapPinned size={19} />
           </span>
-          <span className="text-xl font-bold tracking-tight">TripGo</span>
+          <span className="text-xl font-bold tracking-tight">{siteConfig.nome}</span>
         </div>
 
         <div className="relative z-10">
@@ -125,7 +126,7 @@ export default function Register() {
             >
               <MapPinned size={19} />
             </span>
-            <span className="text-xl font-bold tracking-tight">TripGo</span>
+            <span className="text-xl font-bold tracking-tight">{siteConfig.nome}</span>
           </div>
 
           <h1 className="t-pagina">Criar conta</h1>

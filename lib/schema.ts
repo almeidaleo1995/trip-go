@@ -371,6 +371,10 @@ export const ReservaSchema = z.object({
   inicio_em: DataHora.nullish(),
   fim_em: DataHora.nullish(),
   endereco: TextoOpc,
+  /** Sem lat/lon o hotel ainda entra no mapa, herdando o centro da cidade e
+      marcado como localizacao aproximada. Ver lib/mapaViagem.ts. */
+  lat: z.number().min(-90).max(90).nullish(),
+  lon: z.number().min(-180).max(180).nullish(),
   link: TextoOpc,
   telefone: TextoOpc,
   localizador: TextoOpc,
@@ -398,6 +402,9 @@ export const PortoSchema = z.object({
   porto: TextoOpc,
   cidade: TextoOpc,
   pais: TextoOpc,
+  /** Idem hotel: sem coordenada a escala cai no centro da cidade, aproximada. */
+  lat: z.number().min(-90).max(90).nullish(),
+  lon: z.number().min(-180).max(180).nullish(),
   chega_em: DataHora.nullish(),
   sai_em: DataHora.nullish(),
   dia_no_mar: z.boolean().default(false),

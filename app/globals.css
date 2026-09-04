@@ -1,41 +1,68 @@
 @import 'tailwindcss';
 
 /*
-  TripGo — sistema visual.
+  TripGo — sistema visual editorial.
 
-  Uma cor de marca (teal) para tudo que é interativo, uma família de superfícies
-  quase-neutras com um fio de verde dentro, e quatro cores semânticas que só
-  aparecem quando têm significado. Nada de hexadecimal solto nos componentes:
-  se a cor não está aqui, ela não existe.
+  Papel branco, tinta quase-preta, e uma família de cinzas neutros — nada de
+  fio colorido escondido no cinza. Cor forte é EXCEÇÃO: o pêssego (`destaque2`)
+  é o único acento cromático do sistema e existe para um momento editorial por
+  vez (dica, insight), nunca como fundo de card recorrente. `destaque` continua
+  a cor QUE A VIAGEM VESTE (trips.cor_destaque, ver `theme.paletaViagens`) —
+  ativa a navegação, os pinos do mapa e os links; não pinta o botão principal,
+  que é tinta sólida em qualquer viagem (regra 13 do redesign: só três famílias
+  de botão, e a primária é sempre `--color-tinta`).
 
   Todo contraste abaixo foi MEDIDO, não estimado.
 
-  Dois valores continuam proibidos e não estão aqui:
+  Valores proibidos, e por quê:
     #0D9488 -> 3.74:1, reprova AA como texto e como fundo de texto
     #94A3B8 -> 2.44:1, reprova para qualquer texto
+    #777b86 (slate do style reference) -> 4.23:1, reprova AA de texto normal;
+      por isso `tinta-2`/`tinta-3` abaixo são um degrau mais escuros que a
+      referência — a mesma intenção editorial, medida para este idioma.
 */
 
 @theme {
   /* ---------------------------------------------------------- superfícies
-     `fundo` é o papel, `cartao` o que se levanta dele, `superficie-2` o que
-     se rebaixa (linhas agrupadas, painéis internos, notas). O fio de verde
-     dentro do cinza é o que impede a tela de parecer painel administrativo. */
-  --color-fundo: #f6faf9; /* 17.2:1 com a tinta */
+     Quatro níveis, e só quatro: `fundo` é a página (papel branco), `secao` é
+     a faixa que alterna sem contraste, `superficie-2` é o card que se levanta
+     dela (mist), `cartao` é branco elevado (flutuante, com sombra). */
+  --color-fundo: #ffffff;
+  --color-secao: #fafafb;
   --color-cartao: #ffffff;
-  --color-superficie-2: #eff5f4;
-  --color-borda: #e3eae9;
-  --color-borda-forte: #cbd8d6;
+  --color-superficie-2: #f2f2f3;
+  --color-borda: #ececec;
+  --color-borda-forte: #d9d9db;
 
-  /* ---------------------------------------------------------- texto */
-  --color-tinta: #0f172a;
-  --color-tinta-2: #47575a; /* 7.4:1 */
-  --color-tinta-3: #64757a; /* 4.6:1 — piso; nada mais claro em texto */
+  /* ---------------------------------------------------------- texto
+     Neutros puros (sem fio de cor) e um degrau mais escuros que o style
+     reference: `tinta-2` é o piso de texto comum a 7.1:1, `tinta-3` seu chão
+     em 4.6:1 — nada mais claro que isso carrega texto. `tinta-4` é decorativo
+     só (placeholder, desabilitado): a AA não vale para esses dois casos. */
+  --color-tinta: #17191c;
+  --color-tinta-2: #52555c; /* 7.1:1 */
+  --color-tinta-3: #6b7280; /* 4.6:1 — piso; nada mais claro em texto */
+  --color-tinta-4: #a3a6af; /* decorativo: placeholder e desabilitado, nunca texto real */
 
-  /* ---------------------------------------------------------- marca */
-  --color-destaque: #0f766e; /* 5.47:1 como texto E com branco em cima */
-  --color-destaque-escuro: #115e59;
-  --color-destaque-fraco: #ccfbf1;
-  --color-destaque-tenue: #edfbf8;
+  /* ---------------------------------------------------------- marca da viagem
+     `trips.cor_destaque` continua existindo no banco e na tela Dados (a
+     pessoa pode escolher uma cor), mas o SISTEMA VISUAL não usa mais isso
+     como cor de interface — nav ativa, link, botão, chip e progresso são
+     tinta preta em qualquer viagem. Cor só sobra para o MAPA (uma por
+     cidade, `corDaEtapa`) e para o pêssego editorial. Estes tokens ficam
+     como tinta/neutro por padrão: um componente que ainda ler `--destaque`
+     ou `--color-destaque-fraco/-tenue` (muitos leem) não volta a pintar
+     verde — lê preto sobre cinza, que é o sistema novo. */
+  --color-destaque: #17191c; /* era #0f766e — teal. Ver nota acima. */
+  --color-destaque-escuro: #000000;
+  --color-destaque-fraco: #e4e4e6;
+  --color-destaque-tenue: #f5f5f6;
+
+  /* ---------------------------------------------------------- acento editorial
+     O pêssego. Um card por tela, no máximo — dica do TripGo, insight, destaque
+     de conteúdo. Nunca vira decoração recorrente (regra 5–6 do redesign). */
+  --color-acento: #fbe1d1;
+  --color-acento-tinta: #5d2a1a;
 
   /* ---------------------------------------------------------- semânticas
      Cada uma existe em par ink/bg. A tinta passa AA sobre o próprio fundo. */
@@ -64,22 +91,29 @@
   --color-pass-bg: #f3e8ff;
 
   --font-sans: var(--fonte-inter), ui-sans-serif, system-ui, sans-serif;
+  /* Sem webfont novo: pilha nativa de serifs editoriais, já instalada em todo
+     sistema (regra 47 — não adicionar dependência para o que a plataforma já
+     resolve). `ui-serif` cobre San Francisco/Georgia/Noto conforme o SO. */
+  --font-serif: ui-serif, Georgia, 'Times New Roman', serif;
 }
 
 :root {
-  /* Sobrescrito em runtime por trips.cor_destaque: trocar a viagem troca a
-     identidade sem tocar em nenhum componente. */
-  --destaque: #0f766e;
+  /* Era sobrescrito em runtime por trips.cor_destaque — não é mais (ver nota
+     em --color-destaque acima). O padrão agora é tinta preta, e nenhuma tela
+     injeta outra coisa aqui: o redesign editorial é monocromático por
+     definição, cor é exceção do mapa e do pêssego, não da navegação. */
+  --destaque: var(--color-tinta);
 
   /* ---------------------------------------------------------- elevação
-     Três degraus, e só três. Sombra é hierarquia, não decoração. */
-  --sombra-1: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
-  --sombra-2: 0 4px 16px rgb(15 23 42 / 0.08);
-  --sombra-modal: 0 24px 48px -12px rgb(15 23 42 / 0.22);
+     Três degraus, e só três. Cards planos não têm sombra nenhuma — só o que
+     FLUTUA sobre o conteúdo (mapa, dropdown, modal) ganha uma, e rasa. */
+  --sombra-1: 0 1px 2px rgb(23 25 28 / 0.04), 0 1px 3px rgb(23 25 28 / 0.06);
+  --sombra-2: 0 8px 24px rgb(23 25 28 / 0.08);
+  --sombra-modal: 0 24px 48px -12px rgb(23 25 28 / 0.18);
 
   /* Véu do modal. Escurece o suficiente para focar, não o bastante para
      apagar a página — a queixa nº 1 era exatamente a tela ficar preta. */
-  --veu: rgb(15 23 42 / 0.32);
+  --veu: rgb(23 25 28 / 0.32);
 
   --transicao: 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --raio: 16px;
@@ -106,18 +140,23 @@ body {
 }
 
 /* ------------------------------------------------------------------ tipografia
-   Seis papéis, seis classes. Um tamanho que não está aqui é um bug. */
+   Serif editorial para título de página e nome de lugar — peso 400 sempre; o
+   sussurro é a assinatura, não o negrito. Sans para todo o resto: navegação,
+   metadados, formulário, número, tabela. Seis papéis, seis classes — um
+   tamanho que não está aqui é um bug. */
 .t-pagina {
-  font-size: 26px;
+  font-family: var(--font-serif);
+  font-size: 32px;
   line-height: 1.15;
-  font-weight: 650;
-  letter-spacing: -0.015em;
+  font-weight: 400;
+  letter-spacing: -0.01em;
 }
 .t-secao {
-  font-size: 19px;
+  font-family: var(--font-serif);
+  font-size: 22px;
   line-height: 1.25;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 400;
+  letter-spacing: -0.005em;
 }
 .t-cartao {
   font-size: 15px;
@@ -140,6 +179,23 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-tinta-3);
+}
+
+/* Título de destino/cidade — serif grande, o "nome próprio" da tela (Roteiro,
+   Cidades, cartões de hospedagem). Maior que .t-pagina porque aqui o nome do
+   lugar É a página, não um rótulo dela. */
+.t-destino {
+  font-family: var(--font-serif);
+  font-size: 40px;
+  line-height: 1.1;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+@media (min-width: 768px) {
+  .t-destino {
+    font-size: 56px;
+  }
 }
 
 /* Três papéis da tela HOJE, lida de pé, com uma mão, no sol. Entram na escala em
@@ -181,7 +237,10 @@ body {
 
 @media (min-width: 768px) {
   .t-pagina {
-    font-size: 28px;
+    font-size: 44px;
+  }
+  .t-secao {
+    font-size: 26px;
   }
 }
 
@@ -195,6 +254,19 @@ body {
 .toque {
   min-height: 44px;
   min-width: 44px;
+}
+
+/* Rola, mas sem desenhar a barra: para faixas onde a rolagem é lateral e curta
+   (os dias do roteiro, as abas do dia) e a barra do Windows come 15px de altura
+   dentro do próprio componente, colada no conteúdo. Só o desenho some — a roda
+   do mouse, o arrasto e o teclado continuam funcionando, e o conteúdo que
+   transborda continua alcançável. Não use isto numa lista longa: aí a barra é a
+   única pista de que existe mais coisa. */
+.rola-limpo {
+  scrollbar-width: none;
+}
+.rola-limpo::-webkit-scrollbar {
+  display: none;
 }
 
 /* ------------------------------------------------------------------ foco
@@ -262,6 +334,46 @@ body {
 }
 .anim-toast {
   animation: entrar-toast 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Saída: mais rápida e mais curta que a entrada de par — a atenção de quem
+   fecha já foi embora, a animação só evita o corte seco (regra §2 do motion). */
+@keyframes sair {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes descer {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+@keyframes sair-toast {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.anim-sair {
+  animation: sair 110ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.anim-descer {
+  animation: descer 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.anim-sair-toast {
+  animation: sair-toast 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 /* Esqueleto de carregamento: a forma do conteúdo antes do conteúdo. */

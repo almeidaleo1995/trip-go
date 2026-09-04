@@ -229,6 +229,10 @@ create table if not exists reservations (
   inicio_em      timestamp,
   fim_em         timestamp,
   endereco       text,
+  -- lat/lon opcionais, igual a places e itinerary_events: sem eles o hotel ainda
+  -- aparece no mapa, mas herdando o centro da cidade e marcado como aproximado
+  lat            numeric(8, 5),
+  lon            numeric(8, 5),
   link           text,
   telefone       text,
   localizador    text,
@@ -281,6 +285,9 @@ create table if not exists cruise_ports (
   porto       text,
   cidade      text,
   pais        text,
+  -- mesma regra de places: sem coordenada a escala herda o centro da cidade
+  lat         numeric(8, 5),
+  lon         numeric(8, 5),
   chega_em    timestamp,
   sai_em      timestamp,
   dia_no_mar  boolean not null default false,
@@ -914,6 +921,21 @@ alter table itinerary_events add column if not exists custo_centavos integer;
 alter table itinerary_events add column if not exists reserva_id     text references reservations(id) on delete set null;
 alter table itinerary_events add column if not exists documento_id   text references documents(id) on delete set null;
 alter table itinerary_events add column if not exists ordem          integer not null default 0;
+
+-- ---------------------------------------------------------------- coordenadas do mapa
+--
+-- O mapa da viagem mostra hotel e porto como categoria propria, e as duas
+-- tabelas nasceram sem onde guardar isso. Sem estas colunas o pino do hotel cai
+-- no centro da cidade (marcado `aproximado` na tela, nunca disfarcado) -- o que
+-- ja e o comportamento correto, e por isso as colunas sao opcionais: elas
+-- MELHORAM o mapa, nao sao condicao para ele existir.
+--
+-- Precisa estar aqui e nao so no `create table`: um banco em uso ja tem as duas
+-- tabelas, e a metade de cima nao encosta em tabela existente.
+alter table reservations add column if not exists lat numeric(8, 5);
+alter table reservations add column if not exists lon numeric(8, 5);
+alter table cruise_ports add column if not exists lat numeric(8, 5);
+alter table cruise_ports add column if not exists lon numeric(8, 5);
 
 -- O check de `tipo` cresceu de 7 para 19 valores. Trocar a constraint e o unico
 -- caminho: `check` nao aceita `if not exists`, e a antiga recusaria 'restaurante'.

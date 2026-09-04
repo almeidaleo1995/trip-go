@@ -27,6 +27,7 @@ import {
   montarDias,
   ordenarItens,
   resumoDoDia,
+  etapasDaViagem,
   diaFoco,
   formatarDistancia,
   linhas,
@@ -605,4 +606,65 @@ test('resumoDoDia nao perde deslocamento de item sem modo conhecido', () => {
   ])
   assert.deepEqual(r.porModo, [{ modo: 'outro', vezes: 1, distanciaM: 2400, minutos: 18 }])
   assert.equal(r.distanciaM, 2400)
+})
+
+// ------------------------------------------------------------------ etapas
+test('etapasDaViagem junta dias seguidos na mesma cidade', () => {
+  const e = etapasDaViagem([
+    { chave: '2027-01-01', cidade: 'Madri', atividades: 2 },
+    { chave: '2027-01-02', cidade: 'Madri', atividades: 3 },
+    { chave: '2027-01-03', cidade: 'Paris', atividades: 1 },
+  ])
+  assert.equal(e.length, 2)
+  assert.deepEqual(e[0], {
+    cidade: 'Madri',
+    inicio: '2027-01-01',
+    fim: '2027-01-02',
+    dias: 2,
+    atividades: 5,
+  })
+  assert.equal(e[1].cidade, 'Paris')
+})
+
+test('etapasDaViagem ignora acento e caixa ao comparar cidade', () => {
+  const e = etapasDaViagem([
+    { chave: '2027-01-01', cidade: 'Braganca', atividades: 0 },
+    { chave: '2027-01-02', cidade: 'BRAGANÇA', atividades: 1 },
+  ])
+  assert.equal(e.length, 1)
+  assert.equal(e[0].dias, 2)
+})
+
+test('dia sem cidade continua o trecho anterior, e nao abre um novo', () => {
+  const e = etapasDaViagem([
+    { chave: '2027-01-01', cidade: 'Paris', atividades: 1 },
+    { chave: '2027-01-02', cidade: null, atividades: 2 },
+    { chave: '2027-01-03', cidade: 'Paris', atividades: 0 },
+  ])
+  assert.equal(e.length, 1)
+  assert.equal(e[0].dias, 3)
+  assert.equal(e[0].atividades, 3)
+  assert.equal(e[0].fim, '2027-01-03')
+})
+
+test('dia sem cidade ANTES do primeiro trecho nao vira etapa', () => {
+  const e = etapasDaViagem([
+    { chave: '2027-01-01', cidade: null, atividades: 4 },
+    { chave: '2027-01-02', cidade: 'Roma', atividades: 1 },
+  ])
+  assert.equal(e.length, 1)
+  assert.equal(e[0].inicio, '2027-01-02')
+  assert.equal(e[0].atividades, 1)
+})
+
+test('a mesma cidade em dois momentos da viagem sao dois trechos', () => {
+  const e = etapasDaViagem([
+    { chave: '2027-01-01', cidade: 'Madri', atividades: 1 },
+    { chave: '2027-01-02', cidade: 'Paris', atividades: 1 },
+    { chave: '2027-01-03', cidade: 'Madri', atividades: 1 },
+  ])
+  assert.deepEqual(
+    e.map((x) => x.cidade),
+    ['Madri', 'Paris', 'Madri'],
+  )
 })

@@ -188,25 +188,21 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
           passaporte leva semanas, e descobrir isso no aeroporto não tem conserto. */}
       <AvisoDocumentacao aoAbrir={() => irPara('documentacao')} />
 
-      {/* herói: contagem + mapa + próximo compromisso */}
+      {/* herói: contagem + mapa + próximo compromisso. Editorial — a contagem é
+          tipografia serif em tinta, não um painel de cor cheia: a cor da
+          viagem já vive na navegação e no mapa; aqui ela é só um traço. */}
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <Cartao className="!p-0 overflow-hidden">
+        <Cartao tom="elevado" className="!p-0 overflow-hidden">
           <div className="grid gap-0 sm:grid-cols-2">
-            <div
-              className="flex flex-col justify-center p-6 text-white"
-              style={{
-                background:
-                  'linear-gradient(135deg, var(--destaque), var(--color-destaque-escuro))',
-              }}
-            >
+            <div className="flex flex-col justify-center p-6">
               {fase.fase === 'antes' && (
                 <>
-                  <p className="text-[11px] font-semibold tracking-[0.08em] uppercase opacity-80">
+                  <p className="t-legenda" style={{ color: 'var(--destaque)' }}>
                     Faltam
                   </p>
-                  <p className="tab-num mt-2 text-[56px] leading-none font-bold">
+                  <p className="t-destino tab-num mt-1">
                     {fase.diasRestantes}
-                    <span className="ml-2 text-xl font-medium opacity-90">
+                    <span className="ml-2 text-xl font-medium text-(--color-tinta-3)">
                       {fase.diasRestantes === 1 ? 'dia' : 'dias'}
                     </span>
                   </p>
@@ -214,19 +210,19 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
               )}
               {fase.fase === 'durante' && (
                 <>
-                  <p className="text-[11px] font-semibold tracking-[0.08em] uppercase opacity-80">
+                  <p className="t-legenda" style={{ color: 'var(--destaque)' }}>
                     Viagem em andamento
                   </p>
-                  <p className="tab-num mt-2 text-[44px] leading-none font-bold">
+                  <p className="t-destino tab-num mt-1 !text-[40px]">
                     Dia {fase.diaAtual}
-                    <span className="ml-2 text-xl font-medium opacity-90">de {fase.totalDias}</span>
+                    <span className="ml-2 text-xl font-medium text-(--color-tinta-3)">
+                      de {fase.totalDias}
+                    </span>
                   </p>
                 </>
               )}
-              {fase.fase === 'depois' && (
-                <p className="mt-3 text-[32px] leading-tight font-bold">Viagem concluída</p>
-              )}
-              <p className="mt-4 text-[13px] opacity-85">
+              {fase.fase === 'depois' && <p className="t-destino !text-[36px]">Viagem concluída</p>}
+              <p className="tab-num mt-3 text-[13px] text-(--color-tinta-3)">
                 {formatarData(v.data_partida, { day: '2-digit', month: 'short' })} —{' '}
                 {formatarData(v.data_retorno, { day: '2-digit', month: 'short', year: 'numeric' })}
               </p>
@@ -237,7 +233,11 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
           </div>
         </Cartao>
 
-        <Cartao onClick={() => irPara('roteiro')} className="flex flex-col justify-center">
+        <Cartao
+          tom="elevado"
+          onClick={() => irPara('roteiro')}
+          className="flex flex-col justify-center"
+        >
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <Rotulo>Próximo compromisso</Rotulo>
@@ -265,7 +265,7 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
 
       {/* Resumo da viagem. Um cartão com divisórias, não seis caixas: são seis
           números do mesmo assunto, e seis molduras separadas só somam ruído. */}
-      <Cartao className="!p-0 overflow-hidden">
+      <Cartao tom="elevado" className="!p-0 overflow-hidden">
         <dl className="grid grid-cols-3 divide-x divide-y divide-(--color-borda) md:grid-cols-6 md:divide-y-0">
           <Estatistica icone={CalendarDays} numero={fase.totalDias} rotulo="dias" />
           <Estatistica icone={Users} numero={snapshot.participantes.length} rotulo="viajantes" />

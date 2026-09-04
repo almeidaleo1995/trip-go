@@ -42,7 +42,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 export const viewport: Viewport = {
-  themeColor: '#0F766E',
+  themeColor: '#17191C',
   width: 'device-width',
   initialScale: 1,
   // Nao trava o zoom: bloquear pinch-zoom quebra acessibilidade para quem

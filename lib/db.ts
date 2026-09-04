@@ -429,7 +429,7 @@ export async function getSnapshot(
                to_char(desembarque_em, 'YYYY-MM-DD"T"HH24:MI:SS') as desembarque_em,
                porto_embarque, porto_desembarque, cabine, localizador, terminal, nota, updated_at
         from cruises where trip_id = ${tripId}`,
-    sql`select p.id, p.cruise_id, p.porto, p.cidade, p.pais,
+    sql`select p.id, p.cruise_id, p.porto, p.cidade, p.pais, p.lat, p.lon,
                to_char(p.chega_em, 'YYYY-MM-DD"T"HH24:MI:SS') as chega_em,
                to_char(p.sai_em, 'YYYY-MM-DD"T"HH24:MI:SS') as sai_em,
                p.dia_no_mar, p.ordem, p.nota, p.updated_at
@@ -439,7 +439,8 @@ export async function getSnapshot(
     sql`select id, trip_id, tipo, nome, cidade,
                to_char(inicio_em, 'YYYY-MM-DD"T"HH24:MI:SS') as inicio_em,
                to_char(fim_em, 'YYYY-MM-DD"T"HH24:MI:SS') as fim_em,
-               endereco, link, telefone, localizador, valor_centavos, nota, ordem, updated_at
+               endereco, lat, lon, link, telefone, localizador, valor_centavos, nota, ordem,
+               updated_at
         from reservations where trip_id = ${tripId} order by inicio_em, ordem`,
     sql`select * from places where trip_id = ${tripId} order by ordem`,
     checklistDaViagem(tripId, papel, participanteId),

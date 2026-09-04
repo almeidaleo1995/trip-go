@@ -24,8 +24,22 @@
 // ponytail: ladrilho vem da rede, então em modo avião o mapa fica só com o fundo
 // e os pinos (a rota continua legível). Cache offline de ladrilho exigiria
 // guardá-los no IndexedDB — só vale se alguém realmente precisar do mapa a bordo.
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Minus, Route } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Plus,
+  Minus,
+  Route,
+  Building2,
+  BedDouble,
+  Camera,
+  UtensilsCrossed,
+  Plane,
+  TrainFront,
+  Anchor,
+  type LucideIcon,
+} from 'lucide-react'
+import { agrupar, type Categoria, type Marcador } from '@/lib/mapaViagem.ts'
+import type { Modo } from '@/lib/hoje.ts'
 import {
   TILE,
   Z_MIN,
@@ -39,6 +53,53 @@ import {
 } from '@/lib/mapa.ts'
 
 type Lugar = { cidade?: string; lat?: number | string | null; lon?: number | string | null }
+
+/** Ícone e cor de cada categoria de marcador. A cor sai de `config/theme.ts`
+    pelos tokens CSS — nenhuma cor de marca escrita aqui dentro. */
+export const ESTILO_CATEGORIA: Record<Categoria, { Icone: LucideIcon; cor: string }> = {
+  cidade: { Icone: Building2, cor: 'var(--destaque)' },
+  hotel: { Icone: BedDouble, cor: '#9A3412' },
+  atividade: { Icone: Camera, cor: '#6B21A8' },
+  restaurante: { Icone: UtensilsCrossed, cor: '#BE123C' },
+  aeroporto: { Icone: Plane, cor: '#1E40AF' },
+  estacao: { Icone: TrainFront, cor: '#15803D' },
+  porto: { Icone: Anchor, cor: '#0F766E' },
+}
+
+/**
+ * Como cada modo desenha a linha (§6).
+ *
+ * O tracejado NÃO é decoração: ele é a diferença entre um trajeto que alguém
+ * conferiu e duas cidades que só acontecem uma depois da outra. Voo e barco são
+ * pontilhados porque a linha reta é honesta ali — ninguém espera que um avião
+ * siga a estrada; trem e carro são contínuos porque a linha reta ali é uma
+ * simplificação do traçado real, e a legenda do trecho diz isso.
+ */
+const TRACO_MODO: Record<Modo, string> = {
+  aviao: '2 5',
+  barco: '2 5',
+  trem: '',
+  carro: '',
+  taxi: '',
+  onibus: '',
+  metro: '',
+  a_pe: '1 4',
+}
+
+/** Um trecho desenhado no mapa. */
+export type Segmento = {
+  id: string
+  de: { lat: number; lon: number }
+  para: { lat: number; lon: number }
+  modo: Modo | null
+  /** Falso desenha mais apagado: a tela escreve "Rota não verificada" ao lado. */
+  verificado: boolean
+  rotulo: string
+  /** Cor da perna, escolhida por quem monta o mapa (uma por etapa de origem,
+      em rotação — ver `corDaEtapa` em config/theme.ts). Sem ela, cai no
+      `--destaque` único de sempre. */
+  cor?: string
+}
 
 /** Quanto cada seta do teclado move o mapa, em pixels. */
 const PASSO_SETA = 40
@@ -60,12 +121,38 @@ const ESCALA_DELTA = [1, 16, 100]
 export function MapaRota({
   lugares,
   numerados,
+  marcadores,
+  segmentos,
+  selecionado,
+  aoSelecionar,
+  aoSelecionarSegmento,
+  corMarcador,
 }: {
   lugares: Lugar[]
   /** Pinos numerados em sequência (1, 2, 3…) em vez do par início/fim — usado
       no mapa de um dia, onde a ordem de visita é a informação, não as pontas. */
   numerados?: boolean
+  /**
+   * O modo RICO do mapa: um pino por lugar, com categoria, ícone e clique.
+   *
+   * Quando vem preenchido, ele manda no enquadramento e substitui os pinos de
+   * `lugares` — que continua sendo a forma simples usada no Início e no cartão
+   * do dia. Dois modos no mesmo componente, e não dois componentes, porque a
+   * parte difícil (ladrilho, Mercator, pinça, arrasto) é a mesma nos dois; era
+   * ela que seria duplicada.
+   */
+  marcadores?: Marcador[]
+  segmentos?: Segmento[]
+  selecionado?: string | null
+  aoSelecionar?: (id: string) => void
+  aoSelecionarSegmento?: (id: string) => void
+  /** Cor por marcador, decidida por quem monta o mapa — hoje só usada para dar
+      uma cor por CIDADE (uma etapa da viagem, uma cor, em rotação), nunca uma
+      paleta nova por categoria: hotel continua marrom, atividade continua
+      roxo, em qualquer cidade. `undefined` cai no `ESTILO_CATEGORIA` de sempre. */
+  corMarcador?: (m: Marcador) => string | undefined
 }) {
+  const rico = Array.isArray(marcadores)
   const caixa = useRef<HTMLDivElement>(null)
   const [tamanho, setTamanho] = useState({ w: 0, h: 0 })
   /** Zoom e deslocamento juntos: um gesto mexe nos dois de uma vez, e separados
@@ -90,9 +177,24 @@ export function MapaRota({
     return () => ro.disconnect()
   }, [])
 
-  const pontos = (lugares ?? [])
-    .map((l) => ({ cidade: l.cidade, lat: Number(l.lat), lon: Number(l.lon) }))
-    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+  // No modo rico o enquadramento segue os marcadores E as pontas dos segmentos:
+  // uma perna Lisboa → Madri precisa caber inteira, mesmo que só uma das duas
+  // cidades tenha pino visível pela camada ligada.
+  const pontos = useMemo(
+    () =>
+      rico
+        ? [
+            ...(marcadores ?? []).map((m) => ({ cidade: m.nome, lat: m.lat, lon: m.lon })),
+            ...(segmentos ?? []).flatMap((g) => [
+              { cidade: g.rotulo, lat: g.de.lat, lon: g.de.lon },
+              { cidade: g.rotulo, lat: g.para.lat, lon: g.para.lon },
+            ]),
+          ]
+        : (lugares ?? [])
+            .map((l) => ({ cidade: l.cidade, lat: Number(l.lat), lon: Number(l.lon) }))
+            .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)),
+    [rico, marcadores, segmentos, lugares],
+  )
 
   const chavePontos = pontos.map((p) => `${p.lat},${p.lon}`).join('|')
 
@@ -250,13 +352,23 @@ export function MapaRota({
       return { ...p, x: q.x - orig.x, y: q.y - orig.y }
     })
 
+    /** Grau -> pixel desta tela. Usado pelos marcadores e pelos segmentos. */
+    const emTela = (pt: { lat: number; lon: number }) => {
+      const q = projetar(pt.lat, pt.lon, z)
+      return { x: q.x - orig.x, y: q.y - orig.y }
+    }
+
     conteudo = (
       <>
         {/* A figura é um nó só para o leitor de tela: os pinos não são alvos e a
             legenda já diz a rota. Os botões ficam FORA dela — dentro de um
             role="img" nada é alcançável. */}
         <div
-          role="img"
+          // No modo rico isto vira um GRUPO, não uma figura: `role="img"` torna
+          // a subárvore inteira um nó só, e os pinos-botões desapareceriam do
+          // leitor de tela e do Tab. No modo simples continua figura — lá os
+          // pinos realmente não são alvos e a legenda já diz a rota.
+          role={rico ? 'group' : 'img'}
           aria-label={`Mapa da rota: ${pontos
             .map((p) => p.cidade)
             .filter(Boolean)
@@ -276,60 +388,188 @@ export function MapaRota({
         >
           {tiles}
           <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
-            <path
-              d={naTela
-                .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-                .join(' ')}
-              fill="none"
-              stroke="var(--destaque)"
-              strokeWidth="2"
-              strokeDasharray="5 4"
-              strokeLinecap="round"
-              opacity="0.9"
-            />
-            {naTela.map((p, i) =>
-              numerados ? (
-                // A ponta da gota fica NA coordenada; o número sobe para a cabeça.
-                // Um disco centrado no ponto marcaria um lugar ~17px acima do real.
-                <g key={`${p.cidade}-${i}`}>
-                  <path
-                    d={`M ${p.x - 5} ${p.y - 14} L ${p.x} ${p.y} L ${p.x + 5} ${p.y - 14} Z`}
-                    fill="var(--destaque)"
+            {/* No modo rico a rota são segmentos independentes, um por perna,
+                cada um com o traço do seu modo. No modo simples continua sendo
+                uma polilinha só — é uma rota, não uma lista de trajetos. */}
+            {rico ? (
+              (segmentos ?? []).map((g) => {
+                const a = emTela(g.de)
+                const b = emTela(g.para)
+                const ativo = selecionado === g.id
+                return (
+                  <line
+                    key={g.id}
+                    x1={a.x}
+                    y1={a.y}
+                    x2={b.x}
+                    y2={b.y}
+                    stroke={g.cor ?? 'var(--destaque)'}
+                    strokeWidth={ativo ? 4 : 2.5}
+                    // Sem modo conhecido o traço é largo e vazado: é a marca de
+                    // "Rota não verificada", visível antes de qualquer texto.
+                    strokeDasharray={g.modo ? TRACO_MODO[g.modo] : '6 6'}
+                    strokeLinecap="round"
+                    opacity={g.verificado ? (ativo ? 1 : 0.75) : 0.4}
                   />
-                  <circle
-                    cx={p.x}
-                    cy={p.y - 17}
-                    r={9}
-                    fill="var(--destaque)"
-                    stroke="#fff"
-                    strokeWidth="2"
-                  />
-                  <text
-                    x={p.x}
-                    y={p.y - 17}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize="10"
-                    fontWeight="700"
-                    fill="#fff"
-                  >
-                    {i + 1}
-                  </text>
-                </g>
-              ) : (
-                <g key={`${p.cidade}-${i}`}>
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r={i === 0 || i === naTela.length - 1 ? 5.5 : 4}
-                    fill={i === 0 || i === naTela.length - 1 ? 'var(--destaque)' : '#fff'}
-                    stroke="var(--destaque)"
-                    strokeWidth="2.5"
-                  />
-                </g>
-              ),
+                )
+              })
+            ) : (
+              <path
+                d={naTela
+                  .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+                  .join(' ')}
+                fill="none"
+                stroke="var(--destaque)"
+                strokeWidth="2"
+                strokeDasharray="5 4"
+                strokeLinecap="round"
+                opacity="0.9"
+              />
             )}
+            {!rico &&
+              naTela.map((p, i) =>
+                numerados ? (
+                  // A ponta da gota fica NA coordenada; o número sobe para a cabeça.
+                  // Um disco centrado no ponto marcaria um lugar ~17px acima do real.
+                  <g key={`${p.cidade}-${i}`}>
+                    <path
+                      d={`M ${p.x - 5} ${p.y - 14} L ${p.x} ${p.y} L ${p.x + 5} ${p.y - 14} Z`}
+                      fill="var(--destaque)"
+                    />
+                    <circle
+                      cx={p.x}
+                      cy={p.y - 17}
+                      r={9}
+                      fill="var(--destaque)"
+                      stroke="#fff"
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y - 17}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize="10"
+                      fontWeight="700"
+                      fill="#fff"
+                    >
+                      {i + 1}
+                    </text>
+                  </g>
+                ) : (
+                  <g key={`${p.cidade}-${i}`}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={i === 0 || i === naTela.length - 1 ? 5.5 : 4}
+                      fill={i === 0 || i === naTela.length - 1 ? 'var(--destaque)' : '#fff'}
+                      stroke="var(--destaque)"
+                      strokeWidth="2.5"
+                    />
+                  </g>
+                ),
+              )}
           </svg>
+
+          {/* Os marcadores são BOTÕES de verdade, não formas dentro do SVG.
+              Um <circle> não recebe foco, não tem nome acessível e não tem
+              alvo de toque — e §34 pede os três. Como HTML, cada pino já vem
+              com anel de foco, `aria-label` e 44px de área tocável. */}
+          {rico &&
+            agrupar((marcadores ?? []).map((m) => ({ ...m, ...emTela(m) }))).map((grupo) => {
+              // Mais de um no mesmo pixel vira um contador. Aproximar SEPARA o
+              // grupo sozinho, porque a grade é medida em pixels de tela — daí
+              // o clique dar zoom em vez de abrir uma lista: a lista já existe
+              // no mapa, escondida atrás da sobreposição.
+              if (grupo.itens.length > 1) {
+                return (
+                  <button
+                    key={grupo.chave}
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => mudarZoom(2, { x: grupo.x, y: grupo.y })}
+                    aria-label={`${grupo.itens.length} locais juntos: ${grupo.itens
+                      .map((i) => i.nome)
+                      .join(', ')}. Aproximar para separar.`}
+                    className="tab-num absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 border-white text-[12px] font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--destaque)"
+                    style={{
+                      left: grupo.x,
+                      top: grupo.y,
+                      background: 'var(--destaque)',
+                      boxShadow: 'var(--sombra-1)',
+                      zIndex: 2,
+                    }}
+                  >
+                    {grupo.itens.length}
+                  </button>
+                )
+              }
+
+              const m = grupo.itens[0]
+              const { x, y } = m
+              const { Icone, cor: corPadrao } = ESTILO_CATEGORIA[m.categoria]
+              const cor = corMarcador?.(m) ?? corPadrao
+              const ativo = selecionado === m.id
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => aoSelecionar?.(m.id)}
+                  aria-pressed={ativo}
+                  aria-label={`${m.nome}${m.aproximado ? ' — localização aproximada' : ''}`}
+                  title={m.nome}
+                  // 44px de alvo, com a arte de 26px centrada dentro: o toque é
+                  // generoso sem o pino cobrir o mapa. A ponta do pino fica NA
+                  // coordenada — daí o -100% e os 13px de volta.
+                  className="absolute flex h-11 w-11 -translate-x-1/2 cursor-pointer items-end justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--destaque)"
+                  style={{ left: x, top: y - 44 + 13, zIndex: ativo ? 3 : 2 }}
+                >
+                  <span
+                    className="flex h-[26px] w-[26px] items-center justify-center rounded-full border-2 border-white transition-transform"
+                    style={{
+                      background: cor,
+                      boxShadow: 'var(--sombra-1)',
+                      transform: ativo ? 'scale(1.25)' : undefined,
+                    }}
+                  >
+                    <Icone size={13} color="#fff" aria-hidden strokeWidth={2.4} />
+                  </span>
+                  {/* Localização aproximada NÃO depende só de cor: é um anel
+                      tracejado em volta do pino, que sobrevive a daltonismo e
+                      a uma captura em preto e branco. */}
+                  {m.aproximado && (
+                    <span
+                      aria-hidden
+                      className="absolute bottom-0 h-[34px] w-[34px] rounded-full border border-dashed"
+                      style={{ borderColor: cor }}
+                    />
+                  )}
+                </button>
+              )
+            })}
+
+          {/* O trecho é clicável pelo MEIO da linha: um <line> de 2px é um alvo
+              impossível no dedo, e o meio é onde ninguém disputa com um pino. */}
+          {rico &&
+            aoSelecionarSegmento &&
+            (segmentos ?? []).map((g) => {
+              const a = emTela(g.de)
+              const b = emTela(g.para)
+              return (
+                <button
+                  key={`alvo-${g.id}`}
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => aoSelecionarSegmento(g.id)}
+                  aria-label={`Trecho ${g.rotulo}${g.verificado ? '' : ' — rota não verificada'}`}
+                  title={g.rotulo}
+                  className="absolute h-8 w-8 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--destaque)"
+                  style={{ left: (a.x + b.x) / 2, top: (a.y + b.y) / 2, zIndex: 1 }}
+                />
+              )
+            })}
+
           <span className="absolute right-1 bottom-0.5 rounded bg-white/75 px-1 text-[9px] text-(--color-tinta-3)">
             © OpenStreetMap
           </span>

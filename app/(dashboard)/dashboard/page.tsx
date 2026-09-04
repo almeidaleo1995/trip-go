@@ -103,11 +103,13 @@ export default function Inicio() {
 
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-6xl">
+      {/* Quem limita e centra é o `DashboardLayout` — ver a nota lá. */}
+      <div>
         <div className="mb-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
             <h1 className="t-pagina">
-              {nome ? siteConfig.saudacao.replace('{nome}', nome) : 'Olá!'} <span aria-hidden>👋</span>
+              {nome ? siteConfig.saudacao.replace('{nome}', nome) : 'Olá!'}{' '}
+              <span aria-hidden>👋</span>
             </h1>
             <p className="t-aux mt-1">{siteConfig.subsaudacao}</p>
           </div>
@@ -144,7 +146,7 @@ export default function Inicio() {
                     Ver todas <ArrowRight size={14} />
                   </Link>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                   {ativas.slice(0, 3).map((v) => (
                     <CartaoViagem key={v.id} viagem={v} />
                   ))}
@@ -218,13 +220,12 @@ export default function Inicio() {
 function Hero({ viagem }: { viagem: ViagemResumo }) {
   const f = faseDaViagem(new Date(), viagem.data_partida, viagem.data_retorno)
   const emAndamento = f.fase === 'durante'
-  const cor = viagem.cor_destaque || '#0F766E'
+  // A capa é sempre cinza neutro agora (não `cor_destaque`) — ver o mesmo
+  // ajuste e a mesma nota em components/CartaoViagem.tsx.
+  const cor = '#9a9a9c'
 
   return (
-    <section
-      style={{ ['--destaque' as string]: cor }}
-      className="relative overflow-hidden rounded-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-1)]"
-    >
+    <section className="relative overflow-hidden rounded-3xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-1)]">
       <div className="absolute inset-0" aria-hidden>
         <CapaViagem cor={cor} semente={viagem.id} url={viagem.capa_url} />
       </div>
@@ -261,10 +262,7 @@ function Hero({ viagem }: { viagem: ViagemResumo }) {
           {/* O número é o assunto do cartão: grande, tabular, com o rótulo pequeno. */}
           <div className="shrink-0">
             <p className="t-legenda">{emAndamento ? 'Você está no' : 'Faltam'}</p>
-            <p
-              className="tab-num text-5xl leading-none font-bold"
-              style={{ color: 'var(--destaque)' }}
-            >
+            <p className="t-destino tab-num !text-5xl">
               {emAndamento ? f.diaAtual : f.diasRestantes}
             </p>
             <p className="t-aux mt-1">
@@ -273,8 +271,7 @@ function Hero({ viagem }: { viagem: ViagemResumo }) {
           </div>
           <a
             href={`/viagens/${viagem.id}`}
-            className="toque inline-flex shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-white"
-            style={{ background: 'var(--destaque)', boxShadow: 'var(--sombra-1)' }}
+            className="toque inline-flex shrink-0 items-center gap-2 rounded-full bg-(--color-tinta) px-5 text-sm font-semibold text-white"
           >
             Abrir viagem <ArrowRight size={15} />
           </a>
@@ -296,13 +293,18 @@ function VisaoRapida({
   const itens = [
     { icone: Globe, numero: viagem.paises ?? 0, rotulo: 'Países', aba: 'lugares' },
     { icone: MapPin, numero: viagem.cidades ?? 0, rotulo: 'Cidades', aba: 'lugares' },
-    { icone: CalendarDays, numero: viagem.compromissos ?? 0, rotulo: 'Compromissos', aba: 'roteiro' },
+    {
+      icone: CalendarDays,
+      numero: viagem.compromissos ?? 0,
+      rotulo: 'Compromissos',
+      aba: 'roteiro',
+    },
     { icone: Ticket, numero: viagem.reservas ?? 0, rotulo: 'Reservas', aba: 'hospedagem' },
     { icone: CircleCheck, numero: pendentes, rotulo: 'Tarefas pendentes', aba: 'checklist' },
   ]
 
   return (
-    <section className="mt-8" style={{ ['--destaque' as string]: viagem.cor_destaque || '#0F766E' }}>
+    <section className="mt-8">
       <Rotulo>Visão rápida · {viagem.nome}</Rotulo>
       <div className="mt-2.5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {itens.map((i) => (

@@ -12,24 +12,33 @@ export const theme = {
   cores: {
     /** Cor de marca. Superfícies grandes e arte — nunca texto. */
     marca: '#0D9488',
-    /** Teal interativo: botão, link, estado ativo. 5.47:1 como texto e com branco em cima. */
-    destaque: '#0F766E',
-    destaqueEscuro: '#115E59',
-    destaqueFraco: '#CCFBF1',
-    destaqueTenue: '#EDFBF8',
+    /** Interface: tinta preta, não mais teal (redesign editorial — ver
+        app/globals.css). `theme_color` do manifest lê daqui. */
+    destaque: '#17191C',
+    destaqueEscuro: '#000000',
+    destaqueFraco: '#E4E4E6',
+    destaqueTenue: '#F5F5F6',
     /** Teal profundo do painel de entrada. Base da arte, não da interface. */
     oceano: '#0B3B39',
 
-    fundo: '#F6FAF9',
+    /** Papel branco — página, sem fio de cor (redesign editorial). */
+    fundo: '#FFFFFF',
     cartao: '#FFFFFF',
-    /** Superfície rebaixada: linhas agrupadas, painéis internos, notas. */
-    superficie2: '#EFF5F4',
-    borda: '#E3EAE9',
-    bordaForte: '#CBD8D6',
+    /** Faixa que alterna sem contraste (fog). */
+    secao: '#FAFAFB',
+    /** Superfície rebaixada: linhas agrupadas, painéis internos, notas (mist). */
+    superficie2: '#F2F2F3',
+    borda: '#ECECEC',
+    bordaForte: '#D9D9DB',
 
-    tinta: '#0F172A',
-    tinta2: '#47575A', // 7.4:1
-    tinta3: '#64757A', // 4.6:1 — piso; nada mais claro em texto
+    tinta: '#17191C',
+    tinta2: '#52555C', // 7.1:1
+    tinta3: '#6B7280', // 4.6:1 — piso; nada mais claro em texto
+    tinta4: '#A3A6AF', // decorativo: placeholder/desabilitado, nunca texto real
+
+    /** O único acento cromático do sistema. Um card por tela, no máximo. */
+    acento: '#FBE1D1',
+    acentoTinta: '#5D2A1A',
   },
 
   /** Semânticas. Cada uma em par ink/bg; a tinta passa AA sobre o próprio fundo. */
@@ -77,3 +86,15 @@ export const theme = {
 
 export type Tipo = keyof typeof theme.tipos
 export type Estado = keyof typeof theme.estados
+
+/**
+ * Uma cor por ETAPA da viagem (cidade, cruzeiro), em rotação — o que dá ao
+ * Mapa e ao Roteiro no mapa o visual de "Lisboa é verde, Madri é vermelho,
+ * Paris é roxo" sem inventar paleta nova: reaproveita `paletaViagens`, a
+ * mesma lista que `trips.cor_destaque` já oferece na tela de Dados. Só o
+ * MAPA usa isto — o resto da interface continua monocromática (regra 6).
+ */
+export function corDaEtapa(indice: number): string {
+  const lista = theme.paletaViagens
+  return lista[((indice % lista.length) + lista.length) % lista.length].valor
+}

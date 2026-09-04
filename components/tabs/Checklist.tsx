@@ -332,7 +332,7 @@ export function Checklist({ irPara }: { irPara?: (a: AbaId) => void }) {
           fato — e a errada seria a que alguém marcou sem ter o passaporte. */}
       {irPara && <ChecklistDocumentacao aoAbrir={() => irPara('documentacao')} />}
 
-      <div className="mb-5 -mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1">
+      <div className="rola-limpo -mx-1 mb-5 flex gap-2.5 overflow-x-auto px-1 pb-1">
         {categorias.map((c) => (
           <CartaoCategoria
             key={c.titulo}
@@ -346,7 +346,12 @@ export function Checklist({ irPara }: { irPara?: (a: AbaId) => void }) {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <div className="min-w-0">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          {/* UMA barra de controles, não três. Agrupar por / ordenar por / de
+              quem eram três linhas empilhadas — cerca de 150px de moldura antes
+              da primeira tarefa, num ecrã que a pessoa abre para marcar uma
+              caixa. São todos filtros da mesma lista; ficam juntos, e o filtro
+              de pessoa quebra para a linha de baixo só quando não couber. */}
+          <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2">
             <div className="flex flex-wrap gap-1.5">
               {VISOES.map((v) => (
                 <button
@@ -374,25 +379,27 @@ export function Checklist({ irPara }: { irPara?: (a: AbaId) => void }) {
                 opcoes={ORDENS.map((o) => ({ valor: o.id, nome: o.nome }))}
               />
             </div>
-          </div>
 
-          <div className="mb-5 flex gap-1 overflow-x-auto pb-1">
-            <FiltroPessoa
-              nome="Todos"
-              quantidade={itens.length}
-              selecionado={pessoaFiltro === 'todos'}
-              onClick={() => setPessoaFiltro('todos')}
-            />
-            {participantes.map((p) => (
+            <span aria-hidden className="hidden h-6 w-px bg-(--color-borda) sm:block" />
+
+            <div className="rola-limpo flex min-w-0 flex-1 gap-1 overflow-x-auto">
               <FiltroPessoa
-                key={p.id}
-                nome={p.nome}
-                url={p.avatar_url}
-                quantidade={itens.filter((i) => relevantePara(i, p.id)).length}
-                selecionado={pessoaFiltro === p.id}
-                onClick={() => setPessoaFiltro(p.id)}
+                nome="Todos"
+                quantidade={itens.length}
+                selecionado={pessoaFiltro === 'todos'}
+                onClick={() => setPessoaFiltro('todos')}
               />
-            ))}
+              {participantes.map((p) => (
+                <FiltroPessoa
+                  key={p.id}
+                  nome={p.nome}
+                  url={p.avatar_url}
+                  quantidade={itens.filter((i) => relevantePara(i, p.id)).length}
+                  selecionado={pessoaFiltro === p.id}
+                  onClick={() => setPessoaFiltro(p.id)}
+                />
+              ))}
+            </div>
           </div>
 
           {posso('editor') && pendentes.length > 0 && <Pendentes itens={pendentes} />}

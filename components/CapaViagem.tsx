@@ -1,4 +1,7 @@
-// Capa da viagem: um horizonte desenhado, não uma foto.
+'use client'
+
+// Capa da viagem: a foto do destino quando existe, e um horizonte desenhado
+// quando não.
 //
 // Por que desenhado. O app tem que abrir em modo avião, e uma capa que depende
 // de baixar 300 KB de foto é uma capa que some justamente na viagem. Este SVG
@@ -8,6 +11,8 @@
 //
 // Nenhuma cor de marca aparece neste arquivo: tudo é derivado da cor que veio do
 // banco, misturada com branco e preto para dar profundidade.
+
+import { useState } from 'react'
 
 const PICOS = 5
 
@@ -70,10 +75,23 @@ export function CapaViagem({
   className?: string
   alt?: string
 }) {
-  if (url) {
+  const [quebrou, setQuebrou] = useState(false)
+  if (url && !quebrou) {
     return (
+      // `onError` cai para o desenho: a foto é um link para o servidor de outra
+      // pessoa, e link externo morre — 404, hotlink bloqueado, ou simplesmente o
+      // avião. Sem isto o cartão mostra o ícone de imagem quebrada do navegador,
+      // que parece defeito do app. O desenho não depende de rede e é a capa que
+      // funciona em modo avião, então ele é o chão, não o degrau de cima.
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={url} alt={alt} className={`h-full w-full object-cover ${className}`} />
+      <img
+        src={url}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onError={() => setQuebrou(true)}
+        className={`h-full w-full object-cover ${className}`}
+      />
     )
   }
 

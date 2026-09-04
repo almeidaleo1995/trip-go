@@ -387,6 +387,91 @@ Esta é a tela que alguém lê com pressa e acredita sem conferir.
 
 Detalhe campo a campo em [reference/formato.md](reference/formato.md).
 
+## O roteiro alimenta o MAPA
+
+A visão **Roteiro → Mapa** desenha a viagem inteira a partir dos mesmos campos —
+não existe tabela de mapa. O que o mapa mostra sai de quatro lugares:
+
+| No mapa aparece como | Vem de | Campo que decide |
+|---|---|---|
+| Cidade | `lugares[]` | `lat`/`lon` |
+| Hotel | `reservas[]` com `tipo: "hospedagem"` | `lat`/`lon` |
+| Restaurante | `reservas[]` `tipo: "restaurante"`, ou item `restaurante`/`refeicao` | `lat`/`lon` |
+| Aeroporto | item de roteiro `tipo: "voo"` | `lat`/`lon` |
+| Estação | item `tipo: "trem"` ou `"onibus"` | `lat`/`lon` |
+| Porto | item `tipo: "cruzeiro"`, e `cruzeiros[].portos[]` | `lat`/`lon` |
+| Atividade | qualquer outro item de roteiro | `lat`/`lon` |
+| Rota da viagem | a ORDEM de `lugares[]`, mais `voos[]` e itens de trecho | — |
+
+**`reservas[]` e `cruzeiros[].portos[]` aceitam `lat`/`lon`** — isto é novo.
+Antes o hotel não tinha onde guardar coordenada. Rode
+`node .claude/skills/roteiro-trip-go/scripts/campos.mjs reservas` para ver a
+lista viva; chave fora dela é descartada em silêncio pelo zod.
+
+### Coordenada: as três saídas honestas, nesta ordem
+
+1. **O documento traz.** Voucher com "38.7223, -9.1393", link do Google Maps com
+   `@lat,lon`, ficha do hotel com coordenada. Use, e registre a fonte.
+2. **Você pesquisou e confirmou.** Só vale com fonte nomeada — o site oficial do
+   hotel, o do museu, a página da estação. Registre em `links` (abaixo).
+3. **Você não tem.** **Omita o campo.** Não mande `null` dentro de um objeto de
+   coordenada, não arredonde o centro da cidade para parecer um endereço, não
+   copie a coordenada do hotel para o restaurante ao lado.
+
+A terceira saída não é falha — é o comportamento projetado. Um lugar sem
+coordenada mas **com `cidade` que existe em `lugares[]`** aparece no mapa no
+centro da cidade, com anel tracejado e o texto **"Localização aproximada"**. O
+app já diz a verdade sozinho; o que ele não consegue é adivinhar que a
+coordenada bonita que você escreveu era um chute.
+
+**Portanto: `cidade` preenchida vale mais que coordenada inventada.** É a
+diferença entre um pino honesto e um pino errado.
+
+### Onde vai a FONTE e a data da verificação
+
+Não existe coluna `fonte` nem `checked_at`, e **não invente uma** enfiando isso
+num campo de texto livre — é exatamente o dado que nenhuma tela lê, nenhum
+filtro acha e nenhuma exportação carrega. Use o que já existe:
+
+- **A fonte vai em `links`**, um por linha, no formato `Rótulo|URL` que o campo
+  já tem: `Fonte: Museu do Louvre|https://www.louvre.fr/visite/horaires`. Esse
+  campo é exportado, clicável na tela e passa por `hrefSeguro`.
+- **A data da verificação já é gravada pelo app.** Toda escrita da skill entra
+  no `change_log` com `origem = 'skill'` e um `lote`, com data e autor. É o que
+  torna a carga desfazível por `desfazer.mjs`, e é um registro melhor do que uma
+  data digitada por você: ninguém consegue editá-lo por engano.
+
+Se um pedido realmente exigir um campo de fonte estruturado, isso é **código**:
+escreva `.specs/propostas/<slug>.md` e pare, do jeito que a seção "Quando o
+pedido esbarra em código" manda.
+
+### O que auditar antes de subir
+
+O app tem auditoria própria (Roteiro → Mapa → o aviso no rodapé), mas ela só
+enxerga o que já foi gravado. Confira antes:
+
+- Toda cidade de `lugares[]` tem `lat`/`lon`? **Sem isso ela não entra no mapa e
+  leva junto todo lugar daquela cidade** — é a lacuna que mais custa.
+- A `cidade` escrita nos itens e nas reservas bate, letra por letra, com a de
+  `lugares[]`? A comparação ignora caixa e acento, mas não apelido: "Madri" e
+  "Madrid" são cidades diferentes para o mapa.
+- `lugares[]` está na ORDEM da viagem? A rota macro é essa ordem, não a data.
+- Cada trecho entre cidades tem um `voos[]` ou um item de roteiro (`trem`,
+  `onibus`, `traslado`, `cruzeiro`) que o comprove? Sem isso a perna aparece
+  apagada, escrita **"Rota não verificada"** — o que é honesto, mas é uma
+  pergunta que sobra para quem viaja.
+- Escala de cruzeiro em `portos[]` tem `lat`/`lon` ou pelo menos `cidade`?
+
+### Sugestão nunca vira evento
+
+Se você identificar uma oportunidade — uma janela livre perto de uma atração,
+duas atividades que cruzam a cidade duas vezes —, **isso não entra no roteiro.**
+Um evento gravado é um compromisso, e ninguém combinou esse. Traga no relatório
+final, como texto, com o que você viu e o que propõe. Quem decide adiciona.
+
+Vale o mesmo para contradição: dois documentos com horários diferentes para o
+mesmo trem viram uma **pergunta**, nunca uma escolha silenciosa.
+
 ## Armadilhas já pagas
 
 - **`pdftotext -layout` intercala colunas de tabela.** Numa tabela de linha do tempo, a coluna de datas e a de descrições podem sair em blocos separados, e a associação data↔evento fica errada. Sempre confira alguns pares contra a lógica do texto corrido antes de gravar.

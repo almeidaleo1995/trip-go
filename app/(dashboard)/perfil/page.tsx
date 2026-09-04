@@ -150,7 +150,13 @@ export default function PaginaPerfil() {
 
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-3xl">
+      {/* Sem `max-w-3xl`: a tela era uma coluna única de oito blocos, o que num
+          monitor largo virava uma tira central de 768px com meia tela de branco
+          de cada lado, e no celular exigia rolar oito vezes para achar a moeda
+          preferida. Agora a identidade e as viagens ocupam a largura toda (uma é
+          um cabeçalho, a outra é uma grade), e os ajustes ficam em duas colunas:
+          à esquerda o que é da CONTA, à direita o que é da PESSOA. */}
+      <div>
         <Titulo>Perfil</Titulo>
 
         {/* identidade */}
@@ -167,44 +173,46 @@ export default function PaginaPerfil() {
           </div>
         </Cartao>
 
-        {/* minhas informações */}
-        <section className="mb-5">
-          <Rotulo>Minhas informações</Rotulo>
-          <Cartao className="mt-2.5">
-            <div className="divide-y divide-(--color-borda)">
-              <ItemInfo icone={Mail} rotulo="E-mail" valor={perfil.email} />
-              <ItemInfo
-                icone={Phone}
-                rotulo="Telefone"
-                valor={perfil.telefone || 'Não informado'}
-                fraco={!perfil.telefone}
-              />
-            </div>
-          </Cartao>
-        </section>
-
-        {/* segurança */}
-        <section className="mb-5">
-          <Rotulo>Segurança</Rotulo>
-          <Cartao className="mt-2.5">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-(--color-superficie-2) text-(--color-tinta-2)">
-                  <KeyRound size={17} />
-                </span>
-                <div className="min-w-0">
-                  <p className="t-corpo font-medium">Senha</p>
-                  <p className="tab-num t-aux tracking-widest">••••••••</p>
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <div className="min-w-0 space-y-5">
+            {/* minhas informações */}
+            <section>
+              <Rotulo>Minhas informações</Rotulo>
+              <Cartao className="mt-2.5">
+                <div className="divide-y divide-(--color-borda)">
+                  <ItemInfo icone={Mail} rotulo="E-mail" valor={perfil.email} />
+                  <ItemInfo
+                    icone={Phone}
+                    rotulo="Telefone"
+                    valor={perfil.telefone || 'Não informado'}
+                    fraco={!perfil.telefone}
+                  />
                 </div>
-              </div>
-              <Botao variante="secundario" onClick={() => setTrocandoSenha(true)}>
-                Alterar senha
-              </Botao>
-            </div>
-          </Cartao>
-        </section>
+              </Cartao>
+            </section>
 
-        {/* Dados de viagem (§12). São da CONTA, não da viagem: o CPF é o mesmo em
+            {/* segurança */}
+            <section>
+              <Rotulo>Segurança</Rotulo>
+              <Cartao className="mt-2.5">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-(--color-superficie-2) text-(--color-tinta-2)">
+                      <KeyRound size={17} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="t-corpo font-medium">Senha</p>
+                      <p className="tab-num t-aux tracking-widest">••••••••</p>
+                    </div>
+                  </div>
+                  <Botao variante="secundario" onClick={() => setTrocandoSenha(true)}>
+                    Alterar senha
+                  </Botao>
+                </div>
+              </Cartao>
+            </section>
+
+            {/* Dados de viagem (§12). São da CONTA, não da viagem: o CPF é o mesmo em
             Europa 2027 e num bate-volta a Buenos Aires, e redigitá-lo a cada
             viagem é o trabalho que este bloco existe para eliminar.
 
@@ -212,145 +220,161 @@ export default function PaginaPerfil() {
             quais campos estão preenchidos — uma bolinha verde no painel do
             administrador não justifica publicar o passaporte de cinco pessoas.
             Ver `documentacaoDaViagem` em lib/db.ts. */}
-        <section className="mb-5">
-          <div className="mb-2.5 flex items-center justify-between gap-3">
-            <Rotulo>Dados de viagem</Rotulo>
-            <Botao variante="fantasma" onClick={() => setEditandoViagem(true)}>
-              {temDadosViagem(dadosViagem) ? 'Editar' : 'Preencher'}
-            </Botao>
           </div>
-          <Cartao>
-            {!temDadosViagem(dadosViagem) ? (
-              <div className="flex items-start gap-3">
-                <span
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-                  style={{ background: 'var(--color-destaque-fraco)', color: 'var(--destaque)' }}
-                >
-                  <IdCard size={18} />
-                </span>
-                <p className="t-aux">
-                  Guarde aqui CPF, passaporte e contato de emergência. Toda viagem que exigir
-                  esses dados vai encontrá-los prontos, e você não precisa digitá-los de novo.
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-(--color-borda)">
-                <Linha rotulo="Nome completo" valor={dadosViagem.nome_completo} />
-                <Linha rotulo="Nome social" valor={dadosViagem.nome_social} />
-                <Linha
-                  rotulo="Nascimento"
-                  valor={dadosViagem.nascimento ? formatarData(dadosViagem.nascimento) : ''}
-                />
-                <Linha rotulo="CPF" valor={mascararCpf(dadosViagem.cpf)} />
-                <Linha rotulo="RG" valor={dadosViagem.rg} />
-                <Linha rotulo="Nacionalidade" valor={dadosViagem.nacionalidade} />
-                <Linha rotulo="Passaporte" valor={dadosViagem.passaporte_numero} />
-                <Linha
-                  rotulo="Passaporte vence em"
-                  valor={
-                    dadosViagem.passaporte_validade
-                      ? formatarData(dadosViagem.passaporte_validade, {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric',
-                        })
-                      : ''
-                  }
-                />
-                <Linha rotulo="Emitido por" valor={dadosViagem.passaporte_pais} />
-                <Linha rotulo="Contato de emergência" valor={dadosViagem.emergencia_nome} />
-                <Linha rotulo="Telefone de emergência" valor={dadosViagem.emergencia_telefone} />
-                <Linha rotulo="Parentesco" valor={dadosViagem.emergencia_parentesco} />
-              </div>
-            )}
-          </Cartao>
-        </section>
 
-        {/* Meus documentos (§23). Só os PESSOAIS desta conta, de todas as
+          {/* Coluna da direita: o que é da PESSOA — o que ela leva na viagem e
+              como ela quer ser avisada. */}
+          <div className="min-w-0 space-y-5">
+            <section>
+              <div className="mb-2.5 flex items-center justify-between gap-3">
+                <Rotulo>Dados de viagem</Rotulo>
+                <Botao variante="fantasma" onClick={() => setEditandoViagem(true)}>
+                  {temDadosViagem(dadosViagem) ? 'Editar' : 'Preencher'}
+                </Botao>
+              </div>
+              <Cartao>
+                {!temDadosViagem(dadosViagem) ? (
+                  <div className="flex items-start gap-3">
+                    <span
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                      style={{
+                        background: 'var(--color-destaque-fraco)',
+                        color: 'var(--destaque)',
+                      }}
+                    >
+                      <IdCard size={18} />
+                    </span>
+                    <p className="t-aux">
+                      Guarde aqui CPF, passaporte e contato de emergência. Toda viagem que exigir
+                      esses dados vai encontrá-los prontos, e você não precisa digitá-los de novo.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-(--color-borda)">
+                    <Linha rotulo="Nome completo" valor={dadosViagem.nome_completo} />
+                    <Linha rotulo="Nome social" valor={dadosViagem.nome_social} />
+                    <Linha
+                      rotulo="Nascimento"
+                      valor={dadosViagem.nascimento ? formatarData(dadosViagem.nascimento) : ''}
+                    />
+                    <Linha rotulo="CPF" valor={mascararCpf(dadosViagem.cpf)} />
+                    <Linha rotulo="RG" valor={dadosViagem.rg} />
+                    <Linha rotulo="Nacionalidade" valor={dadosViagem.nacionalidade} />
+                    <Linha rotulo="Passaporte" valor={dadosViagem.passaporte_numero} />
+                    <Linha
+                      rotulo="Passaporte vence em"
+                      valor={
+                        dadosViagem.passaporte_validade
+                          ? formatarData(dadosViagem.passaporte_validade, {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })
+                          : ''
+                      }
+                    />
+                    <Linha rotulo="Emitido por" valor={dadosViagem.passaporte_pais} />
+                    <Linha rotulo="Contato de emergência" valor={dadosViagem.emergencia_nome} />
+                    <Linha
+                      rotulo="Telefone de emergência"
+                      valor={dadosViagem.emergencia_telefone}
+                    />
+                    <Linha rotulo="Parentesco" valor={dadosViagem.emergencia_parentesco} />
+                  </div>
+                )}
+              </Cartao>
+            </section>
+
+            {/* Meus documentos (§23). Só os PESSOAIS desta conta, de todas as
             viagens — o servidor recorta por `travelers.user_id`, e documento
             pessoal de outro participante nunca chega aqui. O arquivo em si abre
             no cofre da viagem, onde ele tem o contexto todo. */}
-        {meusDocumentos.length > 0 && (
-          <section className="mb-5">
-            <Rotulo>Meus documentos</Rotulo>
-            <Cartao className="mt-2.5">
-              <ul className="divide-y divide-(--color-borda)">
-                {meusDocumentos.map((d) => (
-                  <li
-                    key={String(d.id)}
-                    className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">{String(d.titulo)}</span>
-                      <span className="block text-[13px] text-(--color-tinta-3)">
-                        {String(d.viagem)}
-                        {d.validade ? ` · vence em ${formatarData(String(d.validade))}` : ''}
-                      </span>
+            {meusDocumentos.length > 0 && (
+              <section>
+                <Rotulo>Meus documentos</Rotulo>
+                <Cartao className="mt-2.5">
+                  <ul className="divide-y divide-(--color-borda)">
+                    {meusDocumentos.map((d) => (
+                      <li
+                        key={String(d.id)}
+                        className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">
+                            {String(d.titulo)}
+                          </span>
+                          <span className="block text-[13px] text-(--color-tinta-3)">
+                            {String(d.viagem)}
+                            {d.validade ? ` · vence em ${formatarData(String(d.validade))}` : ''}
+                          </span>
+                        </span>
+                        <a
+                          href={`/viagens/${String(d.trip_id)}?aba=documentos`}
+                          className="toque shrink-0 text-[13px] font-medium"
+                          style={{ color: 'var(--destaque)' }}
+                        >
+                          Abrir
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </Cartao>
+              </section>
+            )}
+
+            {/* preferências */}
+            <section>
+              <Rotulo>Preferências</Rotulo>
+              <Cartao className="mt-2.5">
+                <Interruptor
+                  rotulo="Avisos da viagem"
+                  descricao="Receber avisos quando alguém alterar algo em uma viagem sua."
+                  ligado={perfil.notificacoes}
+                  aoMudar={async (v) => {
+                    // Otimista: a bolinha vira na hora e volta se o servidor recusar.
+                    const antes = perfil.notificacoes
+                    setPerfil({ ...perfil, notificacoes: v })
+                    setSalvandoPref(true)
+                    const ok = await salvar(
+                      { notificacoes: v },
+                      v ? 'Avisos ativados.' : 'Avisos desativados.',
+                    )
+                    if (!ok) setPerfil((p) => (p ? { ...p, notificacoes: antes } : p))
+                    setSalvandoPref(false)
+                  }}
+                />
+                <div className="mt-1 border-t border-(--color-borda) pt-3">
+                  <label className="block">
+                    <span className="block text-[13px] font-medium text-(--color-tinta-2)">
+                      Moeda preferida
                     </span>
-                    <a
-                      href={`/viagens/${String(d.trip_id)}?aba=documentos`}
-                      className="toque shrink-0 text-[13px] font-medium"
-                      style={{ color: 'var(--destaque)' }}
+                    <span className="t-aux mb-1.5 block text-[12px]">
+                      Usada como padrão ao criar uma viagem nova.
+                    </span>
+                    <select
+                      value={perfil.moeda_preferida}
+                      disabled={salvandoPref}
+                      onChange={(e) =>
+                        void salvar({ moeda_preferida: e.target.value }, 'Preferência salva.')
+                      }
+                      className={`toque max-w-40 ${CLASSE_CAMPO}`}
                     >
-                      Abrir
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </Cartao>
-          </section>
-        )}
+                      {MOEDAS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </Cartao>
+            </section>
+          </div>
+        </div>
 
-        {/* preferências */}
-        <section className="mb-5">
-          <Rotulo>Preferências</Rotulo>
-          <Cartao className="mt-2.5">
-            <Interruptor
-              rotulo="Avisos da viagem"
-              descricao="Receber avisos quando alguém alterar algo em uma viagem sua."
-              ligado={perfil.notificacoes}
-              aoMudar={async (v) => {
-                // Otimista: a bolinha vira na hora e volta se o servidor recusar.
-                const antes = perfil.notificacoes
-                setPerfil({ ...perfil, notificacoes: v })
-                setSalvandoPref(true)
-                const ok = await salvar(
-                  { notificacoes: v },
-                  v ? 'Avisos ativados.' : 'Avisos desativados.',
-                )
-                if (!ok) setPerfil((p) => (p ? { ...p, notificacoes: antes } : p))
-                setSalvandoPref(false)
-              }}
-            />
-            <div className="mt-1 border-t border-(--color-borda) pt-3">
-              <label className="block">
-                <span className="block text-[13px] font-medium text-(--color-tinta-2)">
-                  Moeda preferida
-                </span>
-                <span className="t-aux mb-1.5 block text-[12px]">
-                  Usada como padrão ao criar uma viagem nova.
-                </span>
-                <select
-                  value={perfil.moeda_preferida}
-                  disabled={salvandoPref}
-                  onChange={(e) =>
-                    void salvar({ moeda_preferida: e.target.value }, 'Preferência salva.')
-                  }
-                  className={`toque max-w-40 ${CLASSE_CAMPO}`}
-                >
-                  {MOEDAS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </Cartao>
-        </section>
-
-        {/* minhas viagens */}
-        <section>
+        {/* minhas viagens — largura inteira: é uma grade de cartões, e cartão
+            espremido em meia tela perde a capa e a linha de datas. */}
+        <section className="mt-5">
           <div className="mb-2.5 flex items-center justify-between">
             <Rotulo>Minhas viagens</Rotulo>
             <Link
@@ -374,7 +398,7 @@ export default function PaginaPerfil() {
               }
             />
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {viagens.map((v) => (
                 <CartaoViagem key={v.id} viagem={v} />
               ))}
@@ -689,7 +713,11 @@ function FormularioDadosViagem({
       <div className="space-y-3">
         {erro && <Falha texto={erro} />}
 
-        <Campo rotulo="Nome completo" valor={val('nome_completo')} aoMudar={(v) => set('nome_completo', v)} />
+        <Campo
+          rotulo="Nome completo"
+          valor={val('nome_completo')}
+          aoMudar={(v) => set('nome_completo', v)}
+        />
         <Campo
           rotulo="Nome social ou apelido"
           valor={val('nome_social')}
