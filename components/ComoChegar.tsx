@@ -209,21 +209,30 @@ export function SaiaAs({ trecho, tamanho = 'medio' }: { trecho: Trecho; tamanho?
 export function FaixaTrecho({ trecho, aoAbrir }: { trecho: Trecho; aoAbrir: () => void }) {
   const Icone = ICONE_MODO[chaveDoIcone(trecho)] ?? Route
   const tom = tomDoTrecho(trecho)
+  const { editavel, limpar } = useDeslocamento(trecho)
+  const temDeslocamento = Boolean(trecho.duracaoMin || trecho.distanciaM || trecho.transporte)
   const numeros = [formatarDuracao(trecho.duracaoMin), formatarDistancia(trecho.distanciaM)]
     .filter(Boolean)
     .join('  ·  ')
 
+  // O container deixou de ser o próprio <button> para caber o lápis e a lixeira
+  // como IRMÃOS dele: botão dentro de botão é HTML inválido, e o navegador
+  // resolve isso engolindo o clique de um dos dois. A faixa inteira continua
+  // clicando para abrir o painel — o que mudou é só de quem é o elemento.
   return (
-    <button
-      type="button"
-      onClick={aoAbrir}
-      aria-label={`Como chegar até ${trecho.destino.titulo}`}
-      className="toque w-full cursor-pointer rounded-xl border p-3 text-left transition-colors"
+    <div
+      className="rounded-xl border transition-colors"
       style={{
         background: trecho.conflito || trecho.apertado ? tom.bg : 'var(--color-superficie-2)',
         borderColor: trecho.conflito || trecho.apertado ? tom.ink : 'transparent',
       }}
     >
+      <button
+        type="button"
+        onClick={aoAbrir}
+        aria-label={`Como chegar até ${trecho.destino.titulo}`}
+        className="toque w-full cursor-pointer rounded-xl p-3 text-left"
+      >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="t-legenda" style={{ color: tom.ink }}>
@@ -270,7 +279,37 @@ export function FaixaTrecho({ trecho, aoAbrir }: { trecho: Trecho; aoAbrir: () =
             : `Chega sem os ${trecho.margemMin} min de margem`}
         </p>
       )}
-    </button>
+      </button>
+
+      {/* EDITAR e EXCLUIR na própria faixa, na agenda e nos deslocamentos —
+          `FaixaTrecho` é a mesma nas duas telas, então isto entra uma vez só.
+
+          Em linha, e não flutuando no canto: a faixa já tem "Saia às" encostado
+          na direita e "Para chegar às" logo abaixo, e um ícone absoluto ali
+          cobriria o horário — exatamente o número que a faixa existe para
+          mostrar. Ocupa ~32px e só para quem edita.
+
+          Os dois mexem nos mesmos três campos do item de destino
+          (`duracao_min`, `distancia_m`, `transporte`), que é de onde esta faixa
+          inteira é calculada. Excluir não pergunta: nada se perde, e "Usar
+          esta" no painel refaz. */}
+      {editavel && (
+        <div className="sem-impressao flex items-center justify-end gap-0.5 px-1.5 pb-1.5">
+          <AdminAcoes entidade="roteiro" registro={trecho.destino.item} />
+          {temDeslocamento && (
+            <button
+              type="button"
+              onClick={limpar}
+              aria-label={`Excluir o deslocamento até ${trecho.destino.titulo}`}
+              title="Excluir deslocamento"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-(--color-tinta-3) transition-colors hover:bg-(--color-perigo-bg) hover:text-(--color-perigo-ink)"
+            >
+              <Trash2 size={15} aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
