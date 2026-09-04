@@ -443,20 +443,34 @@ export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
 
       <Opcoes trecho={trecho} />
 
-      {/* Tirar o deslocamento é apagar `duracao_min`, `distancia_m` e
-          `transporte` do item — a faixa amarela é calculada deles, não é uma
-          linha. Fica DEPOIS das opções porque é a saída de quem olhou as
-          alternativas e decidiu não escolher nenhuma; e não pede confirmação
-          porque não destrói nada: as alternativas continuam ali, e um clique em
-          "Usar esta" refaz. */}
-      {editavel && temDeslocamento && (
-        <button
-          type="button"
-          onClick={limpar}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] font-medium text-(--color-tinta-3) transition-colors hover:bg-(--color-perigo-bg) hover:text-(--color-perigo-ink)"
-        >
-          <Trash2 size={14} aria-hidden /> Deixar sem deslocamento definido
-        </button>
+      {/* EDITAR e EXCLUIR o deslocamento, no painel onde ele é lido.
+          Os dois mexem nos mesmos três campos do item de destino —
+          `duracao_min`, `distancia_m` e `transporte` — porque a faixa amarela é
+          calculada deles e não é uma linha própria. Ficam DEPOIS das opções: é
+          aqui que chega quem olhou as alternativas e quer ajustar o número na
+          mão, ou não ficar com nenhuma.
+
+          Editar reusa `AdminAcoes`, o mesmo editor do lápis do item, com o
+          grupo "Como chegar" já lá dentro — um formulário próprio só para três
+          campos seria uma quarta tela para manter em sincronia com o schema.
+
+          Excluir não pede confirmação porque não destrói nada: as alternativas
+          continuam ali e um clique em "Usar esta" refaz. */}
+      {editavel && (
+        <div className="flex flex-wrap items-center gap-1">
+          <AdminAcoes entidade="roteiro" registro={trecho.destino.item}>
+            Editar deslocamento
+          </AdminAcoes>
+          {temDeslocamento && (
+            <button
+              type="button"
+              onClick={limpar}
+              className="toque inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-(--color-tinta-3) transition-colors hover:bg-(--color-perigo-bg) hover:text-(--color-perigo-ink)"
+            >
+              <Trash2 size={15} aria-hidden /> Excluir deslocamento
+            </button>
+          )}
+        </div>
       )}
 
       {trecho.destino.endereco && (
