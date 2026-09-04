@@ -410,7 +410,13 @@ export function Shell({
                 : 'max-w-5xl'
           }`}
         >
-          {children}
+          {/* `key={aba}` reinicia a animação a cada troca — sem ela o wrapper
+              não remonta, e o fade não toca de novo quando só o conteúdo
+              embaixo dele muda. Só opacidade, ~140ms: uma pista de que a
+              tela virou, não um atraso para quem troca de aba o dia todo. */}
+          <div key={aba} className="anim-surgir">
+            {children}
+          </div>
         </main>
       </div>
 

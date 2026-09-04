@@ -45,7 +45,7 @@ import {
 import { useTrip } from '../TripProvider.tsx'
 import { ModalComoChegar } from '../ComoChegar.tsx'
 import { trechosDoDia, type Trecho } from '@/lib/trechos.ts'
-import { AppModal, Botao, Cartao, useAviso } from '../ui.tsx'
+import { AppModal, Botao, Cartao, useAviso, useFechamentoAnimado } from '../ui.tsx'
 import { PreviewDocumento } from '../CofreDocumento.tsx'
 import { documentosDe, type Documento } from '@/lib/cofre.ts'
 import { formatarData, formatarDinheiro, formatarDistancia, parseData } from '@/lib/derive.ts'
@@ -878,9 +878,10 @@ function LinhaRituais({
 function PainelEndereco({ endereco, aoFechar }: { endereco: Endereco; aoFechar: () => void }) {
   const avisar = useAviso()
   const [copiado, setCopiado] = useState(false)
+  const { fechando, pedirFechar } = useFechamentoAnimado(aoFechar)
 
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && aoFechar()
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && pedirFechar()
     document.addEventListener('keydown', esc)
     const anterior = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -888,7 +889,7 @@ function PainelEndereco({ endereco, aoFechar }: { endereco: Endereco; aoFechar: 
       document.removeEventListener('keydown', esc)
       document.body.style.overflow = anterior
     }
-  }, [aoFechar])
+  }, [pedirFechar])
 
   const copiar = async () => {
     try {
@@ -906,12 +907,12 @@ function PainelEndereco({ endereco, aoFechar }: { endereco: Endereco; aoFechar: 
       role="dialog"
       aria-modal="true"
       aria-label={`Endereço de ${endereco.titulo}`}
-      className="fixed inset-0 z-50 flex flex-col overflow-y-auto"
+      className={`fixed inset-0 z-50 flex flex-col overflow-y-auto ${fechando ? 'anim-sair' : 'anim-surgir'}`}
       style={{ background: 'var(--color-cartao)' }}
     >
       <div className="flex justify-end p-3">
         <button
-          onClick={aoFechar}
+          onClick={pedirFechar}
           aria-label="Fechar endereço"
           className="toque grid cursor-pointer place-items-center rounded-full text-(--color-tinta-2) transition-colors hover:bg-(--color-superficie-2)"
         >

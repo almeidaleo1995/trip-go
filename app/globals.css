@@ -336,6 +336,46 @@ body {
   animation: entrar-toast 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* Saída: mais rápida e mais curta que a entrada de par — a atenção de quem
+   fecha já foi embora, a animação só evita o corte seco (regra §2 do motion). */
+@keyframes sair {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes descer {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+@keyframes sair-toast {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.anim-sair {
+  animation: sair 110ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.anim-descer {
+  animation: descer 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.anim-sair-toast {
+  animation: sair-toast 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
 /* Esqueleto de carregamento: a forma do conteúdo antes do conteúdo. */
 .esqueleto {
   background: linear-gradient(

@@ -31,6 +31,35 @@ import {
 } from 'lucide-react'
 import { siteConfig } from '@/config/site.ts'
 
+// ================================================================ movimento
+
+/** `true` quando a pessoa pediu menos movimento — a saída então acontece sem
+    atraso artificial em vez de manter um elemento invisível "vivo" por nada. */
+const prefereMenosMovimento = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+
+/**
+ * Anima a saída de um painel antes de desmontar.
+ *
+ * O pai continua no controle de quando o componente existe (o padrão do app é
+ * `{aberto && <X aoFechar={...}/>}`) — este hook só atrasa a chamada real de
+ * `aoFechar` pelo tempo da animação, então o elemento ainda está no DOM
+ * enquanto ela toca. Usado por `AppModal` e por qualquer painel de tela cheia
+ * que siga o mesmo formato (ver `PainelEndereco` em tabs/Hoje.tsx).
+ */
+export function useFechamentoAnimado(aoFechar: () => void, duracaoMs = 130) {
+  const [fechando, setFechando] = useState(false)
+  const disparado = useRef(false)
+  const pedirFechar = useCallback(() => {
+    if (disparado.current) return
+    disparado.current = true
+    setFechando(true)
+    setTimeout(aoFechar, prefereMenosMovimento() ? 0 : duracaoMs)
+  }, [aoFechar, duracaoMs])
+  return { fechando, pedirFechar }
+}
+
 // ================================================================ carregamento
 
 /** Tela de carregamento. Um avião percorrendo a rota — não um spinner genérico. */
@@ -201,7 +230,7 @@ export function Cartao({
     <button
       onClick={onClick}
       style={estilo}
-      className={`${base} w-full cursor-pointer text-left transition-[filter] hover:brightness-[0.97] ${className}`}
+      className={`${base} w-full cursor-pointer text-left transition-[filter,transform] hover:brightness-[0.97] active:scale-[0.99] ${className}`}
     >
       {children}
     </button>
@@ -450,7 +479,7 @@ export function BotaoIcone({
       // toda listagem densa seria pior. A área de TOQUE vai a 44x44 pelo
       // pseudo-elemento, que não ocupa espaço no layout: o dedo acerta os 44 do
       // `.toque` sem que o desenho mude um pixel.
-      className={`relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-2xl after:absolute after:-inset-1 after:content-[''] disabled:cursor-not-allowed disabled:opacity-50 ${estilos}`}
+      className={`relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-2xl after:absolute after:-inset-1 after:content-[''] not-disabled:active:scale-90 disabled:cursor-not-allowed disabled:opacity-50 ${estilos}`}
     >
       {children}
     </button>
@@ -737,6 +766,7 @@ export function AppModal({
 }) {
   const caixa = useRef<HTMLDivElement>(null)
   const id = useId()
+  const { fechando, pedirFechar } = useFechamentoAnimado(aoFechar)
 
   useEffect(() => {
     const anterior = document.body.style.overflow
@@ -762,7 +792,7 @@ export function AppModal({
     ;(primeiroCampo ?? caixa.current)?.focus()
 
     const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return aoFechar()
+      if (e.key === 'Escape') return pedirFechar()
       if (e.key !== 'Tab') return
       const lista = focaveis()
       if (lista.length === 0) return
@@ -783,7 +813,7 @@ export function AppModal({
       window.removeEventListener('keydown', aoTeclar)
       focoAnterior?.focus?.()
     }
-  }, [aoFechar])
+  }, [pedirFechar])
 
   // Todo modal do app nasce de um clique, então nunca é renderizado no
   // servidor. A guarda existe só para o caso de um dia alguém montar um
@@ -795,9 +825,9 @@ export function AppModal({
   // com `transform`. Na raiz ele não depende de onde a página o abriu.
   return createPortal(
     <div
-      className="sem-impressao anim-surgir fixed inset-0 z-50 flex items-center justify-center p-4 text-left"
+      className={`sem-impressao fixed inset-0 z-50 flex items-center justify-center p-4 text-left ${fechando ? 'anim-sair' : 'anim-surgir'}`}
       style={{ background: 'var(--veu)' }}
-      onClick={aoFechar}
+      onClick={pedirFechar}
     >
       <div
         ref={caixa}
@@ -810,7 +840,7 @@ export function AppModal({
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{ boxShadow: 'var(--sombra-modal)' }}
-        className={`anim-subir flex max-h-[85dvh] w-full ${LARGURA[tamanho]} flex-col overflow-hidden rounded-[24px] bg-(--color-cartao)`}
+        className={`flex max-h-[85dvh] w-full ${LARGURA[tamanho]} flex-col overflow-hidden rounded-[24px] bg-(--color-cartao) ${fechando ? 'anim-descer' : 'anim-subir'}`}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5 pb-3">
           <div className="min-w-0">
@@ -824,7 +854,7 @@ export function AppModal({
             )}
           </div>
           <button
-            onClick={aoFechar}
+            onClick={pedirFechar}
             aria-label="Fechar"
             className="-mt-1 -mr-1 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-(--color-tinta-3) transition-colors hover:bg-(--color-superficie-2) hover:text-(--color-tinta)"
           >
@@ -895,7 +925,7 @@ export function ConfirmarDialogo({
 // ================================================================ avisos (toast)
 
 type TomAviso = 'sucesso' | 'erro' | 'info'
-type Aviso = { id: number; tom: TomAviso; texto: string }
+type Aviso = { id: number; tom: TomAviso; texto: string; saindo?: boolean }
 
 const CtxAviso = createContext<((tom: TomAviso, texto: string) => void) | null>(null)
 
@@ -927,12 +957,25 @@ export function ProvedorAvisos({ children }: { children: ReactNode }) {
   const [avisos, setAvisos] = useState<Aviso[]>([])
   const proximo = useRef(0)
 
-  const avisar = useCallback((tom: TomAviso, texto: string) => {
-    const id = ++proximo.current
-    // Guarda no máximo três: uma pilha crescente tapa a tela que ela comenta.
-    setAvisos((a) => [...a.slice(-2), { id, tom, texto }])
-    setTimeout(() => setAvisos((a) => a.filter((x) => x.id !== id)), tom === 'erro' ? 6000 : 3200)
+  // Marca a saída e só desmonta depois — o corte seco era o próprio aviso
+  // desaparecendo no meio da leitura, sem tempo de registrar que sumiu.
+  const remover = useCallback((id: number) => {
+    setAvisos((a) => a.map((x) => (x.id === id ? { ...x, saindo: true } : x)))
+    setTimeout(
+      () => setAvisos((a) => a.filter((x) => x.id !== id)),
+      prefereMenosMovimento() ? 0 : 130,
+    )
   }, [])
+
+  const avisar = useCallback(
+    (tom: TomAviso, texto: string) => {
+      const id = ++proximo.current
+      // Guarda no máximo três: uma pilha crescente tapa a tela que ela comenta.
+      setAvisos((a) => [...a.slice(-2), { id, tom, texto }])
+      setTimeout(() => remover(id), tom === 'erro' ? 6000 : 3200)
+    },
+    [remover],
+  )
 
   return (
     <CtxAviso.Provider value={avisar}>
@@ -946,7 +989,7 @@ export function ProvedorAvisos({ children }: { children: ReactNode }) {
         {avisos.map((a) => (
           <div
             key={a.id}
-            className="anim-toast pointer-events-auto flex w-full max-w-sm items-center gap-2.5 rounded-xl px-3.5 py-3 text-sm font-medium"
+            className={`pointer-events-auto flex w-full max-w-sm items-center gap-2.5 rounded-xl px-3.5 py-3 text-sm font-medium ${a.saindo ? 'anim-sair-toast' : 'anim-toast'}`}
             style={{
               background: COR_AVISO[a.tom].bg,
               color: COR_AVISO[a.tom].ink,
@@ -956,7 +999,7 @@ export function ProvedorAvisos({ children }: { children: ReactNode }) {
             <span className="shrink-0">{ICONE_AVISO[a.tom]}</span>
             <span className="min-w-0 flex-1">{a.texto}</span>
             <button
-              onClick={() => setAvisos((x) => x.filter((y) => y.id !== a.id))}
+              onClick={() => remover(a.id)}
               aria-label="Dispensar aviso"
               className="shrink-0 cursor-pointer rounded-lg p-1 opacity-70 hover:opacity-100"
             >
