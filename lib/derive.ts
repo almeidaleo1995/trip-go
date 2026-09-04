@@ -16,6 +16,7 @@
 // campo mudar de forma.
 
 import { hrefSeguro } from './seguranca.ts'
+import { normalizarTitulo } from './checklist.ts'
 
 export type Fase = 'antes' | 'durante' | 'depois'
 
@@ -765,4 +766,77 @@ export function etapasDaViagem(
   }
 
   return etapas
+}
+
+// ---------------------------------------------------------------- busca no roteiro
+
+/** Uma linha do roteiro que casou com a busca, com o dia em que ela mora. */
+export type AchadoRoteiro = {
+  /** 'AAAA-MM-DD' — é o que o seletor de dia espera para abrir o resultado. */
+  chaveDia: string
+  numero: number
+  data: Date
+  item: Record<string, unknown>
+}
+
+/**
+ * Campos varridos pela busca. `titulo` primeiro porque é o que quase toda
+ * consulta mira; os outros existem porque quem procura "Boqueria" pode ter
+ * escrito o nome em `local`, e quem procura "Termini" escreveu em `endereco`.
+ *
+ * `descricao` e `dicas` entram de propósito: são onde moram as frases que a
+ * pessoa lembra ("o passaporte no cofre") e que não estão em nenhum título.
+ */
+const CAMPOS_BUSCA = [
+  'titulo',
+  'local',
+  'cidade',
+  'endereco',
+  'transporte',
+  'descricao',
+  'dicas',
+  'nota',
+] as const
+
+/**
+ * Procura texto em TODOS os dias do roteiro de uma vez.
+ *
+ * A tela mostra um dia por vez, e com dezessete dias e mais de cem itens achar
+ * "Sagrada Família" significava abrir dia por dia. Esta função existe para o
+ * caminho contrário: escreve-se o que se lembra e o resultado diz em que dia
+ * aquilo está.
+ *
+ * Os termos são um E, não um OU: "prado madri" acha o item que tem as duas
+ * palavras, em qualquer campo e em qualquer ordem — que é como as pessoas
+ * digitam quando lembram de duas coisas soltas e de nenhuma inteira. Um OU
+ * devolveria os dezessete itens que mencionam Madri e enterraria o Prado.
+ *
+ * Sem acento e sem caixa dos dois lados, por `normalizarTitulo` — quem digita
+ * no celular, com pressa, não põe o acento de "Güell".
+ */
+export function buscarNoRoteiro(
+  dias: DiaRoteiro[],
+  consulta: string,
+  limite = 20,
+): AchadoRoteiro[] {
+  const termos = normalizarTitulo(String(consulta ?? ''))
+    .split(' ')
+    .filter(Boolean)
+  if (termos.length === 0) return []
+
+  const achados: AchadoRoteiro[] = []
+  for (const dia of dias) {
+    for (const item of dia.itens) {
+      const palheiro = normalizarTitulo(
+        CAMPOS_BUSCA.map((c) => String(item[c] ?? '')).join(' '),
+      )
+      if (!termos.every((t) => palheiro.includes(t))) continue
+      achados.push({ chaveDia: dia.chave, numero: dia.numero, data: dia.data, item })
+      // Corta AQUI e não no fim: `dias` já vem em ordem cronológica, então os
+      // primeiros achados são os primeiros da viagem — e varrer os dezessete
+      // dias para depois jogar fora dezoito resultados é trabalho por nada.
+      if (achados.length >= limite) return achados
+    }
+  }
+  return achados
 }

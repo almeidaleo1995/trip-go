@@ -92,6 +92,7 @@ import {
   Maximize2,
   Upload,
   Search,
+  X,
   ArrowLeftRight,
   type LucideIcon,
 } from 'lucide-react'
@@ -141,6 +142,7 @@ import {
   linhas,
   lerLinks,
   noites,
+  buscarNoRoteiro,
   type DiaRoteiro,
 } from '@/lib/derive.ts'
 
@@ -293,6 +295,7 @@ export function Roteiro() {
   // mapa e os deslocamentos são a mesma lista vista de outro ângulo.
   const [visao, setVisao] = useState<Visao>('agenda')
   const [trechoAberto, setTrechoAberto] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
   const desktop = useDesktop()
 
   const dias = useMemo(
@@ -379,6 +382,22 @@ export function Roteiro() {
         <div className="min-w-0">
           <Cabecalho dia={dia} dias={dias} indice={indice} aoEscolher={setEscolhido} />
 
+          {/* A busca fica ANTES da faixa de dias porque é a outra forma de
+              chegar num dia: a faixa serve para andar de um dia ao vizinho, e
+              esta para pular direto para "onde mesmo está a Sagrada Família". */}
+          <BuscaRoteiro
+            dias={dias}
+            valor={busca}
+            aoMudar={setBusca}
+            aoEscolher={(chave) => {
+              setEscolhido(chave)
+              setBusca('')
+              // Um resultado de outro dia aberto na visão "mapa" abriria o mapa
+              // daquele dia, e não o item procurado. A agenda é onde ele está.
+              setVisao('agenda')
+            }}
+          />
+
           {/* A faixa fica ACIMA do itinerário: é com ela que se troca de dia, e
               no rodapé isso exigia rolar a página inteira só para ir ao dia
               seguinte — justamente o gesto mais repetido da tela. */}
@@ -460,6 +479,121 @@ export function Roteiro() {
         <ModalComoChegar trecho={aberto} aoFechar={() => setTrechoAberto(null)} />
       )}
     </>
+  )
+}
+
+// ---------------------------------------------------------------- busca
+
+/**
+ * PROCURAR NO ROTEIRO INTEIRO, não no dia aberto.
+ *
+ * A tela mostra um dia por vez. Com dezessete dias e mais de cem itens, achar
+ * "Sagrada Família" era abrir dia por dia até topar com ela — e quem procura
+ * quase nunca lembra a data, lembra o nome. Daí a busca varrer `dias` inteiro e
+ * o resultado dizer o DIA: é essa a informação que faltava.
+ *
+ * Não filtra a agenda no lugar: um roteiro filtrado esconde o que vem antes e
+ * depois do item, que é justamente o contexto de quem vai remarcar alguma
+ * coisa. Escolher um resultado ABRE o dia dele, com o item no meio do dia.
+ *
+ * A conta mora em `buscarNoRoteiro` (lib/derive.ts), pura e testada — aqui só
+ * entra o campo e a lista.
+ */
+function BuscaRoteiro({
+  dias,
+  valor,
+  aoMudar,
+  aoEscolher,
+}: {
+  dias: DiaRoteiro[]
+  valor: string
+  aoMudar: (v: string) => void
+  aoEscolher: (chaveDia: string) => void
+}) {
+  const achados = useMemo(() => buscarNoRoteiro(dias, valor), [dias, valor])
+  const procurando = valor.trim().length > 0
+
+  return (
+    <div className="mt-3">
+      <div className="relative">
+        <Search
+          size={16}
+          className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-(--color-tinta-3)"
+          aria-hidden
+        />
+        <input
+          type="search"
+          value={valor}
+          onChange={(e) => aoMudar(e.target.value)}
+          // Escape limpa sem tirar o foco: quem errou a palavra quer digitar
+          // outra, não voltar para o começo da página.
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              aoMudar('')
+            }
+          }}
+          placeholder="Procurar no roteiro inteiro — museu, hotel, cidade…"
+          aria-label="Procurar no roteiro inteiro"
+          className={`${CLASSE_CAMPO} pl-10 ${procurando ? 'pr-10' : ''}`}
+        />
+        {procurando && (
+          <button
+            type="button"
+            onClick={() => aoMudar('')}
+            aria-label="Limpar a busca"
+            className="absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-1 text-(--color-tinta-3) hover:bg-(--color-superficie-2)"
+          >
+            <X size={15} aria-hidden />
+          </button>
+        )}
+      </div>
+
+      {procurando && (
+        <div
+          className="mt-2 overflow-hidden rounded-2xl border border-(--color-borda)"
+          role="listbox"
+          aria-label="Resultados da busca"
+        >
+          {achados.length === 0 ? (
+            <p className="px-3.5 py-3 text-sm text-(--color-tinta-3)">
+              Nada no roteiro com “{valor.trim()}”.
+            </p>
+          ) : (
+            achados.map((a) => {
+              const hora = formatarHora(a.item.ocorre_em)
+              const onde = String(a.item.local ?? a.item.cidade ?? '')
+              return (
+                <button
+                  key={String(a.item.id ?? `${a.chaveDia}-${hora}-${String(a.item.titulo)}`)}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => aoEscolher(a.chaveDia)}
+                  className="flex w-full items-baseline gap-3 border-b border-(--color-borda) px-3.5 py-2.5 text-left last:border-b-0 hover:bg-(--color-superficie-2)"
+                >
+                  <span className="tab-num shrink-0 text-[12px] font-semibold text-(--color-tinta-3)">
+                    {a.numero > 0 ? `Dia ${a.numero}` : formatarData(a.chaveDia)}
+                    {hora ? ` · ${hora}` : ''}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {String(a.item.titulo ?? '')}
+                    </span>
+                    {Boolean(onde) && (
+                      <span className="block truncate text-[12px] text-(--color-tinta-3)">
+                        {onde}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronRight size={14} className="shrink-0 text-(--color-tinta-4)" aria-hidden />
+                </button>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

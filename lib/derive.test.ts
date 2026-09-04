@@ -32,6 +32,8 @@ import {
   formatarDistancia,
   linhas,
   lerLinks,
+  buscarNoRoteiro,
+  type DiaRoteiro,
 } from './derive.ts'
 
 const PARTIDA = '2026-12-30'
@@ -667,4 +669,82 @@ test('a mesma cidade em dois momentos da viagem sao dois trechos', () => {
     e.map((x) => x.cidade),
     ['Madri', 'Paris', 'Madri'],
   )
+})
+
+// ---------------------------------------------------------------- busca no roteiro
+
+/** Três dias da viagem real, com o que a busca precisa distinguir. */
+const DIAS_BUSCA: DiaRoteiro[] = [
+  {
+    chave: '2027-01-11',
+    data: new Date('2027-01-11T12:00'),
+    numero: 13,
+    meta: null,
+    itens: [
+      { titulo: 'Museus Vaticanos e Capela Sistina', cidade: 'Roma', local: 'Musei Vaticani' },
+      { titulo: 'Coliseu · horário marcado', cidade: 'Roma', descricao: 'Última entrada 15:30' },
+    ],
+  },
+  {
+    chave: '2027-01-12',
+    data: new Date('2027-01-12T12:00'),
+    numero: 14,
+    meta: null,
+    itens: [
+      { titulo: 'Sagrada Família', cidade: 'Barcelona', dicas: 'Sem bilheteria física' },
+      { titulo: 'Almoço no Mercat de la Boqueria', cidade: 'Barcelona', local: 'La Rambla 91' },
+    ],
+  },
+  {
+    chave: '2027-01-14',
+    data: new Date('2027-01-14T12:00'),
+    numero: 16,
+    meta: null,
+    itens: [{ titulo: 'Museu do Prado', cidade: 'Madri', descricao: 'Entrada gratuita 18:00' }],
+  },
+]
+
+test('busca no roteiro ignora acento e caixa', () => {
+  const r = buscarNoRoteiro(DIAS_BUSCA, 'SAGRADA FAMILIA')
+  assert.equal(r.length, 1)
+  assert.equal(r[0].chaveDia, '2027-01-12')
+  assert.equal(r[0].numero, 14)
+})
+
+test('busca varre local, descricao e dicas, nao so o titulo', () => {
+  // "rambla" só existe em `local` — casar aqui prova que a busca não para no título.
+  const porLocal = buscarNoRoteiro(DIAS_BUSCA, 'rambla')
+  assert.equal(porLocal.length, 1)
+  assert.equal(porLocal[0].item.titulo, 'Almoço no Mercat de la Boqueria')
+  assert.equal(buscarNoRoteiro(DIAS_BUSCA, 'bilheteria').length, 1)
+  assert.equal(buscarNoRoteiro(DIAS_BUSCA, '15:30').length, 1)
+})
+
+test('varios termos sao E, nao OU', () => {
+  // "museu" sozinho pega Vaticanos e Prado; com "madri" tem que sobrar um.
+  assert.equal(buscarNoRoteiro(DIAS_BUSCA, 'museu').length, 2)
+  const r = buscarNoRoteiro(DIAS_BUSCA, 'museu madri')
+  assert.equal(r.length, 1)
+  assert.equal(r[0].chaveDia, '2027-01-14')
+})
+
+test('termos casam em ordem qualquer e em campos diferentes', () => {
+  assert.equal(buscarNoRoteiro(DIAS_BUSCA, 'madri museu').length, 1)
+  assert.equal(buscarNoRoteiro(DIAS_BUSCA, 'boqueria barcelona').length, 1)
+})
+
+test('consulta vazia ou so espaco nao devolve a viagem inteira', () => {
+  assert.deepEqual(buscarNoRoteiro(DIAS_BUSCA, ''), [])
+  assert.deepEqual(buscarNoRoteiro(DIAS_BUSCA, '   '), [])
+})
+
+test('busca respeita o limite e devolve os PRIMEIROS dias', () => {
+  const r = buscarNoRoteiro(DIAS_BUSCA, 'a', 2)
+  assert.equal(r.length, 2)
+  assert.equal(r[0].chaveDia, '2027-01-11')
+})
+
+test('sem resultado devolve lista vazia, nunca null', () => {
+  assert.deepEqual(buscarNoRoteiro(DIAS_BUSCA, 'quiosque de tacos'), [])
+  assert.deepEqual(buscarNoRoteiro([], 'roma'), [])
 })
