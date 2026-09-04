@@ -269,12 +269,12 @@ function Hero({ viagem }: { viagem: ViagemResumo }) {
               {emAndamento ? `dia de ${f.totalDias}` : f.diasRestantes === 1 ? 'dia' : 'dias'}
             </p>
           </div>
-          <a
+          <Link
             href={`/viagens/${viagem.id}`}
             className="toque inline-flex shrink-0 items-center gap-2 rounded-full bg-(--color-tinta) px-5 text-sm font-semibold text-white"
           >
             Abrir viagem <ArrowRight size={15} />
-          </a>
+          </Link>
         </div>
       </div>
     </section>

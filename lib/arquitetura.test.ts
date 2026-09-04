@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { sep } from 'node:path'
+import { TIPOS_EVENTO } from './schema.ts'
 
 const ler = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
 
@@ -87,10 +88,16 @@ test('o upload do cofre confere a assinatura do arquivo, nao so o MIME declarado
 // ---------------------------------------------------------------- href
 
 test('nenhum valor guardado vira href sem passar por hrefSeguro', () => {
-  // `doc.valor` e `links` sao os dois campos livres que a tela transforma em
-  // link. Os dois foram escritos por outro participante da viagem, e um
-  // `javascript:` guardado ali roda com a sessao de quem clicar — numa pagina
-  // que carrega o snapshot inteiro.
+  // QUATRO campos livres viram link na tela: `documents.valor`, o `links` do
+  // item do roteiro, `itinerary_days.mapa_url` e `reservations.link`. Todos sao
+  // escritos por um participante e clicados por outro, e um `javascript:`
+  // guardado ali roda na origem do app — numa pagina que carrega o snapshot
+  // inteiro.
+  //
+  // A regra dizia "os dois campos" e ficou desatualizada: `mapa_url` e
+  // `reservations.link` nasceram depois, viravam href por `String(...)` e
+  // ninguem re-contou. Por isso o teste passou a nomear cada um, e a proibir a
+  // forma crua — uma quinta so entra na lista se alguem a escrever aqui.
   const cofre = ler('components/CofreDocumento.tsx')
   assert.ok(
     !/href=\{doc\.valor\}/.test(cofre),
@@ -101,6 +108,27 @@ test('nenhum valor guardado vira href sem passar por hrefSeguro', () => {
     /hrefSeguro\(/.test(ler('lib/derive.ts')),
     'lerLinks parou de conferir o esquema por hrefSeguro',
   )
+
+  const roteiro = ler('components/tabs/Roteiro.tsx')
+  assert.ok(
+    /const mapaUrl = hrefSeguro\(/.test(roteiro),
+    'o `mapa_url` do dia voltou a virar href sem hrefSeguro. Ele e texto livre ' +
+      '("Link do mapa do dia", no EditorSheet), escrito por um participante e ' +
+      'clicado por outro dentro da pagina que carrega o snapshot inteiro.',
+  )
+
+  // A forma CRUA, proibida em qualquer tela: `href={String(<algo>.link)}`.
+  // `reservations.link` aparecia assim em tres lugares (dois no Roteiro, um na
+  // aba Hospedagem) — a regra existia e nenhum deles a seguia.
+  for (const arquivo of ['components/tabs/Roteiro.tsx', 'components/tabs/Conteudo.tsx']) {
+    const cru = /href=\{String\([A-Za-z0-9_.]*\.link\)\}/.exec(ler(arquivo))
+    assert.equal(
+      cru,
+      null,
+      `${arquivo} joga \`${cru?.[0]}\` direto no href. \`reservations.link\` e texto ` +
+        'livre: passe por hrefSeguro, como o cofre faz com `doc.valor`.',
+    )
+  }
 })
 
 // ---------------------------------------------------------------- cabecalhos
@@ -486,5 +514,157 @@ test('nenhum log imprime o objeto de erro cru', () => {
           'a chave do rate limit (um IP) iam para o log em texto. Use `paraLog(e)`.',
       )
     }
+  }
+})
+
+// ---------------------------------------------------------------- cor por tipo
+
+test('todo tipo de item do roteiro tem cor, direta ou por apelido', () => {
+  // A linha do tempo pinta cada evento pela cor do tipo — círculo do ícone,
+  // faixa lateral do cartão e chip do seletor. Um tipo NOVO no schema que
+  // ninguém lembrou de colorir não quebra nada: cai no cinza neutro e some no
+  // meio da lista, que é exatamente o efeito que a cor existe para evitar.
+  // Nenhuma tela reclama, nenhum teste comum falha. Só este.
+  const ui = ler('components/ui.tsx')
+  const bloco = (nome: string) => {
+    const i = ui.indexOf(`export const ${nome}`)
+    assert.ok(i >= 0, `${nome} sumiu de components/ui.tsx`)
+    return ui.slice(i, ui.indexOf('\n}', i))
+  }
+  const tons = bloco('TONS')
+  const alias = bloco('ALIAS_TOM')
+
+  // Por linha, e não por regex montada em template: `\s` dentro de uma template
+  // string vira só "s", e a regex passa a casar nada — em silêncio.
+  const chaves = new Set(
+    [tons, alias]
+      .join('\n')
+      .split('\n')
+      .map((l) => l.trim().split(':')[0].trim()),
+  )
+  const semCor = TIPOS_EVENTO.filter((t) => !chaves.has(t))
+  assert.deepEqual(
+    semCor,
+    [],
+    `tipo(s) sem cor: ${semCor.join(', ')}. Some em TONS (par próprio) ou em ` +
+      'ALIAS_TOM (aponta para um par existente) em components/ui.tsx — senão o ' +
+      'evento nasce cinza e a linha do tempo perde a única pista de cor que tem.',
+  )
+})
+
+test('a cor de um tipo e resolvida num lugar so', () => {
+  // `tomDoTipo` nasceu porque a busca estava copiada em três telas e um tipo
+  // novo ganhava cor numa e cinza nas outras — a tela dizia duas coisas sobre o
+  // mesmo evento. Se a cópia voltar, este teste é quem avisa.
+  for (const arquivo of ['components/tabs/Roteiro.tsx', 'components/EditorSheet.tsx']) {
+    assert.ok(
+      !/TONS\[[^\]]+\]\s*\?\?\s*TONS\[/.test(ler(arquivo)),
+      `${arquivo} resolve a cor do tipo à mão. Use tomDoTipo de components/ui.tsx.`,
+    )
+  }
+})
+
+// ---------------------------------------------------------------- id derivado
+
+test('toda entrada derivada do roteiro tem id com prefixo', () => {
+  // O painel "Como chegar" grava o deslocamento escolhido NO ITEM de destino,
+  // por `editar` em `roteiro`. Entrada derivada — o voo que vem do cadastro de
+  // voos, o check-in que vem da reserva — não é linha de `itinerary_events`, e
+  // um `editar` nela escreveria num id que a tabela não tem: some em silêncio,
+  // e a pessoa acha que salvou.
+  //
+  // A guarda é `!id.includes(':')` em components/ComoChegar.tsx, e ela só vale
+  // enquanto TODA derivada usar prefixo. Uma nova que nascesse com o id cru do
+  // registro de origem passaria pela guarda sem avisar ninguém.
+  const fonte = ler('components/tabs/Roteiro.tsx')
+  const inicio = fonte.indexOf('function entradasDerivadas')
+  assert.ok(inicio >= 0, 'entradasDerivadas sumiu de components/tabs/Roteiro.tsx')
+  const corpo = fonte.slice(inicio, fonte.indexOf('\n}', inicio))
+
+  const ids = [...corpo.matchAll(/^\s*id: (.+),$/gm)].map((m) => m[1].trim())
+  assert.ok(ids.length > 0, 'nenhum id encontrado em entradasDerivadas — o teste ficou cego')
+
+  const semPrefixo = ids.filter((v) => !/^`[a-z]+:/.test(v))
+  assert.deepEqual(
+    semPrefixo,
+    [],
+    `entrada(s) derivada(s) com id sem prefixo: ${semPrefixo.join(', ')}. ` +
+      'Use `algo:${registro.id}` — a guarda de "é item editável?" no painel ' +
+      'Como chegar depende dos dois-pontos.',
+  )
+
+  // E o guarda-chuva do outro lado: a guarda em si não pode sumir.
+  assert.ok(
+    ler('components/ComoChegar.tsx').includes("id.includes(':')"),
+    'components/ComoChegar.tsx perdeu a guarda de item derivado: sem ela, ' +
+      '"Usar esta" grava num id que itinerary_events não tem.',
+  )
+})
+
+// ---------------------------------------------------------------- datas
+
+test('a conexao devolve coluna `date` como texto, nao como objeto Date', () => {
+  const db = ler('lib/db.ts')
+  assert.ok(
+    /getTypeParser[\s\S]{0,200}OID_DATE/.test(db),
+    'lib/db.ts voltou a abrir a conexao sem o parser de `date`. O driver do Neon ' +
+      'materializa a coluna como objeto Date, e a partir dai cada consulta tem que ' +
+      'lembrar de um `to_char` para desfazer: o roteiro lembrou, a validade do ' +
+      'passaporte esqueceu (todo passaporte cadastrado aparecia vencendo hoje) e o ' +
+      '`select *` do checklist esqueceu tambem — `prazo_ideal` chegava ao navegador ' +
+      'como "2027-05-01T00:00:00.000Z", e `momentoDe` (lib/preparacao.ts) compara ' +
+      'prazo com limite POR STRING, entao o item que vence no dia do degrau caia no ' +
+      'degrau seguinte. Converter na PORTA e o que faz um `select *` novo nascer certo.',
+  )
+  assert.equal(
+    /const OID_DATE = (\d+)/.exec(db)?.[1],
+    '1082',
+    'OID_DATE deixou de ser 1082, que e o oid de `date` no Postgres',
+  )
+})
+
+test('o respiro da tab bar e a tab bar viram na MESMA largura', () => {
+  // A barra e `xl:hidden` (1280px). Enquanto o respiro do corpo parava em `md`
+  // (768px), toda largura entre as duas tinha a barra por cima dos ultimos 72px
+  // de cada aba — o rodape de cada tela ficava embaixo dela, sem como alcancar.
+  const css = ler('app/globals.css')
+  const media = /@media \(min-width: (\d+)px\) \{\s*\.respiro-barra/.exec(css)?.[1]
+  assert.equal(
+    media,
+    '1280',
+    'o `.respiro-barra` deixou de virar em 1280px. Ele TEM que casar com o ' +
+      '`xl:hidden` da tab bar em components/Shell.tsx — mexer num e mexer no outro.',
+  )
+  assert.ok(
+    ler('components/Shell.tsx').includes('respiro-barra'),
+    'o Shell perdeu a classe `respiro-barra`: a tab bar fixa volta a tapar o fim de cada aba',
+  )
+  assert.ok(
+    /xl:hidden/.test(ler('components/Shell.tsx')),
+    'a tab bar do Shell deixou de sumir em `xl` — confira o respiro em globals.css junto',
+  )
+})
+
+// ---------------------------------------------------------------- dinheiro
+
+test('so existe UM parser de dinheiro digitado, e e o de lib/derive.ts', () => {
+  // `EditorSheet` tinha o seu: `Number(s.replace(/\./g, '').replace(',', '.'))`,
+  // que apaga TODO ponto antes de converter. "1234.56" — o que o teclado
+  // numerico do celular produz — virava 123456 e era gravado como R$ 123.456,00,
+  // cem vezes o valor digitado, num campo que grava dinheiro.
+  //
+  // `paraCentavos` ja sabia a diferenca entre o ponto de milhar e o decimal,
+  // recusa o que nao e numero e nunca passa por float. Um segundo parser de
+  // dinheiro e um segundo conjunto de casos de borda para acertar.
+  for (const arquivo of ['components/EditorSheet.tsx', 'components/FormDespesa.tsx']) {
+    const fonte = ler(arquivo)
+    assert.ok(
+      !/replace\(\/\\.\/g, ''\)/.test(fonte),
+      `${arquivo} normaliza dinheiro a mao de novo. Use paraCentavos (lib/derive.ts).`,
+    )
+    assert.ok(
+      /paraCentavos\(/.test(fonte),
+      `${arquivo} deixou de usar paraCentavos para ler o campo de dinheiro`,
+    )
   }
 })

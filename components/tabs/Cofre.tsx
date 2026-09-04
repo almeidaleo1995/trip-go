@@ -20,6 +20,7 @@ import {
   Botao,
   BotaoIcone,
   Cartao,
+  CLASSE_CAMPO,
   Rotulo,
   Titulo,
   Vazio,
@@ -250,7 +251,10 @@ export function Cofre() {
                 type="search"
                 placeholder="Buscar no cofre"
                 aria-label="Buscar no cofre"
-                className="toque w-full rounded-xl border border-(--color-borda) bg-(--color-cartao) pr-3 pl-9 text-sm"
+                // `CLASSE_CAMPO`: escrito à mão, este campo ficava com a borda
+                // fraca (`borda`, não `borda-forte`) e sem o anel de foco do
+                // sistema — a busca de cada aba tinha uma aparência.
+                className={`toque pr-3 pl-9 ${CLASSE_CAMPO}`}
               />
             </div>
             <Botao

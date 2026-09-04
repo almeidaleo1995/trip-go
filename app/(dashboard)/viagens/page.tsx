@@ -178,7 +178,11 @@ export default function Viagens() {
                   value={ordem}
                   onChange={(e) => setOrdem(e.target.value as Ordem)}
                   aria-label="Ordenar viagens"
-                  className={`toque w-auto ${CLASSE_CAMPO}`}
+                  // Largura no style: `CLASSE_CAMPO` traz `w-full`, que sai
+                  // depois de `w-auto` na folha e vencia — o seletor esticava
+                  // pela linha inteira em vez de caber no nome da ordem.
+                  style={{ width: 'auto' }}
+                  className={`toque ${CLASSE_CAMPO}`}
                 >
                   {Object.entries(ORDENS).map(([id, nome]) => (
                     <option key={id} value={id}>

@@ -707,9 +707,11 @@ export function FormDocumento({
       descricao={arquivo ? arquivo.name : undefined}
       tamanho="pequeno"
       aoFechar={aoFechar}
+      // O arquivo sobe em partes, em série: fechar no meio grava meio PDF.
+      travado={salvando}
       acoes={
         <>
-          <Botao variante="secundario" onClick={aoFechar}>
+          <Botao variante="secundario" onClick={aoFechar} desabilitado={salvando}>
             Cancelar
           </Botao>
           <Botao onClick={() => void salvar()} carregando={salvando}>

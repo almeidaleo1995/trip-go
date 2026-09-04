@@ -129,12 +129,22 @@ body {
   color: var(--color-tinta);
   font-size: 15px;
   line-height: 1.5;
-  /* Respiro para a tab bar fixa e para a área segura do iPhone. */
+}
+
+/* Respiro para a tab bar fixa e para a área segura do iPhone.
+   Fica na casca da VIAGEM (Shell), não no body: só ali existe a barra, e no
+   body ele abria 72px de vão morto no fim do login, do dashboard e do perfil.
+
+   1280px, não 768: a barra some em `xl:hidden` (ver useCabecalhoDeTopo em
+   Shell.tsx). Enquanto o respiro parava em `md`, toda largura entre 768 e 1279
+   tinha a barra POR CIMA dos últimos 72px de cada aba. As duas medidas TÊM que
+   ser a mesma — mexer numa é mexer na outra. */
+.respiro-barra {
   padding-bottom: calc(72px + env(safe-area-inset-bottom));
 }
 
-@media (min-width: 768px) {
-  body {
+@media (min-width: 1280px) {
+  .respiro-barra {
     padding-bottom: 0;
   }
 }
@@ -410,6 +420,9 @@ body {
     padding: 0;
     font-size: 11pt;
     background: #fff;
+  }
+  .respiro-barra {
+    padding-bottom: 0;
   }
   .quebra-evitar {
     break-inside: avoid;

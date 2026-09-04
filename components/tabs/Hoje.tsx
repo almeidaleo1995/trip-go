@@ -12,7 +12,7 @@
 // duas verdades sobre a mesma mochila.
 //
 // As contas todas moram em lib/hoje.ts, puro e testado. Este arquivo desenha.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bed,
   Bus,
@@ -878,16 +878,24 @@ function LinhaRituais({
 function PainelEndereco({ endereco, aoFechar }: { endereco: Endereco; aoFechar: () => void }) {
   const avisar = useAviso()
   const [copiado, setCopiado] = useState(false)
+  const caixa = useRef<HTMLDivElement>(null)
   const { fechando, pedirFechar } = useFechamentoAnimado(aoFechar)
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && pedirFechar()
     document.addEventListener('keydown', esc)
     const anterior = document.body.style.overflow
+    const focoAnterior = document.activeElement as HTMLElement | null
     document.body.style.overflow = 'hidden'
+    // Este painel tapa a tela inteira, mas o foco continuava na página de trás:
+    // quem navega por teclado ou leitor de tela abria o endereço e seguia
+    // tabulando por cartões invisíveis. Entrar no painel é o mínimo — o `Esc`
+    // acima já é a saída, e ao fechar o foco volta de onde veio.
+    caixa.current?.focus()
     return () => {
       document.removeEventListener('keydown', esc)
       document.body.style.overflow = anterior
+      focoAnterior?.focus?.()
     }
   }, [pedirFechar])
 
@@ -904,8 +912,10 @@ function PainelEndereco({ endereco, aoFechar }: { endereco: Endereco; aoFechar: 
 
   return (
     <div
+      ref={caixa}
       role="dialog"
       aria-modal="true"
+      tabIndex={-1}
       aria-label={`Endereço de ${endereco.titulo}`}
       className={`fixed inset-0 z-50 flex flex-col overflow-y-auto ${fechando ? 'anim-sair' : 'anim-surgir'}`}
       style={{ background: 'var(--color-cartao)' }}

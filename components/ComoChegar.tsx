@@ -32,6 +32,7 @@ import {
   Route,
   Ship,
   TrainFront,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import { formatarDistancia, formatarDuracao } from '@/lib/derive.ts'
@@ -39,6 +40,53 @@ import { formatarHoraLocal, NOME_MODO } from '@/lib/hoje.ts'
 import { hrefSeguro } from '@/lib/seguranca.ts'
 import type { Ponta, Trecho } from '@/lib/trechos.ts'
 import { AppModal, Cartao, Rotulo } from './ui.tsx'
+import { AdminAcoes } from './EditorSheet.tsx'
+import { useTrip } from './TripProvider.tsx'
+
+/**
+ * ESCOLHER UMA ALTERNATIVA, OU NENHUMA.
+ *
+ * A faixa amarela não é uma linha do banco — ela é calculada de `duracao_min`,
+ * `distancia_m` e `transporte` do item de DESTINO. Não existe "apagar a faixa";
+ * existe apagar o deslocamento que a produz. Daí este par: promover uma opção
+ * escreve os três campos no item, e limpar apaga os três.
+ *
+ * Deixar SEM nenhum é uma escolha legítima e o app já sabe dizê-la: a faixa
+ * passa a mostrar "Rota não conferida" em vez de um horário de saída. Um
+ * "saia às" chutado é pior que nenhum — quem está na rua acredita nele.
+ *
+ * Só vale para item de ROTEIRO de verdade. As entradas derivadas (voo do
+ * cadastro, check-in de reserva) e o trecho de volta ao hotel usam id com
+ * prefixo — `voo:`, `checkin:`, `volta:` — e não existem como linha editável:
+ * um `editar` nelas escreveria num id que `itinerary_events` não tem.
+ */
+function useDeslocamento(trecho: Trecho) {
+  const { mutate, posso } = useTrip()
+  const id = trecho.id
+  const editavel = posso('editor') && Boolean(id) && !id.includes(':')
+
+  const gravar = (campos: Record<string, unknown>) =>
+    void mutate({
+      op: 'editar',
+      entidade: 'roteiro',
+      id,
+      campos,
+      client_ts: new Date().toISOString(),
+    })
+
+  return {
+    editavel,
+    usar: (o: Record<string, unknown>) =>
+      gravar({
+        duracao_min: o.duracao_min ?? null,
+        distancia_m: o.distancia_m ?? null,
+        // O nome do modo, e não o código: `transporte` é texto livre que a
+        // pessoa lê no cartão ("Metrô L4"), e `modoValido` reconhece de volta.
+        transporte: nomeDoModo(o.modo),
+      }),
+    limpar: () => gravar({ duracao_min: null, distancia_m: null, transporte: null }),
+  }
+}
 
 export const ICONE_MODO: Record<string, LucideIcon> = {
   a_pe: Footprints,
@@ -161,21 +209,30 @@ export function SaiaAs({ trecho, tamanho = 'medio' }: { trecho: Trecho; tamanho?
 export function FaixaTrecho({ trecho, aoAbrir }: { trecho: Trecho; aoAbrir: () => void }) {
   const Icone = ICONE_MODO[chaveDoIcone(trecho)] ?? Route
   const tom = tomDoTrecho(trecho)
+  const { editavel, limpar } = useDeslocamento(trecho)
+  const temDeslocamento = Boolean(trecho.duracaoMin || trecho.distanciaM || trecho.transporte)
   const numeros = [formatarDuracao(trecho.duracaoMin), formatarDistancia(trecho.distanciaM)]
     .filter(Boolean)
     .join('  ·  ')
 
+  // O container deixou de ser o próprio <button> para caber o lápis e a lixeira
+  // como IRMÃOS dele: botão dentro de botão é HTML inválido, e o navegador
+  // resolve isso engolindo o clique de um dos dois. A faixa inteira continua
+  // clicando para abrir o painel — o que mudou é só de quem é o elemento.
   return (
-    <button
-      type="button"
-      onClick={aoAbrir}
-      aria-label={`Como chegar até ${trecho.destino.titulo}`}
-      className="toque w-full cursor-pointer rounded-xl border p-3 text-left transition-colors"
+    <div
+      className="rounded-xl border transition-colors"
       style={{
         background: trecho.conflito || trecho.apertado ? tom.bg : 'var(--color-superficie-2)',
         borderColor: trecho.conflito || trecho.apertado ? tom.ink : 'transparent',
       }}
     >
+      <button
+        type="button"
+        onClick={aoAbrir}
+        aria-label={`Como chegar até ${trecho.destino.titulo}`}
+        className="toque w-full cursor-pointer rounded-xl p-3 text-left"
+      >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="t-legenda" style={{ color: tom.ink }}>
@@ -222,7 +279,37 @@ export function FaixaTrecho({ trecho, aoAbrir }: { trecho: Trecho; aoAbrir: () =
             : `Chega sem os ${trecho.margemMin} min de margem`}
         </p>
       )}
-    </button>
+      </button>
+
+      {/* EDITAR e EXCLUIR na própria faixa, na agenda e nos deslocamentos —
+          `FaixaTrecho` é a mesma nas duas telas, então isto entra uma vez só.
+
+          Em linha, e não flutuando no canto: a faixa já tem "Saia às" encostado
+          na direita e "Para chegar às" logo abaixo, e um ícone absoluto ali
+          cobriria o horário — exatamente o número que a faixa existe para
+          mostrar. Ocupa ~32px e só para quem edita.
+
+          Os dois mexem nos mesmos três campos do item de destino
+          (`duracao_min`, `distancia_m`, `transporte`), que é de onde esta faixa
+          inteira é calculada. Excluir não pergunta: nada se perde, e "Usar
+          esta" no painel refaz. */}
+      {editavel && (
+        <div className="sem-impressao flex items-center justify-end gap-0.5 px-1.5 pb-1.5">
+          <AdminAcoes entidade="roteiro" registro={trecho.destino.item} />
+          {temDeslocamento && (
+            <button
+              type="button"
+              onClick={limpar}
+              aria-label={`Excluir o deslocamento até ${trecho.destino.titulo}`}
+              title="Excluir deslocamento"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-(--color-tinta-3) transition-colors hover:bg-(--color-perigo-bg) hover:text-(--color-perigo-ink)"
+            >
+              <Trash2 size={15} aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -257,7 +344,14 @@ function Pontas({ trecho }: { trecho: Trecho }) {
  * atravessa rio e ferrovia, e é justamente onde a pessoa confiaria.
  */
 function Opcoes({ trecho }: { trecho: Trecho }) {
+  const { editavel, usar } = useDeslocamento(trecho)
   if (trecho.opcoes.length === 0) return null
+
+  // Qual alternativa está VALENDO hoje: a que casa com o que está gravado no
+  // item. Sem isto a lista mostra três opções e nenhuma pista de qual delas
+  // gerou o "saia às" da faixa amarela.
+  const emUso = (o: Record<string, unknown>) =>
+    trecho.duracaoMin !== null && Number(o.duracao_min) === trecho.duracaoMin
 
   return (
     <div>
@@ -280,8 +374,17 @@ function Opcoes({ trecho }: { trecho: Trecho }) {
                   <Icone size={15} className="shrink-0 text-(--color-tinta-3)" aria-hidden />
                   <span className="truncate">{nomeDoModo(o.modo)}</span>
                 </span>
-                <span className="tab-num shrink-0 text-sm font-semibold">
-                  {formatarDuracao(o.duracao_min) || '—'}
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="tab-num text-sm font-semibold">
+                    {formatarDuracao(o.duracao_min) || '—'}
+                  </span>
+                  {/* Editar e REMOVER a alternativa aqui, e não só lá dentro de
+                      "Ver detalhes". Este painel é onde a pessoa olha as opções
+                      lado a lado — é aqui que ela vê que uma está repetida ou
+                      não faz sentido, e mandá-la procurar o mesmo botão em outra
+                      tela é o caminho que ninguém faz. `AdminAcoes` decide
+                      sozinho se aparece: quem não é editor não vê nada. */}
+                  <AdminAcoes entidade="opcao" registro={o} />
                 </span>
               </div>
               {Boolean(formatarDistancia(o.distancia_m) || o.custo) && (
@@ -294,11 +397,25 @@ function Opcoes({ trecho }: { trecho: Trecho }) {
               {Boolean(o.detalhe) && (
                 <p className="mt-1 text-[13px] text-(--color-tinta-2)">{String(o.detalhe)}</p>
               )}
-              {recomendado && (
-                <p className="t-legenda mt-1.5" style={{ color: 'var(--destaque)' }}>
-                  Recomendado
-                </p>
-              )}
+              <div className="mt-1.5 flex items-center gap-2">
+                {recomendado && (
+                  <p className="t-legenda" style={{ color: 'var(--destaque)' }}>
+                    Recomendado
+                  </p>
+                )}
+                {editavel &&
+                  (emUso(o) ? (
+                    <p className="t-legenda ml-auto text-(--color-tinta-3)">Em uso</p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => usar(o)}
+                      className="ml-auto cursor-pointer rounded-lg px-2 py-1 text-[12px] font-medium text-(--destaque) transition-colors hover:bg-(--color-destaque-tenue)"
+                    >
+                      Usar esta
+                    </button>
+                  ))}
+              </div>
             </li>
           )
         })}
@@ -308,9 +425,20 @@ function Opcoes({ trecho }: { trecho: Trecho }) {
 }
 
 /** O corpo do painel. Vive fora do container para servir ao modal e à coluna. */
+/** Campo cru -> `Date` só quando ela existe de verdade. `Intl.format` lança
+    RangeError diante de uma Data inválida, então a checagem tem que acontecer
+    ANTES dele — nunca depois, dentro do JSX. */
+function dataValida(valor: unknown): Date | null {
+  if (!valor) return null
+  const d = new Date(String(valor))
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
   const link = linkExterno(trecho.destino, trecho.origem)
-  const conferidoEm = trecho.destino.item?.updated_at
+  const conferido = dataValida(trecho.destino.item?.updated_at)
+  const { editavel, limpar } = useDeslocamento(trecho)
+  const temDeslocamento = Boolean(trecho.duracaoMin || trecho.distanciaM || trecho.transporte)
 
   return (
     <div className="space-y-4">
@@ -363,6 +491,36 @@ export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
 
       <Opcoes trecho={trecho} />
 
+      {/* EDITAR e EXCLUIR o deslocamento, no painel onde ele é lido.
+          Os dois mexem nos mesmos três campos do item de destino —
+          `duracao_min`, `distancia_m` e `transporte` — porque a faixa amarela é
+          calculada deles e não é uma linha própria. Ficam DEPOIS das opções: é
+          aqui que chega quem olhou as alternativas e quer ajustar o número na
+          mão, ou não ficar com nenhuma.
+
+          Editar reusa `AdminAcoes`, o mesmo editor do lápis do item, com o
+          grupo "Como chegar" já lá dentro — um formulário próprio só para três
+          campos seria uma quarta tela para manter em sincronia com o schema.
+
+          Excluir não pede confirmação porque não destrói nada: as alternativas
+          continuam ali e um clique em "Usar esta" refaz. */}
+      {editavel && (
+        <div className="flex flex-wrap items-center gap-1">
+          <AdminAcoes entidade="roteiro" registro={trecho.destino.item}>
+            Editar deslocamento
+          </AdminAcoes>
+          {temDeslocamento && (
+            <button
+              type="button"
+              onClick={limpar}
+              className="toque inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-(--color-tinta-3) transition-colors hover:bg-(--color-perigo-bg) hover:text-(--color-perigo-ink)"
+            >
+              <Trash2 size={15} aria-hidden /> Excluir deslocamento
+            </button>
+          )}
+        </div>
+      )}
+
       {trecho.destino.endereco && (
         <p className="flex items-start gap-2 text-[13px] text-(--color-tinta-2)">
           <MapPin size={14} className="mt-0.5 shrink-0 text-(--color-tinta-3)" aria-hidden />
@@ -388,13 +546,18 @@ export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
       {/* §30: a rota é dado salvo, nunca consulta ao vivo. Dizer QUANDO foi
           conferida é o que impede alguém de tratar um número de três meses
           atrás como o trânsito de agora. */}
-      {Boolean(conferidoEm) && (
+      {/* A data é conferida ANTES de chegar ao `Intl`. `updated_at` é um
+          `timestamptz` — um instante de verdade, com Z —, então continua sendo
+          lido por `new Date` e não por `parseData` (que ignora o fuso de
+          propósito, porque todo horário do app é hora local do destino). O que
+          muda é a guarda: `Intl.format` LANÇA RangeError diante de uma Data
+          inválida, e este parágrafo mora na aba que se abre andando na rua —
+          um valor estranho vindo de um cache antigo derrubaria o Roteiro
+          inteiro em vez de sumir com uma linha. */}
+      {conferido !== null && (
         <p className="text-[12px] text-(--color-tinta-3)">
           Dados salvos no aparelho. Conferido em{' '}
-          {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(
-            new Date(String(conferidoEm)),
-          )}
-          .
+          {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(conferido)}.
         </p>
       )}
     </div>

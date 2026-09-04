@@ -181,11 +181,19 @@ export function TripProvider({
     ;(async () => {
       setOfflineOk(await offlineDisponivel())
       const cache = await lerSnapshot<Snapshot>(tripId)
+      const fila = await lerFila()
       if (vivo && cache) {
-        setSnapshot(normalizar(cache))
+        // A fila entra POR CIMA do cache. O cache só é gravado a partir de uma
+        // resposta do servidor, e a fila só é limpa quando o servidor aceitou —
+        // então toda operação ainda enfileirada é, por definição, uma que o
+        // cache não contém. Sem este replay, uma edição feita em modo avião
+        // aparecia na hora, sumia da tela no primeiro recarregamento e só
+        // reaparecia quando a internet voltasse: o dado continuava salvo na
+        // fila, mas a pessoa via o próprio trabalho desaparecer.
+        setSnapshot(fila.reduce(aplicarLocal, normalizar(cache)))
         setCarregando(false)
       }
-      setPendentes(await tamanhoFila())
+      setPendentes(fila.length)
       if (vivo) await recarregar()
       if (vivo) await drenar()
     })()

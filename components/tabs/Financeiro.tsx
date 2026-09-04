@@ -43,6 +43,7 @@ import {
   BotaoIcone,
   Campo,
   Cartao,
+  CLASSE_CAMPO,
   ConfirmarDialogo,
   Progresso,
   Rotulo,
@@ -159,7 +160,19 @@ function PainelDaViagem() {
         }
         acao={
           <>
-            <Botao variante="secundario" onClick={() => window.open('/api/export', '_self')}>
+            {/* `?trip=` é obrigatório: sem ele a rota cai em `viagemPadrao()` e
+                baixa o backup de OUTRA viagem — a que estava na tela nem entra
+                no arquivo, e nada avisa. Mesma forma usada em Dados.tsx e em
+                AcoesViagem.tsx. */}
+            <Botao
+              variante="secundario"
+              onClick={() =>
+                window.open(
+                  `/api/export?trip=${encodeURIComponent(String(snapshot!.viagem?.id ?? ''))}`,
+                  '_self',
+                )
+              }
+            >
               <Download size={16} /> Exportar
             </Botao>
             <Botao onClick={() => setEditando(null)}>
@@ -529,7 +542,10 @@ function Despesas({
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar despesa…"
             aria-label="Buscar despesa"
-            className="toque w-full rounded-xl border border-(--color-borda-forte) bg-(--color-cartao) py-2 pr-3 pl-9 text-[14px] outline-none placeholder:text-(--color-tinta-3) focus:border-(--destaque)"
+            // `CLASSE_CAMPO`, como os dois `Selecao` ao lado: escrito à mão,
+            // este campo tinha raio, tamanho de texto e estado de foco
+            // diferentes dos vizinhos da mesma linha.
+            className={`toque pr-3 pl-9 ${CLASSE_CAMPO}`}
           />
         </label>
         <Selecao

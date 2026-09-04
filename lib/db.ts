@@ -7,17 +7,41 @@
 // cheia da algumas dezenas de KB, e buscar tudo de uma vez elimina N+1, deixa o
 // cache offline trivial e dispensa gerenciar estado por endpoint. Trocar de viagem
 // troca o snapshot; a conta pode ter quantas viagens quiser.
-import { neon } from '@neondatabase/serverless'
+import { neon, types as tiposPg } from '@neondatabase/serverless'
 import { paraLog } from './seguranca.ts'
 import { papelAlcanca, type Papel } from '../config/navigation.ts'
 import { resumoPessoal, type ResumoPessoal } from './financeiro.ts'
 import { registrarFalha, estaBloqueado, limparFalhas, type Limites } from './session.ts'
 import { cifrar, decifrarPerfil } from './cripto.ts'
 
+/** OID de `date` no Postgres. O driver do Neon o materializa como objeto Date. */
+const OID_DATE = 1082
+
 function conectar() {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error('DATABASE_URL nao definida - veja .env.example')
-  return neon(url)
+  // Coluna `date` sai como TEXTO 'YYYY-MM-DD', que e o que o Postgres mandou.
+  //
+  // Por padrao o driver a materializa como objeto Date, e cada consulta tinha
+  // que se lembrar de um `to_char` para desfazer isso — o roteiro lembrou, a
+  // validade do passaporte esqueceu (todo passaporte cadastrado aparecia
+  // vencendo hoje) e o `select *` do checklist esqueceu tambem: `prazo_ideal`
+  // chegava ao navegador como "2027-05-01T00:00:00.000Z" e `momentoDe`
+  // (lib/preparacao.ts) compara prazo com limite POR STRING — um item que vence
+  // exatamente no dia do degrau caia no degrau seguinte, porque
+  // "2027-05-01T00:00:00.000Z" <= "2027-05-01" e falso.
+  //
+  // Convertendo na PORTA, nenhuma consulta precisa lembrar, e um `select *`
+  // novo nasce certo. Os `to_char` que ja existem continuam validos: eles ja
+  // devolvem texto, e este parser so troca o de `date`.
+  return neon(url, {
+    types: {
+      getTypeParser: (id: number, formato?: string) =>
+        id === OID_DATE
+          ? (v: string) => v
+          : (tiposPg.getTypeParser as (id: number, formato?: string) => unknown)(id, formato),
+    },
+  })
 }
 
 export const sql = conectar()

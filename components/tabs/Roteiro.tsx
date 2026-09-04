@@ -92,6 +92,7 @@ import {
   Maximize2,
   Upload,
   Search,
+  X,
   ArrowLeftRight,
   type LucideIcon,
 } from 'lucide-react'
@@ -114,8 +115,7 @@ import {
   useAviso,
   Selecao,
   CLASSE_CAMPO,
-  TONS,
-  ALIAS_TOM,
+  tomDoTipo,
 } from '../ui.tsx'
 import { MapaRota } from '../MapaRota.tsx'
 import { MapaViagem } from '../MapaViagem.tsx'
@@ -124,6 +124,7 @@ import { formatarHoraLocal } from '@/lib/hoje.ts'
 import { auditarNavegacao, resumoTrechos, trechosDoDia, type Trecho } from '@/lib/trechos.ts'
 import { buscarClima, buscarClimaAgora, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 import { DiaSchema, EventoSchema, formatarErroZod } from '@/lib/schema.ts'
+import { hrefSeguro } from '@/lib/seguranca.ts'
 import { lerArquivoDeMapa, casarPontos, type PontoKml } from '@/lib/kml.ts'
 import { buscarLugar, consultaDaParada, temCampoDeLugar, type Achado } from '@/lib/localizar.ts'
 import {
@@ -141,6 +142,7 @@ import {
   linhas,
   lerLinks,
   noites,
+  buscarNoRoteiro,
   type DiaRoteiro,
 } from '@/lib/derive.ts'
 
@@ -218,11 +220,6 @@ function modoDoPonto(e: Record<string, unknown>): { Icone: LucideIcon; nome: str
   return nome && ICONE[tipo] ? { Icone: ICONE[tipo], nome } : null
 }
 
-/** Par bg/ink do mesmo tom que o `Badge` usa — colore o círculo do ícone na timeline. */
-function tomIcone(tipo: string) {
-  return TONS[tipo] ?? TONS[ALIAS_TOM[tipo] ?? ''] ?? TONS.neutro
-}
-
 const agora = () => new Date().toISOString()
 
 /** Bandeira por nome de país em pt-BR. Cobertura deliberadamente parcial — sem
@@ -293,6 +290,7 @@ export function Roteiro() {
   // mapa e os deslocamentos são a mesma lista vista de outro ângulo.
   const [visao, setVisao] = useState<Visao>('agenda')
   const [trechoAberto, setTrechoAberto] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
   const desktop = useDesktop()
 
   const dias = useMemo(
@@ -379,6 +377,22 @@ export function Roteiro() {
         <div className="min-w-0">
           <Cabecalho dia={dia} dias={dias} indice={indice} aoEscolher={setEscolhido} />
 
+          {/* A busca fica ANTES da faixa de dias porque é a outra forma de
+              chegar num dia: a faixa serve para andar de um dia ao vizinho, e
+              esta para pular direto para "onde mesmo está a Sagrada Família". */}
+          <BuscaRoteiro
+            dias={dias}
+            valor={busca}
+            aoMudar={setBusca}
+            aoEscolher={(chave) => {
+              setEscolhido(chave)
+              setBusca('')
+              // Um resultado de outro dia aberto na visão "mapa" abriria o mapa
+              // daquele dia, e não o item procurado. A agenda é onde ele está.
+              setVisao('agenda')
+            }}
+          />
+
           {/* A faixa fica ACIMA do itinerário: é com ela que se troca de dia, e
               no rodapé isso exigia rolar a página inteira só para ir ao dia
               seguinte — justamente o gesto mais repetido da tela. */}
@@ -460,6 +474,125 @@ export function Roteiro() {
         <ModalComoChegar trecho={aberto} aoFechar={() => setTrechoAberto(null)} />
       )}
     </>
+  )
+}
+
+// ---------------------------------------------------------------- busca
+
+/**
+ * PROCURAR NO ROTEIRO INTEIRO, não no dia aberto.
+ *
+ * A tela mostra um dia por vez. Com dezessete dias e mais de cem itens, achar
+ * "Sagrada Família" era abrir dia por dia até topar com ela — e quem procura
+ * quase nunca lembra a data, lembra o nome. Daí a busca varrer `dias` inteiro e
+ * o resultado dizer o DIA: é essa a informação que faltava.
+ *
+ * Não filtra a agenda no lugar: um roteiro filtrado esconde o que vem antes e
+ * depois do item, que é justamente o contexto de quem vai remarcar alguma
+ * coisa. Escolher um resultado ABRE o dia dele, com o item no meio do dia.
+ *
+ * A conta mora em `buscarNoRoteiro` (lib/derive.ts), pura e testada — aqui só
+ * entra o campo e a lista.
+ */
+function BuscaRoteiro({
+  dias,
+  valor,
+  aoMudar,
+  aoEscolher,
+}: {
+  dias: DiaRoteiro[]
+  valor: string
+  aoMudar: (v: string) => void
+  aoEscolher: (chaveDia: string) => void
+}) {
+  const achados = useMemo(() => buscarNoRoteiro(dias, valor), [dias, valor])
+  const procurando = valor.trim().length > 0
+
+  return (
+    <div className="mt-3">
+      <div className="relative">
+        <Search
+          size={16}
+          className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-(--color-tinta-3)"
+          aria-hidden
+        />
+        <input
+          type="search"
+          value={valor}
+          onChange={(e) => aoMudar(e.target.value)}
+          // Escape limpa sem tirar o foco: quem errou a palavra quer digitar
+          // outra, não voltar para o começo da página.
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              aoMudar('')
+            }
+          }}
+          placeholder="Procurar no roteiro inteiro — museu, hotel, cidade…"
+          aria-label="Procurar no roteiro inteiro"
+          className={`${CLASSE_CAMPO} pl-10 ${procurando ? 'pr-10' : ''}`}
+        />
+        {procurando && (
+          <button
+            type="button"
+            onClick={() => aoMudar('')}
+            aria-label="Limpar a busca"
+            className="absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-1 text-(--color-tinta-3) hover:bg-(--color-superficie-2)"
+          >
+            <X size={15} aria-hidden />
+          </button>
+        )}
+      </div>
+
+      {procurando && (
+        <div
+          className="mt-2 overflow-hidden rounded-2xl border border-(--color-borda)"
+          // Nem `listbox` nem `option`: o campo não é um `combobox` (sem
+          // `aria-expanded`, sem `aria-activedescendant`, sem navegação por
+          // setas), então anunciar uma caixa de listagem prometia ao leitor de
+          // tela um comportamento que a tela não tem — e `aria-selected={false}`
+          // em todos dizia que nada estava selecionado, sempre. Uma lista de
+          // links rotulada descreve o que isto de fato é.
+          role="group"
+          aria-label={`Resultados da busca: ${achados.length}`}
+        >
+          {achados.length === 0 ? (
+            <p className="px-3.5 py-3 text-sm text-(--color-tinta-3)">
+              Nada no roteiro com “{valor.trim()}”.
+            </p>
+          ) : (
+            achados.map((a) => {
+              const hora = formatarHora(a.item.ocorre_em)
+              const onde = String(a.item.local ?? a.item.cidade ?? '')
+              return (
+                <button
+                  key={String(a.item.id ?? `${a.chaveDia}-${hora}-${String(a.item.titulo)}`)}
+                  type="button"
+                  onClick={() => aoEscolher(a.chaveDia)}
+                  className="flex w-full items-baseline gap-3 border-b border-(--color-borda) px-3.5 py-2.5 text-left last:border-b-0 hover:bg-(--color-superficie-2)"
+                >
+                  <span className="tab-num shrink-0 text-[12px] font-semibold text-(--color-tinta-3)">
+                    {a.numero > 0 ? `Dia ${a.numero}` : formatarData(a.chaveDia)}
+                    {hora ? ` · ${hora}` : ''}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {String(a.item.titulo ?? '')}
+                    </span>
+                    {Boolean(onde) && (
+                      <span className="block truncate text-[12px] text-(--color-tinta-3)">
+                        {onde}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronRight size={14} className="shrink-0 text-(--color-tinta-4)" aria-hidden />
+                </button>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1493,6 +1626,11 @@ function ImportarRoteiroModal({ aoFechar }: { aoFechar: () => void }) {
       }
       tamanho="grande"
       aoFechar={aoFechar}
+      // `Voltar` já era bloqueado durante a gravação, mas o X, o Esc e o clique
+      // no véu não — e a importação grava dia a dia, em laço. Sair no meio
+      // deixava metade do roteiro aplicada e a outra metade não, sem nada na
+      // tela dizendo onde parou.
+      travado={ocupado}
       acoes={
         plano ? (
           <>
@@ -1714,7 +1852,7 @@ function ItemLinha({
   const [aberto, setAberto] = useState(false)
   const tipo = String(item.tipo ?? 'passeio')
   const Icone = ICONE[tipo] ?? MapPin
-  const tom = tomIcone(tipo)
+  const tom = tomDoTipo(tipo)
   const temDetalhe = itemTemDetalhe(item, derivada)
 
   // Duração da própria atividade (não do deslocamento até ela), só quando há hora de fim.
@@ -1799,9 +1937,15 @@ function ItemLinha({
           {formatarHora(item.ocorre_em) || '—'}
         </span>
 
+        {/* A borda esquerda carrega o TIPO; a âncora continua vencendo.
+            O círculo do ícone já era colorido, mas ele tem 32px e some no meio
+            de uma lista de vinte itens — a faixa lateral é o que faz "hoje tem
+            três refeições e dois deslocamentos" ser legível sem ler nada.
+            Âncora mantém `--destaque` porque "não pode ser perdido" é o aviso
+            mais forte da tela e não pode competir com uma cor de categoria. */}
         <Cartao
-          className={`min-w-0 flex-1 ${item.ancora ? 'border-l-4' : ''}`}
-          style={item.ancora ? { borderLeftColor: 'var(--destaque)' } : undefined}
+          className="min-w-0 flex-1 border-l-4"
+          style={{ borderLeftColor: item.ancora ? 'var(--destaque)' : tom.ink }}
         >
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
@@ -2183,9 +2327,11 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
             {Boolean(hospedagem.localizador) && (
               <Copiar valor={String(hospedagem.localizador)} rotulo="Localizador" />
             )}
-            {Boolean(hospedagem.link) && (
+            {/* `hrefSeguro`: `reservations.link` é texto livre, como o
+                `mapa_url` e o `links` do item. Mesmo guarda, mesma razão. */}
+            {Boolean(hrefSeguro(hospedagem.link as string | null)) && (
               <a
-                href={String(hospedagem.link)}
+                href={hrefSeguro(hospedagem.link as string | null)!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[13px] font-medium"
@@ -2225,9 +2371,9 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
                 {formatarDinheiro(Number(reserva.valor_centavos), moeda)}
               </span>
             )}
-            {Boolean(reserva.link) && (
+            {Boolean(hrefSeguro(reserva.link as string | null)) && (
               <a
-                href={String(reserva.link)}
+                href={hrefSeguro(reserva.link as string | null)!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[13px] font-medium"
@@ -2253,7 +2399,13 @@ function DicasDia({ dia }: { dia: DiaRoteiro }) {
   const alertas = linhas(dia.meta?.alertas)
   const comDica = linha.filter((l) => linhas(l.item.dicas).length > 0)
   const links = lerLinks(dia.meta?.links)
-  const mapaUrl = dia.meta?.mapa_url ? String(dia.meta.mapa_url) : null
+  // `hrefSeguro`, e não `String(...)`: `mapa_url` é texto livre (EditorSheet →
+  // "Link do mapa do dia"), escrito por um participante e clicado por outro
+  // dentro da página que carrega o snapshot inteiro. É o TERCEIRO campo
+  // guardado que vira href — os outros dois (`documents.valor` de um link e o
+  // `links` do item) já passavam pelo mesmo guarda, este escapava, e um
+  // `javascript:` aqui rodaria na origem do app.
+  const mapaUrl = hrefSeguro(dia.meta?.mapa_url as string | null | undefined)
 
   if (alertas.length === 0 && comDica.length === 0 && links.length === 0 && !mapaUrl) {
     return (
@@ -3117,6 +3269,9 @@ function LocalizarParadasModal({ dia, aoFechar }: { dia: DiaRoteiro; aoFechar: (
       descricao="Toda parada com local vira um pino no mapa do dia. Busque pelo nome ou traga os pontos de um mapa do Google — nada é gravado antes de você conferir."
       tamanho="grande"
       aoFechar={aoFechar}
+      // `Fechar` já era bloqueado, o X / Esc / véu não — e `gravar` grava parada
+      // a parada, em laço. Sair no meio deixava metade das paradas localizadas.
+      travado={ocupado}
       acoes={
         <>
           <Botao variante="secundario" onClick={aoFechar} desabilitado={ocupado}>
@@ -3777,7 +3932,12 @@ function FaixaDias({
   // selecionado. `nearest` no bloco para a página não pular junto.
   useEffect(() => {
     const alvo = faixa.current?.querySelector<HTMLElement>('[data-ativo="1"]')
-    alvo?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+    // O `@media (prefers-reduced-motion)` de globals.css zera animação e
+    // transição, mas não alcança um `behavior: 'smooth'` pedido por JS — ele
+    // vence o `scroll-behavior` da folha. Quem pediu menos movimento recebe o
+    // salto seco, que é o comportamento correto, não a ausência do recurso.
+    const suave = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    alvo?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: suave ? 'smooth' : 'auto' })
   }, [indice])
 
   const anterior = dias[indice - 1] ?? null

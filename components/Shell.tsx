@@ -277,7 +277,7 @@ export function Shell({
       .join(' — ') || null
 
   return (
-    <div className="min-h-dvh bg-(--color-fundo)">
+    <div className="respiro-barra min-h-dvh bg-(--color-fundo)">
       {/* cabeçalho — desktop. Editorial, transparente de fio: logo, a edição
           (o nome e as datas da viagem) e a navegação num traço só. */}
       <header className="sem-impressao fixed inset-x-0 top-0 z-40 hidden border-b border-(--color-borda) bg-(--color-cartao)/95 backdrop-blur xl:block">
