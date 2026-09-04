@@ -306,9 +306,15 @@ function Importar({ aoConcluir }: { aoConcluir: () => Promise<void> }) {
             ))}
           </ul>
           <div className="mt-3 flex gap-2">
-            <Botao onClick={confirmar}>{ocupado ? 'Importando…' : 'Confirmar importação'}</Botao>
+            {/* `carregando` e não só a troca do rótulo: importar cria uma viagem
+                inteira, e o botão ficava clicável enquanto dizia "Importando…" —
+                dois cliques, duas viagens iguais na conta. */}
+            <Botao onClick={confirmar} carregando={ocupado}>
+              {ocupado ? 'Importando…' : 'Confirmar importação'}
+            </Botao>
             <Botao
               variante="secundario"
+              desabilitado={ocupado}
               onClick={() => {
                 setArquivo(null)
                 setResumo(null)

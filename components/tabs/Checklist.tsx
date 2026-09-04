@@ -100,6 +100,24 @@ const ORDENS: { id: Ordem; nome: string }[] = [
 // Posição no array = colocação no ranking ('obrigatorio' primeiro).
 const RANK_PRIORIDADE = Object.fromEntries(PRIORIDADES_CHECKLIST.map((p, i) => [p, i]))
 
+/**
+ * Meia-noite de hoje, no fuso do aparelho — a régua de "vencido".
+ *
+ * `Date.now()` não serve: `parseData('2027-10-15')` devolve o dia 15 à
+ * meia-noite, e comparar com o instante atual marcava como VENCIDO um item cujo
+ * prazo máximo é o próprio dia de hoje, a partir das 00:01. Um prazo de dia 15
+ * vale o dia 15 inteiro.
+ *
+ * É também o que a aba Preparação já fazia (`momentoDe` em lib/preparacao.ts
+ * compara em dias inteiros), então o mesmo item deixava de dar dois veredictos
+ * diferentes em duas telas, justamente no dia que importa.
+ */
+function inicioDeHoje(): number {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
 /** Critério escolhido no seletor "Ordenar por". `prazo` e `prioridade` levam
     quem não tem valor pro fim, mantendo a ordem em que já estava — mesmo
     formato de comparador do `ordenarEventos` em lib/derive.ts. */
@@ -243,7 +261,7 @@ export function Checklist({ irPara }: { irPara?: (a: AbaId) => void }) {
   // não precisa do milissegundo exato, só não pode chamar Date.now() no corpo
   // puro do render. Nome diferente do `agora()` de topo de arquivo (helper de
   // timestamp ISO) para não sombrear.
-  const [agoraMs] = useState(() => Date.now())
+  const [agoraMs] = useState(() => inicioDeHoje())
   if (!snapshot) return null
 
   const todosOsItens = snapshot.checklist as unknown as ChecklistItem[]
@@ -507,11 +525,14 @@ function Dicas() {
   const linhas: string[] = []
   for (const e of snapshot.roteiro as EventoDica[]) {
     if (!e.dicas) continue
-    // `ocorre_em` chega do /api/snapshot com sufixo Z (timestamp completo,
-    // sem ambiguidade) — não é o mesmo caso que parseData existe para
-    // resolver (data sem hora, que o construtor de Date lê como UTC).
-    const data = e.ocorre_em ? new Date(String(e.ocorre_em)) : null
-    if (!data || Number.isNaN(data.getTime()) || data.getTime() < agora) continue
+    // `parseData`, como todo campo cru de linha. O comentário que estava aqui
+    // dizia que `ocorre_em` chega "com sufixo Z, sem ambiguidade" — não chega:
+    // `getSnapshot` o serializa com `to_char(..., 'YYYY-MM-DD"T"HH24:MI:SS')`,
+    // sem fuso nenhum, porque a hora é LOCAL DO DESTINO, como está no bilhete.
+    // O `new Date()` acertava por coincidência (string sem offset é lida como
+    // local), e a frase errada é o que faria a próxima pessoa mexer nisso.
+    const data = parseData(e.ocorre_em)
+    if (!data || data.getTime() < agora) continue
     for (const linha of String(e.dicas)
       .split('\n')
       .map((l: string) => l.trim())
@@ -767,9 +788,13 @@ function ImportarSugestoes() {
         <AppModal
           titulo="Sugestões da skill"
           aoFechar={() => setResultado(null)}
+          // `confirmar` grava item a item, em laço. Fechar no meio (X, Esc ou
+          // clique no véu) deixava metade das sugestões importadas e a outra
+          // metade não, sem nada dizendo onde parou.
+          travado={enviando}
           acoes={
             <>
-              <Botao variante="secundario" onClick={() => setResultado(null)}>
+              <Botao variante="secundario" onClick={() => setResultado(null)} desabilitado={enviando}>
                 Cancelar
               </Botao>
               <Botao
@@ -843,7 +868,7 @@ function ItemChecklist({
 }) {
   // Lazy init (não useMemo): mesmo motivo do Dicas() abaixo — não pode chamar
   // Date.now() no corpo puro do render.
-  const [agora] = useState(() => Date.now())
+  const [agora] = useState(() => inicioDeHoje())
   // Prazo vencido só é alarme se o item ainda não foi feito.
   const limite = parseData(item.prazo_maximo)
   const vencido = !feito && limite !== null && limite.getTime() < agora

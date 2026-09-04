@@ -425,9 +425,18 @@ function Opcoes({ trecho }: { trecho: Trecho }) {
 }
 
 /** O corpo do painel. Vive fora do container para servir ao modal e à coluna. */
+/** Campo cru -> `Date` só quando ela existe de verdade. `Intl.format` lança
+    RangeError diante de uma Data inválida, então a checagem tem que acontecer
+    ANTES dele — nunca depois, dentro do JSX. */
+function dataValida(valor: unknown): Date | null {
+  if (!valor) return null
+  const d = new Date(String(valor))
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
   const link = linkExterno(trecho.destino, trecho.origem)
-  const conferidoEm = trecho.destino.item?.updated_at
+  const conferido = dataValida(trecho.destino.item?.updated_at)
   const { editavel, limpar } = useDeslocamento(trecho)
   const temDeslocamento = Boolean(trecho.duracaoMin || trecho.distanciaM || trecho.transporte)
 
@@ -537,13 +546,18 @@ export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
       {/* §30: a rota é dado salvo, nunca consulta ao vivo. Dizer QUANDO foi
           conferida é o que impede alguém de tratar um número de três meses
           atrás como o trânsito de agora. */}
-      {Boolean(conferidoEm) && (
+      {/* A data é conferida ANTES de chegar ao `Intl`. `updated_at` é um
+          `timestamptz` — um instante de verdade, com Z —, então continua sendo
+          lido por `new Date` e não por `parseData` (que ignora o fuso de
+          propósito, porque todo horário do app é hora local do destino). O que
+          muda é a guarda: `Intl.format` LANÇA RangeError diante de uma Data
+          inválida, e este parágrafo mora na aba que se abre andando na rua —
+          um valor estranho vindo de um cache antigo derrubaria o Roteiro
+          inteiro em vez de sumir com uma linha. */}
+      {conferido !== null && (
         <p className="text-[12px] text-(--color-tinta-3)">
           Dados salvos no aparelho. Conferido em{' '}
-          {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(
-            new Date(String(conferidoEm)),
-          )}
-          .
+          {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(conferido)}.
         </p>
       )}
     </div>

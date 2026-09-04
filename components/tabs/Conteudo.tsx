@@ -14,6 +14,7 @@ import { useTrip } from '../TripProvider.tsx'
 import { DocumentosVinculados } from '../CofreDocumento.tsx'
 import { Cartao, Vazio, Rotulo, Badge, Copiar, Titulo, Linha } from '../ui.tsx'
 import { AdminAcoes } from '../EditorSheet.tsx'
+import { hrefSeguro } from '@/lib/seguranca.ts'
 import {
   formatarData,
   formatarHora,
@@ -48,8 +49,13 @@ export function Voos() {
     <>
       <Titulo acao={<AdminAcoes entidade="voo">Voo</AdminAcoes>}>Voos e transportes</Titulo>
 
-      {/* tabela — só no desktop, onde as colunas cabem sem rolagem horizontal */}
-      <div className="mb-3 hidden overflow-hidden rounded-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[0_1px_3px_rgb(0_0_0/0.06)] lg:block">
+      {/* tabela — só no desktop. `overflow-x-auto` e não `overflow-hidden`: sete
+          colunas com `whitespace-nowrap` estouram os ~960px úteis do `max-w-5xl`
+          assim que uma cidade tem nome longo, e `hidden` CORTAVA a última coluna
+          (o menu de ações do voo) sem deixar como alcançá-la. `overflow-y-hidden`
+          junto porque, com só o eixo x declarado, o CSS promove o y a `auto` e
+          desenha uma barra vertical sobre uma tabela que não rola. */}
+      <div className="mb-3 hidden overflow-x-auto overflow-y-hidden rounded-2xl border border-(--color-borda) bg-(--color-cartao) shadow-[0_1px_3px_rgb(0_0_0/0.06)] lg:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-(--color-borda) bg-(--color-fundo) text-left">
@@ -439,9 +445,12 @@ export function Hospedagem() {
                 </p>
               )}
               <div className="mt-3 flex flex-wrap gap-2">
-                {Boolean(h.link) && (
+                {/* `hrefSeguro`: `reservations.link` é texto livre, escrito por
+                    um participante e clicado por outro. Mesmo guarda de
+                    `documents.valor`, do `links` do item e do `mapa_url`. */}
+                {Boolean(hrefSeguro(h.link as string | null)) && (
                   <a
-                    href={String(h.link)}
+                    href={hrefSeguro(h.link as string | null)!}
                     target="_blank"
                     rel="noreferrer"
                     className="toque inline-flex items-center gap-1.5 rounded-xl border border-(--color-borda) px-3 text-sm"

@@ -49,6 +49,8 @@ import {
   BotaoIcone,
   Cartao,
   Campo,
+  CLASSE_CAMPO,
+  ConfirmarDialogo,
   Falha,
   Interruptor,
   Progresso,
@@ -96,6 +98,10 @@ import { formatarData } from '@/lib/derive.ts'
 /** Data por extenso curta com ano. Vencimento sem ano não diz nada. */
 const comAno = (d: string | null | undefined) =>
   formatarData(d ?? null, { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+/** "1 dia" / "12 dias". O resto do app concorda o plural; este módulo — o único
+    que fala de prazo o tempo todo — escrevia "venceu há 1 dias". */
+const emDias = (n: number) => `${n} ${n === 1 ? 'dia' : 'dias'}`
 
 // ================================================================ dados da tela
 
@@ -492,7 +498,13 @@ function PainelDocumentacao({ aoVerMinha }: { aoVerMinha: () => void }) {
                 onChange={(e) => setFiltros((f) => ({ ...f, busca: e.target.value }))}
                 placeholder="Buscar quem deve o quê"
                 aria-label="Buscar quem deve o quê"
-                className="toque w-full rounded-xl border border-(--color-borda) bg-(--color-cartao) pr-3 pl-9 text-sm"
+                // `CLASSE_CAMPO` e não uma classe própria: este campo era o
+                // único do app com a borda fraca e sem o anel de foco do
+                // sistema — parecia de outro produto ao lado dos seletores de
+                // filtro logo abaixo. `pl-9` vence o `px-3.5` da constante
+                // (sai depois na folha), que é o mesmo arranjo da busca de
+                // Minhas viagens.
+                className={`toque pr-3 pl-9 ${CLASSE_CAMPO}`}
               />
             </div>
             <Botao
@@ -635,7 +647,11 @@ function PainelDocumentacao({ aoVerMinha }: { aoVerMinha: () => void }) {
           <div
             role="tablist"
             aria-label="Visões do painel"
-            className="mb-4 flex gap-1 overflow-x-auto border-b border-(--color-borda)"
+            // `overflow-y-hidden` junto: com só o eixo x declarado o CSS promove
+            // o y a `auto`, e o `-mb-px` das abas já basta para acender uma barra
+            // de rolagem vertical de 1px ao lado de "Pendências". Mesma nota em
+            // `Abas` no Financeiro.
+            className="mb-4 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-(--color-borda)"
           >
             {SUB_ABAS.map((a) => (
               <button
@@ -865,9 +881,12 @@ function RelatorioParticipantes({
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-3">
+      {/* `flex-wrap`: o seletor tem largura fixa de 208px e não encolhe, então
+          num celular de 320px ele espremia o rótulo em quatro linhas de uma
+          palavra. Sem espaço, ele desce para a linha de baixo inteiro. */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <Rotulo>Progresso por participante</Rotulo>
-        <div className="w-52">
+        <div className="w-52 max-w-full">
           <Selecao
             compacto
             rotulo="Ordenar por"
@@ -936,6 +955,11 @@ function RelatorioRequisitos({
   const { posso, mutate } = useTrip()
   const avisar = useAviso()
   const [expandido, setExpandido] = useState<string | null>(null)
+  // Remover um requisito o apaga para TODO participante, junto com o histórico
+  // de quem já tinha entregue. Era a única ação destrutiva do app que rodava no
+  // clique, sem dizer o que ia embora — e num ícone de tom neutro, que nem
+  // parecia destrutiva.
+  const [removendo, setRemovendo] = useState<Requisito | null>(null)
 
   // A matriz recebida já vem filtrada; um requisito sem célula visível saiu do
   // recorte e não deve aparecer com "0 de 0".
@@ -1011,7 +1035,11 @@ function RelatorioRequisitos({
                     <BotaoIcone rotulo="Editar requisito" onClick={() => aoEditar(requisito)}>
                       <ClipboardList size={16} />
                     </BotaoIcone>
-                    <BotaoIcone rotulo="Remover requisito" onClick={() => void remover(requisito)}>
+                    <BotaoIcone
+                      rotulo="Remover requisito"
+                      tom="perigo"
+                      onClick={() => setRemovendo(requisito)}
+                    >
                       <Trash2 size={16} />
                     </BotaoIcone>
                   </>
@@ -1055,6 +1083,26 @@ function RelatorioRequisitos({
         <Vazio
           titulo="Nenhum participante na viagem"
           texto="Adicione participantes para a documentação passar a valer para alguém."
+        />
+      )}
+
+      {removendo && (
+        <ConfirmarDialogo
+          titulo={`Remover “${removendo.nome}”?`}
+          descricao={
+            <>
+              O requisito sai da viagem para <strong>todos os participantes</strong>, junto com o
+              que já tinha sido entregue nele. Os arquivos continuam no cofre — some a exigência,
+              não o documento.
+            </>
+          }
+          rotuloConfirmar="Remover requisito"
+          aoCancelar={() => setRemovendo(null)}
+          aoConfirmar={() => {
+            const r = removendo
+            setRemovendo(null)
+            void remover(r)
+          }}
         />
       )}
     </div>
@@ -1145,8 +1193,8 @@ function PainelVencimentos({
                     }}
                   >
                     {c.validade!.nivel === 'vencido'
-                      ? `${Math.abs(c.validade!.dias)} dias atrás`
-                      : `${c.validade!.dias} dias`}
+                      ? `há ${emDias(Math.abs(c.validade!.dias))}`
+                      : emDias(c.validade!.dias)}
                   </span>
                 </span>
               </button>
@@ -1335,7 +1383,7 @@ function LinhaRequisito({
             style={celula.prazo.vencido ? { color: 'var(--color-perigo-ink)' } : undefined}
           >
             {celula.prazo.vencido
-              ? `Prazo de envio venceu há ${celula.prazo.dias} dias`
+              ? `Prazo de envio venceu há ${emDias(celula.prazo.dias)}`
               : `Enviar até ${comAno(celula.requisito.prazo)}`}
           </span>
         )}
@@ -1604,7 +1652,7 @@ function Revisao({ celula, aoFechar }: { celula: Celula; aoFechar: () => void })
               onChange={(e) => setMotivo(e.target.value)}
               rows={2}
               placeholder="Imagem ilegível. Envie uma foto mais nítida."
-              className="toque mt-1 w-full rounded-xl border border-(--color-borda-forte) bg-(--color-cartao) px-3 py-2 text-sm"
+              className={`toque mt-1 ${CLASSE_CAMPO}`}
             />
           </label>
         </div>
@@ -1802,9 +1850,13 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
       descricao={req.descricao ?? undefined}
       tamanho="pequeno"
       aoFechar={aoFechar}
+      // Igual ao cofre: o anexo sobe em partes de 4 MiB, em série. Fechar no
+      // meio (X, Esc ou clique no véu) deixava o laço subindo sozinho e gravava
+      // meio arquivo, que o `GET` depois se recusa a servir.
+      travado={salvando}
       acoes={
         <>
-          <Botao variante="secundario" onClick={aoFechar}>
+          <Botao variante="secundario" onClick={aoFechar} desabilitado={salvando}>
             Cancelar
           </Botao>
           <Botao onClick={() => void salvar()} carregando={salvando}>
@@ -1880,7 +1932,7 @@ function FormEntrega({ celula, aoFechar }: { celula: Celula; aoFechar: () => voi
                   setArquivo(e.target.files?.[0] ?? null)
                   if (e.target.files?.[0]) setDocumentoId('')
                 }}
-                className="toque mt-1 w-full rounded-xl border border-(--color-borda-forte) bg-(--color-cartao) px-3 py-2 text-sm"
+                className={`toque mt-1 ${CLASSE_CAMPO}`}
               />
             </label>
 
@@ -2104,7 +2156,7 @@ function FormRequisito({
             onChange={(e) => set('descricao', e.target.value)}
             rows={2}
             placeholder="Passaporte válido para toda a viagem."
-            className="toque mt-1 w-full rounded-xl border border-(--color-borda-forte) bg-(--color-cartao) px-3 py-2 text-sm"
+            className={`toque mt-1 ${CLASSE_CAMPO}`}
           />
         </label>
 
@@ -2347,7 +2399,10 @@ export function AvisoDocumentacao({ aoAbrir }: { aoAbrir: () => void }) {
             {pior.estado === 'vencido'
               ? `Seu ${pior.requisito.nome.toLowerCase()} está vencido.`
               : pior.estado === 'proximo'
-                ? `Seu ${pior.requisito.nome.toLowerCase()} vence em ${pior.validade?.dias} dias.`
+                ? // `?? 0` e não `pior.validade?.dias` solto: o estado "proximo"
+                  // implica validade, mas o `?.` admite o contrário — e ali a
+                  // frase virava "vence em undefined dias".
+                  `Seu ${pior.requisito.nome.toLowerCase()} vence em ${emDias(pior.validade?.dias ?? 0)}.`
                 : pior.estado === 'correcao' || pior.estado === 'rejeitado'
                   ? `Seu ${pior.requisito.nome.toLowerCase()} precisa ser reenviado.`
                   : `Você ainda precisa enviar seu ${pior.requisito.nome.toLowerCase()}.`}

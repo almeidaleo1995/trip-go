@@ -768,6 +768,7 @@ export function AppModal({
   tamanho = 'medio',
   aoFechar,
   acoes,
+  travado,
   children,
 }: {
   titulo: string
@@ -776,11 +777,26 @@ export function AppModal({
   aoFechar: () => void
   /** Rodapé fixo. Fica sempre visível, mesmo com o corpo rolando. */
   acoes?: ReactNode
+  /**
+   * Escrita em andamento: as TRÊS saídas do modal param juntas — o X, o Esc e o
+   * clique no véu.
+   *
+   * Existe por causa do envio de arquivo do cofre, que sobe em partes de 4 MiB
+   * em série: fechar no meio desmontava o formulário e deixava o laço subindo
+   * sozinho, gravando meio PDF. `GET /api/documento` se recusa a servir um
+   * arquivo menor que o tamanho prometido, então o resultado era um documento
+   * quebrado que a pessoa culpava no próprio arquivo. Trancar UMA saída não
+   * resolveria: quem não achasse o botão fecharia pelo véu.
+   */
+  travado?: boolean
   children?: ReactNode
 }) {
   const caixa = useRef<HTMLDivElement>(null)
   const id = useId()
-  const { fechando, pedirFechar } = useFechamentoAnimado(aoFechar)
+  const { fechando, pedirFechar: fecharDeVerdade } = useFechamentoAnimado(aoFechar)
+  const pedirFechar = useCallback(() => {
+    if (!travado) fecharDeVerdade()
+  }, [travado, fecharDeVerdade])
 
   useEffect(() => {
     const anterior = document.body.style.overflow
@@ -869,8 +885,9 @@ export function AppModal({
           </div>
           <button
             onClick={pedirFechar}
+            disabled={travado}
             aria-label="Fechar"
-            className="-mt-1 -mr-1 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-(--color-tinta-3) transition-colors hover:bg-(--color-superficie-2) hover:text-(--color-tinta)"
+            className="-mt-1 -mr-1 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-(--color-tinta-3) transition-colors not-disabled:hover:bg-(--color-superficie-2) not-disabled:hover:text-(--color-tinta) disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X size={18} />
           </button>
@@ -1137,7 +1154,10 @@ export function Anel({
   const espessura = Math.max(6, Math.round(tamanho * 0.09))
   const raio = (tamanho - espessura) / 2
   const volta = 2 * Math.PI * raio
-  const limitado = Math.min(100, Math.max(0, Math.round(pct)))
+  // `|| 0` pelo mesmo motivo do `Progresso`: NaN atravessava o clamp inteiro
+  // (Math.min/max com NaN devolve NaN) e virava um strokeDashoffset inválido,
+  // que apaga o anel e escreve "NaN%" no meio dele.
+  const limitado = Math.min(100, Math.max(0, Math.round(pct) || 0))
   const meio = tamanho / 2
   const cor = tom ? (TONS[tom]?.ink ?? 'var(--destaque)') : 'var(--destaque)'
 
@@ -1186,18 +1206,23 @@ export function Anel({
 }
 
 export function Progresso({ pct, rotulo }: { pct: number; rotulo?: string }) {
+  // A guarda mora AQUI, e não em cada chamada, porque o número vem sempre de uma
+  // divisão — e uma viagem sem checklist faz `0/0`, que é NaN. `width: NaN%` é
+  // CSS inválido (a barra some) e `aria-valuenow="NaN"` é ARIA inválida. A
+  // maioria das chamadas já testa `total > 0`; `Dados.tsx` não testava.
+  const limitado = Math.min(100, Math.max(0, Math.round(pct) || 0))
   return (
     <div
       className="h-2 w-full overflow-hidden rounded-full bg-(--color-superficie-2)"
       role="progressbar"
       aria-label={rotulo}
-      aria-valuenow={pct}
+      aria-valuenow={limitado}
       aria-valuemin={0}
       aria-valuemax={100}
     >
       <div
         className="h-full rounded-full transition-[width] duration-500 ease-out"
-        style={{ width: `${pct}%`, background: 'var(--destaque)' }}
+        style={{ width: `${limitado}%`, background: 'var(--destaque)' }}
       />
     </div>
   )

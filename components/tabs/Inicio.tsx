@@ -32,6 +32,7 @@ import {
   parseData,
 } from '@/lib/derive.ts'
 import { totaisViagem, percentual } from '@/lib/financeiro.ts'
+import { temArquivo } from '@/lib/cofre.ts'
 
 /** Uma célula do resumo. Vira botão só quando existe uma aba para onde ir. */
 function Estatistica({
@@ -55,12 +56,15 @@ function Estatistica({
     </>
   )
 
-  if (!aoClicar) return <div className="px-2 py-4 text-center">{conteudo}</div>
+  // O fundo próprio é o que faz o `gap-px` da grade virar um fio de 1px: a
+  // célula tapa a cor da borda, e só o vão entre elas continua aparecendo.
+  if (!aoClicar)
+    return <div className="bg-(--color-cartao) px-2 py-4 text-center">{conteudo}</div>
 
   return (
     <button
       onClick={aoClicar}
-      className="cursor-pointer px-2 py-4 text-center transition-colors hover:bg-(--color-superficie-2)"
+      className="cursor-pointer bg-(--color-cartao) px-2 py-4 text-center transition-colors hover:bg-(--color-superficie-2)"
     >
       {conteudo}
     </button>
@@ -83,7 +87,12 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
     (r) => r.tipo === 'hospedagem',
   )
   const documentos = (snapshot.documentos ?? []) as Record<string, unknown>[]
-  const documentosPendentes = documentos.filter((d) => !d.valor).length
+  // Um documento está resolvido quando tem VALOR (localizador, telefone, link)
+  // ou quando tem ARQUIVO — `documents` guarda as duas naturezas na mesma tabela
+  // (ver `temArquivo` em lib/cofre.ts). Contando só `valor`, todo PDF enviado ao
+  // cofre aparecia aqui como "documento a preencher", para sempre, e a barra de
+  // Documentos nunca chegava a 100% numa viagem cujos documentos são arquivos.
+  const documentosPendentes = documentos.filter((d) => !d.valor && !temArquivo(d as never)).length
   const documentosPct = documentos.length
     ? Math.round(((documentos.length - documentosPendentes) / documentos.length) * 100)
     : null
@@ -266,7 +275,13 @@ export function Inicio({ irPara }: { irPara: (a: AbaId) => void }) {
       {/* Resumo da viagem. Um cartão com divisórias, não seis caixas: são seis
           números do mesmo assunto, e seis molduras separadas só somam ruído. */}
       <Cartao tom="elevado" className="!p-0 overflow-hidden">
-        <dl className="grid grid-cols-3 divide-x divide-y divide-(--color-borda) md:grid-cols-6 md:divide-y-0">
+        {/* `gap-px` sobre o fundo da borda, e NÃO `divide-x`/`divide-y`: numa
+            grade que quebra em duas linhas, `divide-*` desenha a borda pelo
+            número do filho, não pela posição. Com seis células em três colunas
+            isso punha um fio à esquerda da 4ª (a primeira da segunda linha, sem
+            vizinha nenhuma) e um fio em cima da 2ª e da 3ª, que estão na
+            primeira linha. O vão de 1px acerta em qualquer contagem de colunas. */}
+        <dl className="grid grid-cols-3 gap-px bg-(--color-borda) md:grid-cols-6">
           <Estatistica icone={CalendarDays} numero={fase.totalDias} rotulo="dias" />
           <Estatistica icone={Users} numero={snapshot.participantes.length} rotulo="viajantes" />
           <Estatistica icone={Globe} numero={paises} rotulo={paises === 1 ? 'país' : 'países'} />

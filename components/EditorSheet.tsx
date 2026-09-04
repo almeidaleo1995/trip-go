@@ -21,7 +21,7 @@ import {
   useAviso,
 } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
-import { paraCampoDinheiro, parseData } from '@/lib/derive.ts'
+import { paraCampoDinheiro, paraCentavos, parseData } from '@/lib/derive.ts'
 import { TIPOS_EVENTO, MODOS_TRANSPORTE, PRIORIDADES_CHECKLIST } from '@/lib/schema.ts'
 import { type Papel } from '@/config/navigation.ts'
 
@@ -588,9 +588,15 @@ export function EditorSheet({
         if (!Number.isFinite(n)) novosErros[c.chave] = 'Precisa ser um número.'
         else campos[c.chave] = n
       } else if (c.tipo === 'dinheiro') {
-        const n = Number(s.replace(/\./g, '').replace(',', '.'))
-        if (!Number.isFinite(n) || n < 0) novosErros[c.chave] = 'Valor inválido.'
-        else campos[c.chave] = Math.round(n * 100)
+        // `paraCentavos`, o MESMO parser do formulário de despesa. O que estava
+        // aqui apagava TODO ponto antes de converter, então "1234.56" — o que o
+        // teclado numérico do celular produz — virava 123456 e era gravado como
+        // R$ 123.456,00: cem vezes o valor digitado, num campo de dinheiro.
+        // `paraCentavos` distingue o ponto de milhar do ponto decimal, recusa o
+        // que não é número e nunca passa por float (ver lib/derive.ts).
+        const centavos = paraCentavos(s)
+        if (centavos === null || centavos < 0) novosErros[c.chave] = 'Valor inválido.'
+        else campos[c.chave] = centavos
       } else {
         campos[c.chave] = s
       }

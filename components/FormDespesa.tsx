@@ -262,7 +262,7 @@ export function FormDespesa({
               return (
                 <div
                   key={id}
-                  className="flex items-center gap-3 rounded-xl border border-(--color-borda) px-3 py-2"
+                  className="flex items-center gap-2 rounded-xl border border-(--color-borda) px-2.5 py-2 sm:gap-3 sm:px-3"
                   style={marcado ? { background: 'var(--color-destaque-tenue)' } : undefined}
                 >
                   <button
@@ -290,7 +290,10 @@ export function FormDespesa({
 
                   {marcado && divisao === 'peso' && (
                     <label className="flex shrink-0 items-center gap-1.5">
-                      <span className="text-[12px] text-(--color-tinta-3)">partes</span>
+                      {/* "partes" é dica, não rótulo: some no celular para o nome caber */}
+                      <span className="hidden text-[12px] text-(--color-tinta-3) sm:inline">
+                        partes
+                      </span>
                       <input
                         type="number"
                         min={0}
@@ -298,7 +301,10 @@ export function FormDespesa({
                         value={pesos[id] ?? '1'}
                         onChange={(e) => setPesos((v) => ({ ...v, [id]: e.target.value }))}
                         aria-label={`Partes de ${String(p.nome)}`}
-                        className={`${CLASSE_CAMPO} w-16 px-2 py-1.5 text-center`}
+                        /* largura no style: CLASSE_CAMPO traz w-full e vence qualquer w-* aqui.
+                           16px de fonte porque abaixo disso o iOS dá zoom ao focar. */
+                        style={{ width: 56 }}
+                        className={`${CLASSE_CAMPO} px-2 py-1.5 text-center text-[16px]`}
                       />
                     </label>
                   )}
@@ -310,7 +316,8 @@ export function FormDespesa({
                       placeholder="0,00"
                       onChange={(e) => setExatos((v) => ({ ...v, [id]: e.target.value }))}
                       aria-label={`Valor de ${String(p.nome)}`}
-                      className={`${CLASSE_CAMPO} w-28 px-2 py-1.5 text-right`}
+                      style={{ width: 96 }}
+                      className={`${CLASSE_CAMPO} shrink-0 px-2 py-1.5 text-right text-[16px]`}
                     />
                   )}
 

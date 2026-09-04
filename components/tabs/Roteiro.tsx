@@ -124,6 +124,7 @@ import { formatarHoraLocal } from '@/lib/hoje.ts'
 import { auditarNavegacao, resumoTrechos, trechosDoDia, type Trecho } from '@/lib/trechos.ts'
 import { buscarClima, buscarClimaAgora, descricaoClima, type PrevisaoDia } from '@/lib/clima.ts'
 import { DiaSchema, EventoSchema, formatarErroZod } from '@/lib/schema.ts'
+import { hrefSeguro } from '@/lib/seguranca.ts'
 import { lerArquivoDeMapa, casarPontos, type PontoKml } from '@/lib/kml.ts'
 import { buscarLugar, consultaDaParada, temCampoDeLugar, type Achado } from '@/lib/localizar.ts'
 import {
@@ -546,8 +547,14 @@ function BuscaRoteiro({
       {procurando && (
         <div
           className="mt-2 overflow-hidden rounded-2xl border border-(--color-borda)"
-          role="listbox"
-          aria-label="Resultados da busca"
+          // Nem `listbox` nem `option`: o campo não é um `combobox` (sem
+          // `aria-expanded`, sem `aria-activedescendant`, sem navegação por
+          // setas), então anunciar uma caixa de listagem prometia ao leitor de
+          // tela um comportamento que a tela não tem — e `aria-selected={false}`
+          // em todos dizia que nada estava selecionado, sempre. Uma lista de
+          // links rotulada descreve o que isto de fato é.
+          role="group"
+          aria-label={`Resultados da busca: ${achados.length}`}
         >
           {achados.length === 0 ? (
             <p className="px-3.5 py-3 text-sm text-(--color-tinta-3)">
@@ -561,8 +568,6 @@ function BuscaRoteiro({
                 <button
                   key={String(a.item.id ?? `${a.chaveDia}-${hora}-${String(a.item.titulo)}`)}
                   type="button"
-                  role="option"
-                  aria-selected={false}
                   onClick={() => aoEscolher(a.chaveDia)}
                   className="flex w-full items-baseline gap-3 border-b border-(--color-borda) px-3.5 py-2.5 text-left last:border-b-0 hover:bg-(--color-superficie-2)"
                 >
@@ -1621,6 +1626,11 @@ function ImportarRoteiroModal({ aoFechar }: { aoFechar: () => void }) {
       }
       tamanho="grande"
       aoFechar={aoFechar}
+      // `Voltar` já era bloqueado durante a gravação, mas o X, o Esc e o clique
+      // no véu não — e a importação grava dia a dia, em laço. Sair no meio
+      // deixava metade do roteiro aplicada e a outra metade não, sem nada na
+      // tela dizendo onde parou.
+      travado={ocupado}
       acoes={
         plano ? (
           <>
@@ -2317,9 +2327,11 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
             {Boolean(hospedagem.localizador) && (
               <Copiar valor={String(hospedagem.localizador)} rotulo="Localizador" />
             )}
-            {Boolean(hospedagem.link) && (
+            {/* `hrefSeguro`: `reservations.link` é texto livre, como o
+                `mapa_url` e o `links` do item. Mesmo guarda, mesma razão. */}
+            {Boolean(hrefSeguro(hospedagem.link as string | null)) && (
               <a
-                href={String(hospedagem.link)}
+                href={hrefSeguro(hospedagem.link as string | null)!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[13px] font-medium"
@@ -2359,9 +2371,9 @@ function ReservasDia({ dia, moeda }: { dia: DiaRoteiro; moeda: string }) {
                 {formatarDinheiro(Number(reserva.valor_centavos), moeda)}
               </span>
             )}
-            {Boolean(reserva.link) && (
+            {Boolean(hrefSeguro(reserva.link as string | null)) && (
               <a
-                href={String(reserva.link)}
+                href={hrefSeguro(reserva.link as string | null)!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[13px] font-medium"
@@ -2387,7 +2399,13 @@ function DicasDia({ dia }: { dia: DiaRoteiro }) {
   const alertas = linhas(dia.meta?.alertas)
   const comDica = linha.filter((l) => linhas(l.item.dicas).length > 0)
   const links = lerLinks(dia.meta?.links)
-  const mapaUrl = dia.meta?.mapa_url ? String(dia.meta.mapa_url) : null
+  // `hrefSeguro`, e não `String(...)`: `mapa_url` é texto livre (EditorSheet →
+  // "Link do mapa do dia"), escrito por um participante e clicado por outro
+  // dentro da página que carrega o snapshot inteiro. É o TERCEIRO campo
+  // guardado que vira href — os outros dois (`documents.valor` de um link e o
+  // `links` do item) já passavam pelo mesmo guarda, este escapava, e um
+  // `javascript:` aqui rodaria na origem do app.
+  const mapaUrl = hrefSeguro(dia.meta?.mapa_url as string | null | undefined)
 
   if (alertas.length === 0 && comDica.length === 0 && links.length === 0 && !mapaUrl) {
     return (
@@ -3251,6 +3269,9 @@ function LocalizarParadasModal({ dia, aoFechar }: { dia: DiaRoteiro; aoFechar: (
       descricao="Toda parada com local vira um pino no mapa do dia. Busque pelo nome ou traga os pontos de um mapa do Google — nada é gravado antes de você conferir."
       tamanho="grande"
       aoFechar={aoFechar}
+      // `Fechar` já era bloqueado, o X / Esc / véu não — e `gravar` grava parada
+      // a parada, em laço. Sair no meio deixava metade das paradas localizadas.
+      travado={ocupado}
       acoes={
         <>
           <Botao variante="secundario" onClick={aoFechar} desabilitado={ocupado}>
@@ -3911,7 +3932,12 @@ function FaixaDias({
   // selecionado. `nearest` no bloco para a página não pular junto.
   useEffect(() => {
     const alvo = faixa.current?.querySelector<HTMLElement>('[data-ativo="1"]')
-    alvo?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+    // O `@media (prefers-reduced-motion)` de globals.css zera animação e
+    // transição, mas não alcança um `behavior: 'smooth'` pedido por JS — ele
+    // vence o `scroll-behavior` da folha. Quem pediu menos movimento recebe o
+    // salto seco, que é o comportamento correto, não a ausência do recurso.
+    const suave = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    alvo?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: suave ? 'smooth' : 'auto' })
   }, [indice])
 
   const anterior = dias[indice - 1] ?? null

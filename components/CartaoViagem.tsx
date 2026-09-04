@@ -3,6 +3,7 @@
 // Cartão de viagem usado no Início e em Minhas viagens. Existe uma vez para que
 // as duas telas não descrevam a mesma viagem de dois jeitos diferentes.
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { CalendarDays, Users, Globe, ChevronRight, type LucideIcon } from 'lucide-react'
 import { faseDaViagem, formatarData, formatarRelativo, statusViagem } from '@/lib/derive.ts'
 import type { StatusViagem } from '@/lib/derive.ts'
@@ -94,7 +95,7 @@ export function CartaoViagem({
     // o texto muda. `prefers-reduced-motion` zera a duração em globals.css, e aí
     // a sombra ainda muda — o retorno visual nunca depende só do movimento.
     <div className="group relative flex flex-col overflow-hidden rounded-3xl border border-(--color-borda) bg-(--color-cartao) shadow-[var(--sombra-1)] transition-[box-shadow,translate] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[var(--sombra-2)]">
-      <a href={href ?? `/viagens/${viagem.id}`} className="flex flex-1 flex-col">
+      <Link href={href ?? `/viagens/${viagem.id}`} className="flex flex-1 flex-col">
         {/* A capa não tem texto em cima: assim nenhum contraste depende da arte. */}
         <div className="relative h-24 shrink-0 overflow-hidden">
           <CapaViagem cor={cor} semente={viagem.id} url={viagem.capa_url} />
@@ -168,9 +169,9 @@ export function CartaoViagem({
             />
           </div>
         </div>
-      </a>
+      </Link>
 
-      {acoes && <div className="absolute top-3 right-3 flex gap-1">{acoes}</div>}
+      {acoes &&<div className="absolute top-3 right-3 flex gap-1">{acoes}</div>}
     </div>
   )
 }
