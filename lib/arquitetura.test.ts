@@ -536,3 +536,40 @@ test('a cor de um tipo e resolvida num lugar so', () => {
     )
   }
 })
+
+// ---------------------------------------------------------------- id derivado
+
+test('toda entrada derivada do roteiro tem id com prefixo', () => {
+  // O painel "Como chegar" grava o deslocamento escolhido NO ITEM de destino,
+  // por `editar` em `roteiro`. Entrada derivada — o voo que vem do cadastro de
+  // voos, o check-in que vem da reserva — não é linha de `itinerary_events`, e
+  // um `editar` nela escreveria num id que a tabela não tem: some em silêncio,
+  // e a pessoa acha que salvou.
+  //
+  // A guarda é `!id.includes(':')` em components/ComoChegar.tsx, e ela só vale
+  // enquanto TODA derivada usar prefixo. Uma nova que nascesse com o id cru do
+  // registro de origem passaria pela guarda sem avisar ninguém.
+  const fonte = ler('components/tabs/Roteiro.tsx')
+  const inicio = fonte.indexOf('function entradasDerivadas')
+  assert.ok(inicio >= 0, 'entradasDerivadas sumiu de components/tabs/Roteiro.tsx')
+  const corpo = fonte.slice(inicio, fonte.indexOf('\n}', inicio))
+
+  const ids = [...corpo.matchAll(/^\s*id: (.+),$/gm)].map((m) => m[1].trim())
+  assert.ok(ids.length > 0, 'nenhum id encontrado em entradasDerivadas — o teste ficou cego')
+
+  const semPrefixo = ids.filter((v) => !/^`[a-z]+:/.test(v))
+  assert.deepEqual(
+    semPrefixo,
+    [],
+    `entrada(s) derivada(s) com id sem prefixo: ${semPrefixo.join(', ')}. ` +
+      'Use `algo:${registro.id}` — a guarda de "é item editável?" no painel ' +
+      'Como chegar depende dos dois-pontos.',
+  )
+
+  // E o guarda-chuva do outro lado: a guarda em si não pode sumir.
+  assert.ok(
+    ler('components/ComoChegar.tsx').includes("id.includes(':')"),
+    'components/ComoChegar.tsx perdeu a guarda de item derivado: sem ela, ' +
+      '"Usar esta" grava num id que itinerary_events não tem.',
+  )
+})

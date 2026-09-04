@@ -32,6 +32,7 @@ import {
   Route,
   Ship,
   TrainFront,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import { formatarDistancia, formatarDuracao } from '@/lib/derive.ts'
@@ -40,6 +41,52 @@ import { hrefSeguro } from '@/lib/seguranca.ts'
 import type { Ponta, Trecho } from '@/lib/trechos.ts'
 import { AppModal, Cartao, Rotulo } from './ui.tsx'
 import { AdminAcoes } from './EditorSheet.tsx'
+import { useTrip } from './TripProvider.tsx'
+
+/**
+ * ESCOLHER UMA ALTERNATIVA, OU NENHUMA.
+ *
+ * A faixa amarela não é uma linha do banco — ela é calculada de `duracao_min`,
+ * `distancia_m` e `transporte` do item de DESTINO. Não existe "apagar a faixa";
+ * existe apagar o deslocamento que a produz. Daí este par: promover uma opção
+ * escreve os três campos no item, e limpar apaga os três.
+ *
+ * Deixar SEM nenhum é uma escolha legítima e o app já sabe dizê-la: a faixa
+ * passa a mostrar "Rota não conferida" em vez de um horário de saída. Um
+ * "saia às" chutado é pior que nenhum — quem está na rua acredita nele.
+ *
+ * Só vale para item de ROTEIRO de verdade. As entradas derivadas (voo do
+ * cadastro, check-in de reserva) e o trecho de volta ao hotel usam id com
+ * prefixo — `voo:`, `checkin:`, `volta:` — e não existem como linha editável:
+ * um `editar` nelas escreveria num id que `itinerary_events` não tem.
+ */
+function useDeslocamento(trecho: Trecho) {
+  const { mutate, posso } = useTrip()
+  const id = trecho.id
+  const editavel = posso('editor') && Boolean(id) && !id.includes(':')
+
+  const gravar = (campos: Record<string, unknown>) =>
+    void mutate({
+      op: 'editar',
+      entidade: 'roteiro',
+      id,
+      campos,
+      client_ts: new Date().toISOString(),
+    })
+
+  return {
+    editavel,
+    usar: (o: Record<string, unknown>) =>
+      gravar({
+        duracao_min: o.duracao_min ?? null,
+        distancia_m: o.distancia_m ?? null,
+        // O nome do modo, e não o código: `transporte` é texto livre que a
+        // pessoa lê no cartão ("Metrô L4"), e `modoValido` reconhece de volta.
+        transporte: nomeDoModo(o.modo),
+      }),
+    limpar: () => gravar({ duracao_min: null, distancia_m: null, transporte: null }),
+  }
+}
 
 export const ICONE_MODO: Record<string, LucideIcon> = {
   a_pe: Footprints,
@@ -258,7 +305,14 @@ function Pontas({ trecho }: { trecho: Trecho }) {
  * atravessa rio e ferrovia, e é justamente onde a pessoa confiaria.
  */
 function Opcoes({ trecho }: { trecho: Trecho }) {
+  const { editavel, usar } = useDeslocamento(trecho)
   if (trecho.opcoes.length === 0) return null
+
+  // Qual alternativa está VALENDO hoje: a que casa com o que está gravado no
+  // item. Sem isto a lista mostra três opções e nenhuma pista de qual delas
+  // gerou o "saia às" da faixa amarela.
+  const emUso = (o: Record<string, unknown>) =>
+    trecho.duracaoMin !== null && Number(o.duracao_min) === trecho.duracaoMin
 
   return (
     <div>
@@ -304,11 +358,25 @@ function Opcoes({ trecho }: { trecho: Trecho }) {
               {Boolean(o.detalhe) && (
                 <p className="mt-1 text-[13px] text-(--color-tinta-2)">{String(o.detalhe)}</p>
               )}
-              {recomendado && (
-                <p className="t-legenda mt-1.5" style={{ color: 'var(--destaque)' }}>
-                  Recomendado
-                </p>
-              )}
+              <div className="mt-1.5 flex items-center gap-2">
+                {recomendado && (
+                  <p className="t-legenda" style={{ color: 'var(--destaque)' }}>
+                    Recomendado
+                  </p>
+                )}
+                {editavel &&
+                  (emUso(o) ? (
+                    <p className="t-legenda ml-auto text-(--color-tinta-3)">Em uso</p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => usar(o)}
+                      className="ml-auto cursor-pointer rounded-lg px-2 py-1 text-[12px] font-medium text-(--destaque) transition-colors hover:bg-(--color-destaque-tenue)"
+                    >
+                      Usar esta
+                    </button>
+                  ))}
+              </div>
             </li>
           )
         })}
@@ -321,6 +389,8 @@ function Opcoes({ trecho }: { trecho: Trecho }) {
 export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
   const link = linkExterno(trecho.destino, trecho.origem)
   const conferidoEm = trecho.destino.item?.updated_at
+  const { editavel, limpar } = useDeslocamento(trecho)
+  const temDeslocamento = Boolean(trecho.duracaoMin || trecho.distanciaM || trecho.transporte)
 
   return (
     <div className="space-y-4">
@@ -372,6 +442,22 @@ export function CorpoComoChegar({ trecho }: { trecho: Trecho }) {
       )}
 
       <Opcoes trecho={trecho} />
+
+      {/* Tirar o deslocamento é apagar `duracao_min`, `distancia_m` e
+          `transporte` do item — a faixa amarela é calculada deles, não é uma
+          linha. Fica DEPOIS das opções porque é a saída de quem olhou as
+          alternativas e decidiu não escolher nenhuma; e não pede confirmação
+          porque não destrói nada: as alternativas continuam ali, e um clique em
+          "Usar esta" refaz. */}
+      {editavel && temDeslocamento && (
+        <button
+          type="button"
+          onClick={limpar}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] font-medium text-(--color-tinta-3) transition-colors hover:bg-(--color-perigo-bg) hover:text-(--color-perigo-ink)"
+        >
+          <Trash2 size={14} aria-hidden /> Deixar sem deslocamento definido
+        </button>
+      )}
 
       {trecho.destino.endereco && (
         <p className="flex items-start gap-2 text-[13px] text-(--color-tinta-2)">
