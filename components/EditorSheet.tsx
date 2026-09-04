@@ -17,6 +17,7 @@ import {
   GrupoCampos,
   RotuloCampo,
   CLASSE_CAMPO,
+  tomDoTipo,
   useAviso,
 } from './ui.tsx'
 import { useTrip } from './TripProvider.tsx'
@@ -48,6 +49,19 @@ type Campo = {
    * inusável — numa seleção de "Motel One Hamburg · 01 jan".
    */
   fonte?: 'reservas' | 'documentos' | 'participantes' | 'roteiro' | 'voos' | 'cruzeiros'
+  /**
+   * Desenha as opções como grade de chips COLORIDOS em vez de um `<select>`.
+   *
+   * Só vale onde o valor já tem cor no sistema (`TONS`/`ALIAS_TOM`) — hoje o
+   * `tipo` do item de roteiro. A linha do tempo pinta cada evento pelo tipo, e
+   * até aqui a escolha era feita num dropdown cinza: escolhia-se "Passeio" sem
+   * ver que passeio é roxo, e só depois de salvar a cor aparecia. O chip mostra
+   * o resultado ANTES do clique.
+   *
+   * `<option>` não aceita cor de fundo de forma confiável em nenhum navegador —
+   * daí a grade, e não um select estilizado.
+   */
+  cores?: boolean
   /** Seção do formulário. Campos sem grupo caem em "Informações básicas". */
   grupo?: string
 }
@@ -174,6 +188,8 @@ export const CAMPOS: Record<string, { nome: string; campos: Campo[] }> = {
         chave: 'tipo',
         rotulo: 'Tipo',
         tipo: 'opcao',
+        // A cor do evento na linha do tempo sai daqui. Ver `cores` em `Campo`.
+        cores: true,
         opcoes: TIPOS_EVENTO.map((v) => ({ valor: v, nome: NOME_TIPO[v] })),
       },
       { chave: 'ocorre_em', rotulo: 'Começa', tipo: 'datahora', obrigatorio: true, grupo: DATAS },
@@ -867,6 +883,36 @@ function CampoEditor({
           className={classe}
           {...aria}
         />
+      ) : campo.tipo === 'opcao' && campo.cores ? (
+        // Grade de chips, cada um na cor que o valor vai ter na linha do tempo.
+        // `radiogroup` e não `listbox`: é uma escolha única entre opções fixas, e
+        // é assim que o leitor de tela anuncia "1 de 19".
+        <div role="radiogroup" aria-label={campo.rotulo} className="flex flex-wrap gap-1.5">
+          {(daFonte ?? campo.opcoes)?.map((o) => {
+            const tom = tomDoTipo(o.valor)
+            const ativo = String(valor ?? '') === o.valor
+            return (
+              <button
+                key={o.valor}
+                type="button"
+                role="radio"
+                aria-checked={ativo}
+                onClick={() => aoMudar(o.valor)}
+                // A cor é sempre a do tipo; o que a seleção muda é o ANEL em
+                // volta. Apagar a cor dos não-escolhidos transformaria a grade
+                // num seletor cinza de novo — e é a cor que se veio ver aqui.
+                className="cursor-pointer rounded-xl px-2.5 py-1.5 text-[13px] font-medium transition-shadow"
+                style={{
+                  background: tom.bg,
+                  color: tom.ink,
+                  boxShadow: ativo ? `0 0 0 2px var(--destaque)` : undefined,
+                }}
+              >
+                {o.nome}
+              </button>
+            )
+          })}
+        </div>
       ) : campo.tipo === 'opcao' ? (
         <select
           value={String(valor ?? '')}

@@ -323,6 +323,20 @@ export const ALIAS_TOM: Record<string, string> = {
   observacao: 'neutro',
 }
 
+/**
+ * A cor de um tipo de evento: direta em `TONS`, ou pelo apelido em `ALIAS_TOM`,
+ * ou o cinza neutro.
+ *
+ * UMA função porque a cor aparece em três lugares que precisam concordar — o
+ * círculo do ícone na linha do tempo, a faixa lateral do cartão e o chip do
+ * seletor de tipo. Com a busca copiada em cada um, um tipo novo ganhava cor num
+ * lugar e cinza nos outros, e a tela passava a dizer duas coisas sobre o mesmo
+ * evento.
+ */
+export function tomDoTipo(tipo: string): { bg: string; ink: string } {
+  return TONS[tipo] ?? TONS[ALIAS_TOM[tipo] ?? ''] ?? TONS.neutro
+}
+
 const NOMES: Record<string, string> = {
   voo: 'Voo',
   trem: 'Trem',

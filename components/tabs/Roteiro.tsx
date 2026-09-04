@@ -115,8 +115,7 @@ import {
   useAviso,
   Selecao,
   CLASSE_CAMPO,
-  TONS,
-  ALIAS_TOM,
+  tomDoTipo,
 } from '../ui.tsx'
 import { MapaRota } from '../MapaRota.tsx'
 import { MapaViagem } from '../MapaViagem.tsx'
@@ -218,11 +217,6 @@ function modoDoPonto(e: Record<string, unknown>): { Icone: LucideIcon; nome: str
   const tipo = String(e?.tipo ?? '')
   const nome = TIPO_DESLOCAMENTO[tipo]
   return nome && ICONE[tipo] ? { Icone: ICONE[tipo], nome } : null
-}
-
-/** Par bg/ink do mesmo tom que o `Badge` usa — colore o círculo do ícone na timeline. */
-function tomIcone(tipo: string) {
-  return TONS[tipo] ?? TONS[ALIAS_TOM[tipo] ?? ''] ?? TONS.neutro
 }
 
 const agora = () => new Date().toISOString()
@@ -1848,7 +1842,7 @@ function ItemLinha({
   const [aberto, setAberto] = useState(false)
   const tipo = String(item.tipo ?? 'passeio')
   const Icone = ICONE[tipo] ?? MapPin
-  const tom = tomIcone(tipo)
+  const tom = tomDoTipo(tipo)
   const temDetalhe = itemTemDetalhe(item, derivada)
 
   // Duração da própria atividade (não do deslocamento até ela), só quando há hora de fim.
@@ -1933,9 +1927,15 @@ function ItemLinha({
           {formatarHora(item.ocorre_em) || '—'}
         </span>
 
+        {/* A borda esquerda carrega o TIPO; a âncora continua vencendo.
+            O círculo do ícone já era colorido, mas ele tem 32px e some no meio
+            de uma lista de vinte itens — a faixa lateral é o que faz "hoje tem
+            três refeições e dois deslocamentos" ser legível sem ler nada.
+            Âncora mantém `--destaque` porque "não pode ser perdido" é o aviso
+            mais forte da tela e não pode competir com uma cor de categoria. */}
         <Cartao
-          className={`min-w-0 flex-1 ${item.ancora ? 'border-l-4' : ''}`}
-          style={item.ancora ? { borderLeftColor: 'var(--destaque)' } : undefined}
+          className="min-w-0 flex-1 border-l-4"
+          style={{ borderLeftColor: item.ancora ? 'var(--destaque)' : tom.ink }}
         >
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">

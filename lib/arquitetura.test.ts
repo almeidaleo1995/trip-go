@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { sep } from 'node:path'
+import { TIPOS_EVENTO } from './schema.ts'
 
 const ler = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
 
@@ -486,5 +487,52 @@ test('nenhum log imprime o objeto de erro cru', () => {
           'a chave do rate limit (um IP) iam para o log em texto. Use `paraLog(e)`.',
       )
     }
+  }
+})
+
+// ---------------------------------------------------------------- cor por tipo
+
+test('todo tipo de item do roteiro tem cor, direta ou por apelido', () => {
+  // A linha do tempo pinta cada evento pela cor do tipo — círculo do ícone,
+  // faixa lateral do cartão e chip do seletor. Um tipo NOVO no schema que
+  // ninguém lembrou de colorir não quebra nada: cai no cinza neutro e some no
+  // meio da lista, que é exatamente o efeito que a cor existe para evitar.
+  // Nenhuma tela reclama, nenhum teste comum falha. Só este.
+  const ui = ler('components/ui.tsx')
+  const bloco = (nome: string) => {
+    const i = ui.indexOf(`export const ${nome}`)
+    assert.ok(i >= 0, `${nome} sumiu de components/ui.tsx`)
+    return ui.slice(i, ui.indexOf('\n}', i))
+  }
+  const tons = bloco('TONS')
+  const alias = bloco('ALIAS_TOM')
+
+  // Por linha, e não por regex montada em template: `\s` dentro de uma template
+  // string vira só "s", e a regex passa a casar nada — em silêncio.
+  const chaves = new Set(
+    [tons, alias]
+      .join('\n')
+      .split('\n')
+      .map((l) => l.trim().split(':')[0].trim()),
+  )
+  const semCor = TIPOS_EVENTO.filter((t) => !chaves.has(t))
+  assert.deepEqual(
+    semCor,
+    [],
+    `tipo(s) sem cor: ${semCor.join(', ')}. Some em TONS (par próprio) ou em ` +
+      'ALIAS_TOM (aponta para um par existente) em components/ui.tsx — senão o ' +
+      'evento nasce cinza e a linha do tempo perde a única pista de cor que tem.',
+  )
+})
+
+test('a cor de um tipo e resolvida num lugar so', () => {
+  // `tomDoTipo` nasceu porque a busca estava copiada em três telas e um tipo
+  // novo ganhava cor numa e cinza nas outras — a tela dizia duas coisas sobre o
+  // mesmo evento. Se a cópia voltar, este teste é quem avisa.
+  for (const arquivo of ['components/tabs/Roteiro.tsx', 'components/EditorSheet.tsx']) {
+    assert.ok(
+      !/TONS\[[^\]]+\]\s*\?\?\s*TONS\[/.test(ler(arquivo)),
+      `${arquivo} resolve a cor do tipo à mão. Use tomDoTipo de components/ui.tsx.`,
+    )
   }
 })

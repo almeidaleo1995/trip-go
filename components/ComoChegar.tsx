@@ -39,6 +39,7 @@ import { formatarHoraLocal, NOME_MODO } from '@/lib/hoje.ts'
 import { hrefSeguro } from '@/lib/seguranca.ts'
 import type { Ponta, Trecho } from '@/lib/trechos.ts'
 import { AppModal, Cartao, Rotulo } from './ui.tsx'
+import { AdminAcoes } from './EditorSheet.tsx'
 
 export const ICONE_MODO: Record<string, LucideIcon> = {
   a_pe: Footprints,
@@ -280,8 +281,17 @@ function Opcoes({ trecho }: { trecho: Trecho }) {
                   <Icone size={15} className="shrink-0 text-(--color-tinta-3)" aria-hidden />
                   <span className="truncate">{nomeDoModo(o.modo)}</span>
                 </span>
-                <span className="tab-num shrink-0 text-sm font-semibold">
-                  {formatarDuracao(o.duracao_min) || '—'}
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="tab-num text-sm font-semibold">
+                    {formatarDuracao(o.duracao_min) || '—'}
+                  </span>
+                  {/* Editar e REMOVER a alternativa aqui, e não só lá dentro de
+                      "Ver detalhes". Este painel é onde a pessoa olha as opções
+                      lado a lado — é aqui que ela vê que uma está repetida ou
+                      não faz sentido, e mandá-la procurar o mesmo botão em outra
+                      tela é o caminho que ninguém faz. `AdminAcoes` decide
+                      sozinho se aparece: quem não é editor não vê nada. */}
+                  <AdminAcoes entidade="opcao" registro={o} />
                 </span>
               </div>
               {Boolean(formatarDistancia(o.distancia_m) || o.custo) && (
